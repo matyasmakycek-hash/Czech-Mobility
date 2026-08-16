@@ -10,17 +10,11 @@ const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
 
 function canManageVehicles(role) {
-  return (
-    role === ROLE_ADMIN ||
-    role === ROLE_DISPECER
-  );
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
 }
 
 function canManageReports(role) {
-  return (
-    role === ROLE_ADMIN ||
-    role === ROLE_DISPECER
-  );
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
 }
 
 function canManageUsers(role) {
@@ -39,7 +33,6 @@ function getRoleName(role) {
   if (role === ROLE_ADMIN) return "Administrátor";
   if (role === ROLE_DISPECER) return "Dispečer";
   if (role === ROLE_RIDIC) return "Řidič";
-
   return "Neznámá role";
 }
 
@@ -47,7 +40,7 @@ function getRoleName(role) {
    LOGIN
 ========================================================= */
 
-function Login({ onLogin }) {
+function Login({ onLogin, onRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -61,7 +54,7 @@ function Login({ onLogin }) {
 
     const { data, error } =
       await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
       });
 
@@ -113,15 +106,18 @@ function Login({ onLogin }) {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-          >
-            {loading
-              ? "Přihlašování..."
-              : "Přihlásit se"}
+          <button type="submit" disabled={loading}>
+            {loading ? "Přihlašování..." : "Přihlásit se"}
           </button>
         </form>
+
+        <button
+          type="button"
+          className="register-back"
+          onClick={onRegister}
+        >
+          Nemáš účet? Zaregistrovat se
+        </button>
       </div>
     </div>
   );
@@ -131,7 +127,7 @@ function Login({ onLogin }) {
    REGISTRACE
 ========================================================= */
 
-function Register({ onRegistered }) {
+function Register({ onBack }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -147,39 +143,30 @@ function Register({ onRegistered }) {
     setError("");
     setSuccess("");
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+
     if (password.length < 6) {
-      setError(
-        "Heslo musí mít alespoň 6 znaků."
-      );
+      setError("Heslo musí mít alespoň 6 znaků.");
       return;
     }
 
     if (password !== password2) {
-      setError(
-        "Hesla se neshodují."
-      );
+      setError("Hesla se neshodují.");
       return;
     }
 
     setLoading(true);
 
-    /*
-      Nejdříve zjistíme, zda admin vytvořil pozvánku
-      pro tento e-mail.
-    */
-
-    const { data: invite, error: inviteError } =
-      await supabase
-        .from("user_invites")
-        .select(
-          "id, email, jmeno, role, used"
-        )
-        .eq(
-          "email",
-          email.trim().toLowerCase()
-        )
-        .eq("used", false)
-        .maybeSingle();
+    const {
+      data: invite,
+      error: inviteError,
+    } = await supabase
+      .from("user_invites")
+      .select("id, email, jmeno, role, used")
+      .eq("email", cleanEmail)
+      .eq("used", false)
+      .maybeSingle();
 
     if (inviteError) {
       setError(inviteError.message);
@@ -195,46 +182,35 @@ function Register({ onRegistered }) {
       return;
     }
 
-    /*
-      Vytvoření Auth účtu.
-    */
-
     const {
       data,
-      error,
+      error: signUpError,
     } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password,
     });
 
-    if (error) {
-      setError(error.message);
+    if (signUpError) {
+      setError(signUpError.message);
       setLoading(false);
       return;
     }
 
     if (!data?.user) {
-      setError(
-        "Účet se nepodařilo vytvořit."
-      );
+      setError("Účet se nepodařilo vytvořit.");
       setLoading(false);
       return;
     }
 
-    /*
-      Vytvoření profilu.
-    */
-
-    const { error: profileError } =
-      await supabase
-        .from("profiles")
-        .insert([
-          {
-            id: data.user.id,
-            jmeno: invite.jmeno || name.trim(),
-            role: invite.role,
-          },
-        ]);
+    const {
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .insert({
+        id: data.user.id,
+        jmeno: invite.jmeno || cleanName,
+        role: invite.role || ROLE_RIDIC,
+      });
 
     if (profileError) {
       setError(profileError.message);
@@ -242,16 +218,16 @@ function Register({ onRegistered }) {
       return;
     }
 
-    /*
-      Pozvánku označíme jako použitou.
-    */
-
-    await supabase
+    const {
+      error: inviteUpdateError,
+    } = await supabase
       .from("user_invites")
-      .update({
-        used: true,
-      })
+      .update({ used: true })
       .eq("id", invite.id);
+
+    if (inviteUpdateError) {
+      console.error(inviteUpdateError);
+    }
 
     setSuccess(
       "Registrace byla úspěšná. Nyní se můžeš přihlásit."
@@ -260,7 +236,7 @@ function Register({ onRegistered }) {
     setLoading(false);
 
     setTimeout(() => {
-      onRegistered();
+      onBack();
     }, 1500);
   }
 
@@ -270,9 +246,10 @@ function Register({ onRegistered }) {
         <div className="login-logo">CM</div>
 
         <h1>Registrace</h1>
+
         <p>
-          Zaregistruj se pomocí e-mailu,
-          který ti přidělil administrátor.
+          Použij e-mail, který ti přidělil
+          administrátor.
         </p>
 
         <form onSubmit={handleRegister}>
@@ -281,9 +258,7 @@ function Register({ onRegistered }) {
           <input
             type="text"
             value={name}
-            onChange={(e) =>
-              setName(e.target.value)
-            }
+            onChange={(e) => setName(e.target.value)}
             placeholder="Tvoje jméno"
             required
           />
@@ -293,9 +268,7 @@ function Register({ onRegistered }) {
           <input
             type="email"
             value={email}
-            onChange={(e) =>
-              setEmail(e.target.value)
-            }
+            onChange={(e) => setEmail(e.target.value)}
             placeholder="vas@email.cz"
             required
           />
@@ -305,9 +278,7 @@ function Register({ onRegistered }) {
           <input
             type="password"
             value={password}
-            onChange={(e) =>
-              setPassword(e.target.value)
-            }
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="Min. 6 znaků"
             required
           />
@@ -317,9 +288,7 @@ function Register({ onRegistered }) {
           <input
             type="password"
             value={password2}
-            onChange={(e) =>
-              setPassword2(e.target.value)
-            }
+            onChange={(e) => setPassword2(e.target.value)}
             placeholder="Zopakuj heslo"
             required
           />
@@ -336,10 +305,7 @@ function Register({ onRegistered }) {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-          >
+          <button type="submit" disabled={loading}>
             {loading
               ? "Registrace..."
               : "Zaregistrovat se"}
@@ -349,7 +315,7 @@ function Register({ onRegistered }) {
         <button
           type="button"
           className="register-back"
-          onClick={onRegistered}
+          onClick={onBack}
         >
           Zpět na přihlášení
         </button>
@@ -359,7 +325,7 @@ function Register({ onRegistered }) {
 }
 
 /* =========================================================
-   SPRÁVA UŽIVATELŮ
+   UŽIVATELÉ
 ========================================================= */
 
 function AdminUsers() {
@@ -372,11 +338,8 @@ function AdminUsers() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [showForm, setShowForm] =
-    useState(false);
-
-  const [filterRole, setFilterRole] =
-    useState("Vše");
+  const [showForm, setShowForm] = useState(false);
+  const [filterRole, setFilterRole] = useState("Vše");
 
   const emptyForm = {
     jmeno: "",
@@ -384,21 +347,15 @@ function AdminUsers() {
     role: ROLE_RIDIC,
   };
 
-  const [form, setForm] =
-    useState(emptyForm);
+  const [form, setForm] = useState(emptyForm);
 
   async function loadUsers() {
-    setLoading(true);
-    setError("");
-
     const {
       data,
       error,
     } = await supabase
       .from("profiles")
-      .select(
-        "id, jmeno, role, created_at"
-      )
+      .select("id, jmeno, role, created_at")
       .order("created_at", {
         ascending: false,
       });
@@ -427,10 +384,7 @@ function AdminUsers() {
       });
 
     if (error) {
-      console.error(
-        "INVITES ERROR:",
-        error
-      );
+      console.error("INVITES ERROR:", error);
       return;
     }
 
@@ -443,13 +397,10 @@ function AdminUsers() {
   }, []);
 
   function handleChange(e) {
-    const {
-      name,
-      value,
-    } = e.target;
+    const { name, value } = e.target;
 
-    setForm((previous) => ({
-      ...previous,
+    setForm((old) => ({
+      ...old,
       [name]: value,
     }));
   }
@@ -461,43 +412,20 @@ function AdminUsers() {
     setError("");
     setSuccess("");
 
-    const email =
-      form.email
-        .trim()
-        .toLowerCase();
-
-    const name =
-      form.jmeno.trim();
+    const email = form.email.trim().toLowerCase();
+    const name = form.jmeno.trim();
 
     if (!name || !email) {
-      setError(
-        "Vyplň jméno a e-mail."
-      );
+      setError("Vyplň jméno a e-mail.");
       setSaving(false);
       return;
     }
-
-    /*
-      Kontrola, zda už účet existuje v profiles.
-    */
-
-    const {
-      data: existingUser,
-    } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("jmeno", name)
-      .maybeSingle();
-
-    /*
-      Kontrola existující pozvánky.
-    */
 
     const {
       data: existingInvite,
     } = await supabase
       .from("user_invites")
-      .select("id, used")
+      .select("id")
       .eq("email", email)
       .eq("used", false)
       .maybeSingle();
@@ -510,22 +438,16 @@ function AdminUsers() {
       return;
     }
 
-    /*
-      Vytvoření pozvánky.
-    */
-
     const {
       error,
     } = await supabase
       .from("user_invites")
-      .insert([
-        {
-          email,
-          jmeno: name,
-          role: form.role,
-          used: false,
-        },
-      ]);
+      .insert({
+        email,
+        jmeno: name,
+        role: form.role,
+        used: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -534,13 +456,10 @@ function AdminUsers() {
     }
 
     setSuccess(
-      `Uživatel ${name} byl přidán. Může se nyní zaregistrovat pomocí ${email}.`
+      `Pozvánka pro ${name} byla vytvořena.`
     );
 
-    setForm({
-      ...emptyForm,
-    });
-
+    setForm(emptyForm);
     setShowForm(false);
 
     await loadInvites();
@@ -548,10 +467,7 @@ function AdminUsers() {
     setSaving(false);
   }
 
-  async function changeRole(
-    id,
-    role
-  ) {
+  async function changeRole(id, role) {
     setError("");
     setSuccess("");
 
@@ -559,9 +475,7 @@ function AdminUsers() {
       error,
     } = await supabase
       .from("profiles")
-      .update({
-        role,
-      })
+      .update({ role })
       .eq("id", id);
 
     if (error) {
@@ -569,9 +483,7 @@ function AdminUsers() {
       return;
     }
 
-    setSuccess(
-      "Role uživatele byla změněna."
-    );
+    setSuccess("Role uživatele byla změněna.");
 
     await loadUsers();
   }
@@ -597,37 +509,27 @@ function AdminUsers() {
       return;
     }
 
-    setSuccess(
-      "Pozvánka byla smazána."
-    );
+    setSuccess("Pozvánka byla smazána.");
 
     await loadInvites();
   }
 
-  const filteredUsers =
-    users.filter((user) => {
-      return (
-        filterRole === "Vše" ||
-        user.role === filterRole
-      );
-    });
+  const filteredUsers = users.filter(
+    (user) =>
+      filterRole === "Vše" ||
+      user.role === filterRole
+  );
 
-  const pendingInvites =
-    invites.filter(
-      (invite) => !invite.used
-    );
+  const pendingInvites = invites.filter(
+    (invite) => !invite.used
+  );
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>
-            Správa uživatelů
-          </h1>
-
-          <p>
-            Správa účtů a uživatelských rolí
-          </p>
+          <h1>Správa uživatelů</h1>
+          <p>Správa účtů a uživatelských rolí</p>
         </div>
 
         <div className="profile-badge">
@@ -637,35 +539,23 @@ function AdminUsers() {
 
       <div className="admin-user-stats">
         <div className="admin-user-stat">
-          <span>
-            Celkem uživatelů
-          </span>
-
-          <strong>
-            {users.length}
-          </strong>
+          <span>Celkem uživatelů</span>
+          <strong>{users.length}</strong>
         </div>
 
         <div className="admin-user-stat">
-          <span>
-            Administrátoři
-          </span>
-
+          <span>Administrátoři</span>
           <strong>
             {
               users.filter(
-                (u) =>
-                  u.role === ROLE_ADMIN
+                (u) => u.role === ROLE_ADMIN
               ).length
             }
           </strong>
         </div>
 
         <div className="admin-user-stat">
-          <span>
-            Dispečeři
-          </span>
-
+          <span>Dispečeři</span>
           <strong>
             {
               users.filter(
@@ -677,15 +567,11 @@ function AdminUsers() {
         </div>
 
         <div className="admin-user-stat">
-          <span>
-            Řidiči
-          </span>
-
+          <span>Řidiči</span>
           <strong>
             {
               users.filter(
-                (u) =>
-                  u.role === ROLE_RIDIC
+                (u) => u.role === ROLE_RIDIC
               ).length
             }
           </strong>
@@ -709,22 +595,16 @@ function AdminUsers() {
       <div className="panel">
         <div className="users-toolbar">
           <div>
-            <h2>
-              Uživatelé
-            </h2>
-
+            <h2>Uživatelé</h2>
             <p className="muted">
-              Správa registrovaných účtů.
+              Registrované účty.
             </p>
           </div>
 
           <button
-            type="button"
             className="primary-button"
             onClick={() =>
-              setShowForm(
-                !showForm
-              )
+              setShowForm(!showForm)
             }
           >
             {showForm
@@ -735,64 +615,47 @@ function AdminUsers() {
 
         {showForm && (
           <div className="user-create-box">
-            <h3>
-              ➕ Přidat uživatele
-            </h3>
+            <h3>➕ Přidat uživatele</h3>
 
             <p>
-              Uživatel se následně zaregistruje
-              pomocí tohoto e-mailu a nastaví si
-              vlastní heslo.
+              Vytvoříš pozvánku. Uživatel se následně
+              zaregistruje pomocí tohoto e-mailu.
             </p>
 
-            <form
-              onSubmit={createInvite}
-            >
+            <form onSubmit={createInvite}>
               <div className="form-grid">
                 <div>
-                  <label>
-                    Jméno
-                  </label>
+                  <label>Jméno</label>
 
                   <input
                     name="jmeno"
                     value={form.jmeno}
-                    onChange={
-                      handleChange
-                    }
+                    onChange={handleChange}
                     placeholder="Např. Petr Novák"
                     required
                   />
                 </div>
 
                 <div>
-                  <label>
-                    E-mail
-                  </label>
+                  <label>E-mail</label>
 
                   <input
                     name="email"
                     type="email"
                     value={form.email}
-                    onChange={
-                      handleChange
-                    }
+                    onChange={handleChange}
                     placeholder="petr@email.cz"
                     required
                   />
                 </div>
 
                 <div>
-                  <label>
-                    Role
-                  </label>
+                  <label>Role</label>
 
                   <select
                     name="role"
                     value={form.role}
-                    onChange={
-                      handleChange
-                    }
+                    onChange={handleChange}
                   >
                     <option value={ROLE_RIDIC}>
                       Řidič
@@ -811,8 +674,8 @@ function AdminUsers() {
 
               <div className="form-buttons">
                 <button
-                  type="submit"
                   className="primary-button"
+                  type="submit"
                   disabled={saving}
                 >
                   {saving
@@ -828,9 +691,7 @@ function AdminUsers() {
           <select
             value={filterRole}
             onChange={(e) =>
-              setFilterRole(
-                e.target.value
-              )
+              setFilterRole(e.target.value)
             }
           >
             <option value="Vše">
@@ -851,182 +712,144 @@ function AdminUsers() {
           </select>
         </div>
 
-        {loading && (
+        {loading ? (
           <div className="empty">
             Načítání uživatelů...
           </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="empty">
+            Žádní uživatelé.
+          </div>
+        ) : (
+          <div className="users-list">
+            {filteredUsers.map((user) => (
+              <div
+                className="user-card"
+                key={user.id}
+              >
+                <div className="user-card-avatar">
+                  {(user.jmeno || "U")
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+
+                <div className="user-card-main">
+                  <strong>
+                    {user.jmeno || "Bez jména"}
+                  </strong>
+
+                  <small>
+                    ID: {user.id}
+                  </small>
+                </div>
+
+                <div>
+                  <small>Role</small>
+
+                  <strong>
+                    {getRoleName(user.role)}
+                  </strong>
+                </div>
+
+                <div>
+                  <small>Vytvořeno</small>
+
+                  <strong>
+                    {user.created_at
+                      ? new Date(
+                          user.created_at
+                        ).toLocaleDateString(
+                          "cs-CZ"
+                        )
+                      : "-"}
+                  </strong>
+                </div>
+
+                <select
+                  value={
+                    user.role || ROLE_RIDIC
+                  }
+                  onChange={(e) =>
+                    changeRole(
+                      user.id,
+                      e.target.value
+                    )
+                  }
+                >
+                  <option value={ROLE_RIDIC}>
+                    Řidič
+                  </option>
+
+                  <option value={ROLE_DISPECER}>
+                    Dispečer
+                  </option>
+
+                  <option value={ROLE_ADMIN}>
+                    Administrátor
+                  </option>
+                </select>
+              </div>
+            ))}
+          </div>
         )}
-
-        {!loading &&
-          filteredUsers.length === 0 && (
-            <div className="empty">
-              Žádní uživatelé.
-            </div>
-          )}
-
-        {!loading &&
-          filteredUsers.length > 0 && (
-            <div className="users-list">
-              {filteredUsers.map(
-                (user) => (
-                  <div
-                    className="user-card"
-                    key={user.id}
-                  >
-                    <div className="user-card-avatar">
-                      {(user.jmeno ||
-                        "U")
-                        .charAt(0)
-                        .toUpperCase()}
-                    </div>
-
-                    <div className="user-card-main">
-                      <strong>
-                        {user.jmeno ||
-                          "Bez jména"}
-                      </strong>
-
-                      <small>
-                        ID: {user.id}
-                      </small>
-                    </div>
-
-                    <div>
-                      <small>
-                        Aktuální role
-                      </small>
-
-                      <strong>
-                        {getRoleName(
-                          user.role
-                        )}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <small>
-                        Vytvořeno
-                      </small>
-
-                      <strong>
-                        {user.created_at
-                          ? new Date(
-                              user.created_at
-                            ).toLocaleDateString(
-                              "cs-CZ"
-                            )
-                          : "-"}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <select
-                        value={
-                          user.role ||
-                          ROLE_RIDIC
-                        }
-                        onChange={(e) =>
-                          changeRole(
-                            user.id,
-                            e.target.value
-                          )
-                        }
-                      >
-                        <option value={ROLE_RIDIC}>
-                          Řidič
-                        </option>
-
-                        <option value={ROLE_DISPECER}>
-                          Dispečer
-                        </option>
-
-                        <option value={ROLE_ADMIN}>
-                          Administrátor
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
       </div>
 
       <div className="panel">
-        <h2>
-          Čekající registrace
-        </h2>
+        <h2>Čekající registrace</h2>
 
         <p className="muted">
-          Uživatelé, kterým admin vytvořil
-          pozvánku, ale ještě se nezaregistrovali.
+          Pozvánky, které ještě nebyly použity.
         </p>
 
-        {pendingInvites.length === 0 && (
+        {pendingInvites.length === 0 ? (
           <div className="empty">
             Žádné čekající registrace.
           </div>
-        )}
-
-        {pendingInvites.length > 0 && (
+        ) : (
           <div className="users-list">
-            {pendingInvites.map(
-              (invite) => (
-                <div
-                  className="user-card"
-                  key={invite.id}
-                >
-                  <div className="user-card-avatar pending-avatar">
-                    {(
-                      invite.jmeno ||
-                      "U"
-                    )
-                      .charAt(0)
-                      .toUpperCase()}
-                  </div>
-
-                  <div className="user-card-main">
-                    <strong>
-                      {invite.jmeno}
-                    </strong>
-
-                    <small>
-                      {invite.email}
-                    </small>
-                  </div>
-
-                  <div>
-                    <small>
-                      Přidělená role
-                    </small>
-
-                    <strong>
-                      {getRoleName(
-                        invite.role
-                      )}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span className="pending-label">
-                      Čeká na registraci
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="delete-button"
-                    onClick={() =>
-                      deleteInvite(
-                        invite.id
-                      )
-                    }
-                  >
-                    🗑️ Zrušit
-                  </button>
+            {pendingInvites.map((invite) => (
+              <div
+                className="user-card"
+                key={invite.id}
+              >
+                <div className="user-card-avatar pending-avatar">
+                  {(invite.jmeno || "U")
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
-              )
-            )}
+
+                <div className="user-card-main">
+                  <strong>
+                    {invite.jmeno}
+                  </strong>
+
+                  <small>
+                    {invite.email}
+                  </small>
+                </div>
+
+                <div>
+                  <small>Role</small>
+
+                  <strong>
+                    {getRoleName(invite.role)}
+                  </strong>
+                </div>
+
+                <span className="pending-label">
+                  Čeká na registraci
+                </span>
+
+                <button
+                  className="delete-button"
+                  onClick={() =>
+                    deleteInvite(invite.id)
+                  }
+                >
+                  🗑️ Zrušit
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1035,7 +858,7 @@ function AdminUsers() {
 }
 
 /* =========================================================
-   STAVY VOZIDEL
+   VOZY
 ========================================================= */
 
 const vehicleStatusColors = {
@@ -1062,7 +885,6 @@ function VehicleStatus({ status }) {
       className="status vehicle-status"
       style={{
         background: color,
-        color: "#172033",
       }}
     >
       {status || "-"}
@@ -1070,22 +892,11 @@ function VehicleStatus({ status }) {
   );
 }
 
-/* =========================================================
-   VOZY
-========================================================= */
-
 function Vehicles() {
-  const [vehicles, setVehicles] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState("");
-
-  const [search, setSearch] =
-    useState("");
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
   async function loadVehicles() {
     setLoading(true);
@@ -1118,39 +929,35 @@ function Vehicles() {
   }, []);
 
   const filteredVehicles =
-    vehicles.filter(
-      (vehicle) => {
-        const searchText = [
-          vehicle.cislo,
-          vehicle.vyrobce,
-          vehicle.typ,
-          vehicle.spz,
-          vehicle.rok,
-          vehicle.barevne_schema,
-          vehicle.stav,
-        ]
-          .filter(
-            (value) =>
-              value !== null &&
-              value !== undefined
-          )
-          .join(" ")
-          .toLowerCase();
+    vehicles.filter((vehicle) => {
+      const text = [
+        vehicle.cislo,
+        vehicle.vyrobce,
+        vehicle.typ,
+        vehicle.spz,
+        vehicle.rok,
+        vehicle.barevne_schema,
+        vehicle.stav,
+      ]
+        .filter(
+          (value) =>
+            value !== null &&
+            value !== undefined
+        )
+        .join(" ")
+        .toLowerCase();
 
-        return searchText.includes(
-          search.toLowerCase()
-        );
-      }
-    );
+      return text.includes(
+        search.toLowerCase()
+      );
+    });
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Vozy</h1>
-          <p>
-            Vozový park Czech Mobility
-          </p>
+          <p>Vozový park Czech Mobility</p>
         </div>
 
         <div className="profile-badge">
@@ -1161,7 +968,6 @@ function Vehicles() {
       <div className="panel vehicles-panel">
         <input
           className="search"
-          type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
           onChange={(e) =>
@@ -1184,19 +990,17 @@ function Vehicles() {
         )}
 
         {!loading &&
-          !error && (
+          !error &&
+          filteredVehicles.length > 0 && (
             <>
-              {filteredVehicles.length >
-                0 && (
-                <div className="vehicle-header">
-                  <span>Číslo</span>
-                  <span>Výrobce</span>
-                  <span>Typ</span>
-                  <span>SPZ</span>
-                  <span>Rok</span>
-                  <span>Stav</span>
-                </div>
-              )}
+              <div className="vehicle-header">
+                <span>Číslo</span>
+                <span>Výrobce</span>
+                <span>Typ</span>
+                <span>SPZ</span>
+                <span>Rok</span>
+                <span>Stav</span>
+              </div>
 
               {filteredVehicles.map(
                 (vehicle) => (
@@ -1205,53 +1009,192 @@ function Vehicles() {
                     key={vehicle.id}
                   >
                     <strong>
-                      {vehicle.cislo ??
-                        "-"}
+                      {vehicle.cislo ?? "-"}
                     </strong>
 
                     <span>
-                      {vehicle.vyrobce ??
-                        "-"}
+                      {vehicle.vyrobce ?? "-"}
                     </span>
 
                     <span>
-                      {vehicle.typ ??
-                        "-"}
+                      {vehicle.typ ?? "-"}
                     </span>
 
                     <span>
-                      {vehicle.spz ??
-                        "-"}
+                      {vehicle.spz ?? "-"}
                     </span>
 
                     <span>
-                      {vehicle.rok ??
-                        "-"}
+                      {vehicle.rok ?? "-"}
                     </span>
 
-                    <span>
-                      <VehicleStatus
-                        status={
-                          vehicle.stav
-                        }
-                      />
-                    </span>
+                    <VehicleStatus
+                      status={vehicle.stav}
+                    />
                   </div>
                 )
               )}
-
-              {filteredVehicles.length ===
-                0 && (
-                <div className="empty">
-                  {vehicles.length === 0
-                    ? "Tabulka vozy neobsahuje žádné záznamy."
-                    : "Žádné vozy neodpovídají hledání."}
-                </div>
-              )}
             </>
+          )}
+
+        {!loading &&
+          !error &&
+          filteredVehicles.length === 0 && (
+            <div className="empty">
+              {vehicles.length === 0
+                ? "Tabulka vozy neobsahuje žádné záznamy."
+                : "Žádné vozy neodpovídají hledání."}
+            </div>
           )}
       </div>
     </div>
+  );
+}
+
+/* =========================================================
+   VÝKAZY
+========================================================= */
+
+function Reports({ admin = false }) {
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>
+            {admin
+              ? "Správa výkazů"
+              : "Moje výkazy"}
+          </h1>
+
+          <p>
+            {admin
+              ? "Administrace výkazů řidičů"
+              : "Výkazy přihlášeného uživatele"}
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          {admin
+            ? "POUZE ADMIN / DISPEČER"
+            : "VÝKAZY"}
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>
+          {admin
+            ? "Správa výkazů"
+            : "Moje výkazy"}
+        </h2>
+
+        <p className="muted">
+          {admin
+            ? "Zde budou všechny výkazy řidičů."
+            : "Zde se budou zobrazovat pouze výkazy tohoto uživatele."}
+        </p>
+
+        <div className="empty">
+          Zatím žádné výkazy.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   ADMINISTRACE VOZŮ
+========================================================= */
+
+function AdminVehicles() {
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Administrace vozů</h1>
+          <p>
+            Správa vozového parku Czech Mobility
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          POUZE ADMIN / DISPEČER
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>Administrace vozů</h2>
+
+        <p className="muted">
+          Zde bude možné přidávat, upravovat
+          a mazat vozy.
+        </p>
+
+        <div className="empty">
+          Administrace vozů je připravena.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   DASHBOARD
+========================================================= */
+
+function Dashboard({ profile, user, roleName }) {
+  return (
+    <>
+      <div className="topbar">
+        <div>
+          <h1>Dashboard</h1>
+
+          <p>
+            Informační systém Czech Mobility
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          {roleName}
+        </div>
+      </div>
+
+      <div className="stats">
+        <div className="stat">
+          <span>Dnešní výpravy</span>
+          <strong>0</strong>
+        </div>
+
+        <div className="stat">
+          <span>Aktivní vozy</span>
+          <strong>14</strong>
+        </div>
+
+        <div className="stat">
+          <span>Vozy celkem</span>
+          <strong>42</strong>
+        </div>
+
+        <div className="stat">
+          <span>Provozovny</span>
+          <strong>1</strong>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>
+          Vítej,{" "}
+          {profile?.jmeno || user.email} 👋
+        </h2>
+
+        <p>
+          Jsi přihlášen jako{" "}
+          <strong>
+            {roleName.toLowerCase()}
+          </strong>
+          .
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -1260,15 +1203,10 @@ function Vehicles() {
 ========================================================= */
 
 function App() {
-  const [user, setUser] =
-    useState(null);
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
 
-  const [profile, setProfile] =
-    useState(null);
-
-  const [loading, setLoading] =
-    useState(true);
-
+  const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] =
     useState(false);
 
@@ -1297,21 +1235,6 @@ function App() {
       .eq("id", authUser.id)
       .maybeSingle();
 
-    console.log(
-      "AUTH USER:",
-      authUser
-    );
-
-    console.log(
-      "PROFILE DATA:",
-      data
-    );
-
-    console.log(
-      "PROFILE ERROR:",
-      error
-    );
-
     if (error) {
       console.error(
         "PROFILE ERROR:",
@@ -1319,38 +1242,52 @@ function App() {
       );
 
       setProfile(null);
-      setProfileLoading(false);
-      return;
+    } else {
+      setProfile(data || null);
     }
 
-    setProfile(data || null);
     setProfileLoading(false);
+  }
+
+  async function checkSession() {
+    const {
+      data,
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error(
+        "SESSION ERROR:",
+        error
+      );
+    }
+
+    const loggedUser =
+      data?.user || null;
+
+    setUser(loggedUser);
+
+    if (loggedUser) {
+      await loadProfile(loggedUser);
+    }
+
+    setLoading(false);
   }
 
   useEffect(() => {
     checkSession();
 
     const {
-      data: {
-        subscription,
-      },
+      data: { subscription },
     } =
       supabase.auth.onAuthStateChange(
-        async (
-          _event,
-          session
-        ) => {
+        (_event, session) => {
           const loggedUser =
-            session?.user ??
-            null;
+            session?.user || null;
 
           setUser(loggedUser);
 
-          if (loggedUser) {
-            await loadProfile(
-              loggedUser
-            );
-          } else {
+          if (!loggedUser) {
             setProfile(null);
             setPage("dashboard");
           }
@@ -1362,32 +1299,9 @@ function App() {
     };
   }, []);
 
-  async function checkSession() {
-    const {
-      data,
-      error,
-    } =
-      await supabase.auth.getUser();
-
-    if (error) {
-      console.error(
-        "SESSION ERROR:",
-        error
-      );
-    }
-
-    const loggedUser =
-      data?.user ?? null;
-
+  async function handleLogin(loggedUser) {
     setUser(loggedUser);
-
-    if (loggedUser) {
-      await loadProfile(
-        loggedUser
-      );
-    }
-
-    setLoading(false);
+    await loadProfile(loggedUser);
   }
 
   async function logout() {
@@ -1398,13 +1312,10 @@ function App() {
     setPage("dashboard");
   }
 
-  if (loading ||
-    profileLoading) {
+  if (loading || profileLoading) {
     return (
       <>
-        <style>
-          {styles}
-        </style>
+        <style>{styles}</style>
 
         <div className="loading">
           Načítání...
@@ -1414,57 +1325,30 @@ function App() {
   }
 
   if (!user) {
-    if (showRegister) {
-      return (
-        <>
-          <style>
-            {styles}
-          </style>
+    return (
+      <>
+        <style>{styles}</style>
 
+        {showRegister ? (
           <Register
-            onRegistered={() =>
+            onBack={() =>
               setShowRegister(false)
             }
           />
-        </>
-      );
-    }
-
-    return (
-      <>
-        <style>
-          {styles}
-        </style>
-
-        <Login
-          onLogin={(
-            loggedUser
-          ) => {
-            setUser(
-              loggedUser
-            );
-
-            loadProfile(
-              loggedUser
-            );
-          }}
-        />
-
-        <button
-          className="register-link"
-          onClick={() =>
-            setShowRegister(true)
-          }
-        >
-          Nemáš účet? Zaregistrovat se
-        </button>
+        ) : (
+          <Login
+            onLogin={handleLogin}
+            onRegister={() =>
+              setShowRegister(true)
+            }
+          />
+        )}
       </>
     );
   }
 
   const role =
-    profile?.role?.toLowerCase() ||
-    "";
+    profile?.role?.toLowerCase() || "";
 
   const roleName =
     getRoleName(role);
@@ -1483,9 +1367,7 @@ function App() {
 
   return (
     <>
-      <style>
-        {styles}
-      </style>
+      <style>{styles}</style>
 
       <div className="app">
         <aside className="sidebar">
@@ -1511,17 +1393,13 @@ function App() {
 
           <nav className="menu">
             <button
-              type="button"
               className={
-                page ===
-                "dashboard"
+                page === "dashboard"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage(
-                  "dashboard"
-                )
+                setPage("dashboard")
               }
             >
               <span>⌂</span>
@@ -1529,17 +1407,13 @@ function App() {
             </button>
 
             <button
-              type="button"
               className={
-                page ===
-                "departures"
+                page === "departures"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage(
-                  "departures"
-                )
+                setPage("departures")
               }
             >
               <span>◈</span>
@@ -1547,17 +1421,13 @@ function App() {
             </button>
 
             <button
-              type="button"
               className={
-                page ===
-                "vehicles"
+                page === "vehicles"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage(
-                  "vehicles"
-                )
+                setPage("vehicles")
               }
             >
               <span>▣</span>
@@ -1566,17 +1436,13 @@ function App() {
 
             {useReports && (
               <button
-                type="button"
                 className={
-                  page ===
-                  "reports"
+                  page === "reports"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "reports"
-                  )
+                  setPage("reports")
                 }
               >
                 <span>▤</span>
@@ -1598,17 +1464,13 @@ function App() {
 
             {manageVehicles && (
               <button
-                type="button"
                 className={
-                  page ===
-                  "admin"
+                  page === "admin"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "admin"
-                  )
+                  setPage("admin")
                 }
               >
                 <span>⚙</span>
@@ -1618,17 +1480,13 @@ function App() {
 
             {manageReports && (
               <button
-                type="button"
                 className={
-                  page ===
-                  "adminReports"
+                  page === "adminReports"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "adminReports"
-                  )
+                  setPage("adminReports")
                 }
               >
                 <span>📋</span>
@@ -1638,17 +1496,13 @@ function App() {
 
             {manageUsers && (
               <button
-                type="button"
                 className={
-                  page ===
-                  "adminUsers"
+                  page === "adminUsers"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "adminUsers"
-                  )
+                  setPage("adminUsers")
                 }
               >
                 <span>👥</span>
@@ -1680,11 +1534,8 @@ function App() {
             </div>
 
             <button
-              type="button"
               className="logout"
-              onClick={
-                logout
-              }
+              onClick={logout}
             >
               Odhlásit
             </button>
@@ -1692,108 +1543,48 @@ function App() {
         </aside>
 
         <main className="content">
-          {page ===
-            "dashboard" && (
-            <>
-              <div className="topbar">
-                <div>
-                  <h1>
-                    Dashboard
-                  </h1>
-
-                  <p>
-                    Informační systém
-                    Czech Mobility
-                  </p>
-                </div>
-
-                <div className="profile-badge">
-                  {roleName}
-                </div>
-              </div>
-
-              <div className="stats">
-                <div className="stat">
-                  <span>
-                    Dnešní výpravy
-                  </span>
-
-                  <strong>
-                    0
-                  </strong>
-                </div>
-
-                <div className="stat">
-                  <span>
-                    Aktivní vozy
-                  </span>
-
-                  <strong>
-                    14
-                  </strong>
-                </div>
-
-                <div className="stat">
-                  <span>
-                    Vozy celkem
-                  </span>
-
-                  <strong>
-                    42
-                  </strong>
-                </div>
-
-                <div className="stat">
-                  <span>
-                    Provozovny
-                  </span>
-
-                  <strong>
-                    1
-                  </strong>
-                </div>
-              </div>
-
-              <div className="panel">
-                <h2>
-                  Vítej,{" "}
-                  {profile?.jmeno ||
-                    user.email}{" "}
-                  👋
-                </h2>
-
-                <p>
-                  Jsi přihlášen jako{" "}
-                  <strong>
-                    {roleName.toLowerCase()}
-                  </strong>
-                  .
-                </p>
-              </div>
-            </>
+          {page === "dashboard" && (
+            <Dashboard
+              profile={profile}
+              user={user}
+              roleName={roleName}
+            />
           )}
 
-          {page ===
-            "departures" && (
+          {page === "departures" && (
             <div className="panel">
-              <h1>
-                Výpravy
-              </h1>
+              <h1>Výpravy</h1>
 
-              <p>
-                Tady budou výpravy
-                vozů.
+              <p className="muted">
+                Tady budou výpravy vozů.
               </p>
+
+              <div className="empty">
+                Zatím žádné výpravy.
+              </div>
             </div>
           )}
 
-          {page ===
-            "vehicles" && (
+          {page === "vehicles" && (
             <Vehicles />
           )}
 
-          {page ===
-            "adminUsers" &&
+          {page === "reports" &&
+            useReports && (
+              <Reports />
+            )}
+
+          {page === "admin" &&
+            manageVehicles && (
+              <AdminVehicles />
+            )}
+
+          {page === "adminReports" &&
+            manageReports && (
+              <Reports admin />
+            )}
+
+          {page === "adminUsers" &&
             manageUsers && (
               <AdminUsers />
             )}
@@ -1908,18 +1699,6 @@ button {
   margin-top: 15px;
 }
 
-.register-link {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 25px;
-  border: 0;
-  background: transparent;
-  color: #2563eb;
-  cursor: pointer;
-  font-weight: 700;
-}
-
 .register-back {
   width: 100%;
   border: 0;
@@ -1927,6 +1706,15 @@ button {
   color: #2563eb;
   margin-top: 15px;
   cursor: pointer;
+  font-weight: 700;
+}
+
+.success-box {
+  padding: 15px;
+  border-radius: 9px;
+  background: #dcfce7;
+  color: #15803d;
+  margin-top: 15px;
 }
 
 /* LOADING */
@@ -2168,14 +1956,6 @@ button {
   overflow-wrap: anywhere;
 }
 
-.success-box {
-  padding: 15px;
-  border-radius: 9px;
-  background: #dcfce7;
-  color: #15803d;
-  margin-bottom: 20px;
-}
-
 .empty {
   text-align: center;
   padding: 30px;
@@ -2265,15 +2045,10 @@ button {
   min-width: 0;
 }
 
-.user-card-main strong {
-  font-size: 15px;
-}
-
 .user-card small {
   display: block;
   color: #718096;
   font-size: 11px;
-  margin-bottom: 4px;
   overflow-wrap: anywhere;
 }
 
@@ -2384,11 +2159,6 @@ button {
   .user-card {
     grid-template-columns: auto 1fr 1fr;
   }
-
-  .user-card > *:nth-child(4),
-  .user-card > *:nth-child(5) {
-    grid-column: span 1;
-  }
 }
 
 @media (max-width: 800px) {
@@ -2406,8 +2176,9 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .user-card {
-    grid-template-columns: auto 1fr;
+  .vehicle-header,
+  .vehicle-row {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
