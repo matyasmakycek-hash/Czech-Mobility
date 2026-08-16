@@ -1435,59 +1435,58 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
     }));
   }
 
-  async function save() {
-    setSaving(true);
-    setError("");
-    setSuccess("");
+ async function save() {
+  setSaving(true);
+  setError("");
+  setSuccess("");
 
-    // Aktualizujeme pouze pole, která jsou skutečně přítomná
-    // v načteném záznamu. Díky tomu můžeš doplňovat další
-    // sloupce do tabulky `vozy` postupně bez rozbití detailu.
-    const payload = {};
+  const payload = {};
 
-    vehicleDetailFields.forEach(([field]) => {
-      if (Object.prototype.hasOwnProperty.call(form, field)) {
-        let value = form[field];
+  vehicleDetailFields.forEach(([field]) => {
+    let value = form[field];
 
-        if (field === "rok") {
-          value = value === "" || value == null
-            ? null
-            : Number(value);
-        } else if (field === "stk") {
-          value = stkInputToDate(value);
-        } else if (value === "") {
-          value = null;
-        }
-
-        payload[field] = value;
-      }
-    });
-
-    const { data, error: saveError } = await supabase
-      .from("vozy")
-      .update(payload)
-      .eq("id", vehicle.id)
-      .select("*")
-      .single();
-
-    if (saveError) {
-      setError(saveError.message);
-      setSaving(false);
-      return;
+    if (field === "rok") {
+      value =
+        value === "" || value == null
+          ? null
+          : Number(value);
+    } else if (field === "stk") {
+      value = stkInputToDate(value);
+    } else if (value === "") {
+      value = null;
     }
 
-    setForm({
-      ...(data || form),
-      stk: formatStkForDisplay((data || form).stk),
-    });
-    setEditing(false);
-    setSuccess("Údaje vozu byly uloženy.");
+    payload[field] = value;
+  });
+
+  const { data, error: saveError } = await supabase
+    .from("vozy")
+    .update(payload)
+    .eq("id", vehicle.id)
+    .select("*")
+    .single();
+
+  if (saveError) {
+    console.error("Chyba při ukládání vozu:", saveError);
+    setError(saveError.message);
     setSaving(false);
-
-    if (onSaved) {
-      onSaved(data || form);
-    }
+    return;
   }
+
+  const updatedVehicle = {
+    ...data,
+    stk: formatStkForDisplay(data?.stk),
+  };
+
+  setForm(updatedVehicle);
+  setEditing(false);
+  setSuccess("Údaje vozu byly uloženy.");
+  setSaving(false);
+
+  if (onSaved) {
+    onSaved(updatedVehicle);
+  }
+}
 
   return (
     <div>
