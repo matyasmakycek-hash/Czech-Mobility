@@ -3764,6 +3764,32 @@ function AdminVehicleRequests() {
     setLoading(false);
   }
 
+  async function deleteRequest(id) {
+    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("zadosti_vozidla")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    await supabase.from("audit_log").insert({
+      akce: "SMAZÁNA ŽÁDOST O PŘIDĚLENÍ",
+      entita: "zadosti_vozidla",
+      entita_id: String(id),
+      detail: "Administrátor/dispečer smazal žádost o přidělení vozu"
+    });
+
+    setSuccess("Žádost byla smazána.");
+    loadRequests();
+  }
+
   useEffect(() => {
     loadRequests();
   }, []);
