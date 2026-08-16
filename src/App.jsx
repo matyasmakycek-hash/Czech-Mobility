@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
+const ADMIN_EMAIL = "matyas.makycek@gmail.com";
+
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin(e) {
-    e.preventDefault();
+  async function handleLogin(event) {
+    event.preventDefault();
     setError("");
     setLoading(true);
 
@@ -40,7 +42,7 @@ function Login({ onLogin }) {
           <input
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(event) => setEmail(event.target.value)}
             placeholder="vas@email.cz"
             required
           />
@@ -49,7 +51,7 @@ function Login({ onLogin }) {
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             placeholder="••••••••"
             required
           />
@@ -67,58 +69,37 @@ function Login({ onLogin }) {
 
 function App() {
   const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState("dashboard");
 
   useEffect(() => {
-    loadUser();
+    checkSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        loadUser(session.user);
-      } else {
-        setUser(null);
-        setProfile(null);
+      setUser(session?.user ?? null);
+
+      if (!session?.user) {
+        setPage("dashboard");
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function loadUser(currentUser = null) {
-    const loggedUser =
-      currentUser || (await supabase.auth.getUser()).data.user;
+  async function checkSession() {
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser();
 
-    if (!loggedUser) {
-      setUser(null);
-      setProfile(null);
-      setLoading(false);
-      return;
-    }
-
-    setUser(loggedUser);
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, jmeno, role")
-      .eq("id", loggedUser.id)
-      .maybeSingle();
-
-    console.log("Přihlášený uživatel:", loggedUser.id);
-    console.log("Profil:", data);
-    console.log("Chyba profilu:", error);
-
-    setProfile(data);
+    setUser(currentUser ?? null);
     setLoading(false);
   }
 
   async function logout() {
     await supabase.auth.signOut();
     setUser(null);
-    setProfile(null);
     setPage("dashboard");
   }
 
@@ -135,12 +116,13 @@ function App() {
     return (
       <>
         <style>{styles}</style>
-        <Login onLogin={loadUser} />
+        <Login onLogin={(loggedUser) => setUser(loggedUser)} />
       </>
     );
   }
 
-  const isAdmin = profile?.role === "admin";
+  const isAdmin =
+    user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   return (
     <>
@@ -164,28 +146,32 @@ function App() {
               className={page === "dashboard" ? "active" : ""}
               onClick={() => setPage("dashboard")}
             >
-              ⌂ Dashboard
+              <span>⌂</span>
+              Dashboard
             </button>
 
             <button
               className={page === "departures" ? "active" : ""}
               onClick={() => setPage("departures")}
             >
-              ◈ Výpravy
+              <span>◈</span>
+              Výpravy
             </button>
 
             <button
               className={page === "vehicles" ? "active" : ""}
               onClick={() => setPage("vehicles")}
             >
-              ▣ Vozy
+              <span>▣</span>
+              Vozy
             </button>
 
             <button
               className={page === "reports" ? "active" : ""}
               onClick={() => setPage("reports")}
             >
-              ▤ Moje výkazy
+              <span>▤</span>
+              Moje výkazy
             </button>
 
             {isAdmin && (
@@ -193,29 +179,24 @@ function App() {
                 className={page === "admin" ? "active" : ""}
                 onClick={() => setPage("admin")}
               >
-                ⚙ Administrace
+                <span>⚙</span>
+                Administrace
               </button>
             )}
           </nav>
 
           <div className="user-box">
             <div className="avatar">
-              {(profile?.jmeno || user.email || "U")
-                .charAt(0)
-                .toUpperCase()}
+              {(user.email || "U").charAt(0).toUpperCase()}
             </div>
 
             <div className="user-info">
               <div className="user-name">
-                {profile?.jmeno || user.email}
+                {isAdmin ? "Maty" : user.email}
               </div>
 
               <div className="user-role">
-                {isAdmin
-                  ? "Administrátor"
-                  : profile?.role === "dispecer"
-                  ? "Dispečer"
-                  : "Řidič"}
+                {isAdmin ? "Administrátor" : "Řidič"}
               </div>
             </div>
 
@@ -228,7 +209,16 @@ function App() {
         <main className="content">
           {page === "dashboard" && (
             <>
-              <h1>Dashboard</h1>
+              <div className="topbar">
+                <div>
+                  <h1>Dashboard</h1>
+                  <p>Informační systém Czech Mobility</p>
+                </div>
+
+                <div className="profile-badge">
+                  {isAdmin ? "ADMIN" : "ŘIDIČ"}
+                </div>
+              </div>
 
               <div className="stats">
                 <div className="stat">
@@ -253,18 +243,12 @@ function App() {
               </div>
 
               <div className="panel">
-                <h2>
-                  Vítej, {profile?.jmeno || user.email} 👋
-                </h2>
+                <h2>Vítej, {isAdmin ? "Maty" : user.email} 👋</h2>
 
                 <p>
                   Jsi přihlášen jako{" "}
                   <strong>
-                    {isAdmin
-                      ? "administrátor"
-                      : profile?.role === "dispecer"
-                      ? "dispečer"
-                      : "řidič"}
+                    {isAdmin ? "administrátor" : "řidič"}
                   </strong>.
                 </p>
               </div>
@@ -274,51 +258,59 @@ function App() {
           {page === "departures" && (
             <div className="panel">
               <h1>Výpravy</h1>
-              <p>Zde budou výpravy vozů.</p>
+              <p>
+                Tady následně vytvoříme výběr provozovny a
+                výpravy vozů.
+              </p>
             </div>
           )}
 
           {page === "vehicles" && (
             <div className="panel">
               <h1>Vozy</h1>
-              <p>Zde budou vozy Czech Mobility.</p>
+              <p>
+                Zde budou všechny vozy načtené ze Supabase.
+              </p>
             </div>
           )}
 
           {page === "reports" && (
             <div className="panel">
               <h1>Moje výkazy</h1>
-              <p>Zde budou tvoje výkazy.</p>
+              <p>
+                Zde budou výkazy přihlášeného řidiče.
+              </p>
             </div>
           )}
 
           {page === "admin" && isAdmin && (
             <div className="panel">
-              <h1>Administrace</h1>
-
-              <p>
-                Vítej v administraci Czech Mobility.
-              </p>
+              <div className="topbar">
+                <div>
+                  <h1>Administrace</h1>
+                  <p>Správa systému Czech Mobility</p>
+                </div>
+              </div>
 
               <div className="admin-grid">
                 <div className="admin-card">
-                  <strong>Uživatelé</strong>
-                  <span>Správa uživatelů a rolí</span>
+                  <h3>👥 Uživatelé</h3>
+                  <p>Správa účtů a rolí.</p>
                 </div>
 
                 <div className="admin-card">
-                  <strong>Vozy</strong>
-                  <span>Správa vozového parku</span>
+                  <h3>🚌 Vozy</h3>
+                  <p>Správa vozového parku.</p>
                 </div>
 
                 <div className="admin-card">
-                  <strong>Provozovny</strong>
-                  <span>Správa provozoven</span>
+                  <h3>🏢 Provozovny</h3>
+                  <p>Správa provozoven.</p>
                 </div>
 
                 <div className="admin-card">
-                  <strong>Výpravy</strong>
-                  <span>Správa výprav</span>
+                  <h3>◈ Výpravy</h3>
+                  <p>Správa výprav a kurzů.</p>
                 </div>
               </div>
             </div>
@@ -359,7 +351,7 @@ input {
   background: white;
   padding: 35px;
   border-radius: 18px;
-  box-shadow: 0 8px 35px rgba(0,0,0,.08);
+  box-shadow: 0 8px 35px rgba(0, 0, 0, 0.08);
 }
 
 .login-logo {
@@ -382,7 +374,6 @@ input {
 
 .login-box p {
   color: #718096;
-  margin-top: 7px;
 }
 
 .login-box form {
@@ -503,6 +494,9 @@ input {
   border-radius: 10px;
   text-align: left;
   cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: center;
   font-size: 14px;
 }
 
@@ -530,7 +524,6 @@ input {
   height: 38px;
   border-radius: 50%;
   background: #2563eb;
-  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -572,8 +565,27 @@ input {
   width: calc(100% - 255px);
 }
 
-.content h1 {
-  margin-top: 0;
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.topbar h1 {
+  margin: 0;
+}
+
+.topbar p {
+  color: #718096;
+}
+
+.profile-badge {
+  background: #2563eb;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .stats {
@@ -587,11 +599,10 @@ input {
   background: white;
   padding: 20px;
   border-radius: 15px;
-  box-shadow: 0 3px 14px rgba(0,0,0,.04);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.04);
 }
 
 .stat span {
-  display: block;
   color: #718096;
   font-size: 13px;
 }
@@ -606,7 +617,7 @@ input {
   background: white;
   border-radius: 16px;
   padding: 25px;
-  box-shadow: 0 3px 14px rgba(0,0,0,.04);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.04);
 }
 
 .admin-grid {
@@ -618,18 +629,17 @@ input {
 
 .admin-card {
   border: 1px solid #e3e8f0;
-  padding: 20px;
   border-radius: 12px;
+  padding: 20px;
 }
 
-.admin-card strong {
-  display: block;
-  margin-bottom: 7px;
+.admin-card h3 {
+  margin: 0 0 8px;
 }
 
-.admin-card span {
+.admin-card p {
+  margin: 0;
   color: #718096;
-  font-size: 13px;
 }
 
 @media (max-width: 800px) {
@@ -644,6 +654,22 @@ input {
 
   .stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .sidebar {
+    display: none;
+  }
+
+  .content {
+    margin-left: 0;
+    width: 100%;
+    padding: 20px;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
   }
 }
 `;
