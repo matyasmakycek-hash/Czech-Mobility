@@ -3847,6 +3847,313 @@ function AdminVehicleRequests() {
 }
 
 /* =========================================================
+   ČLENOVÉ
+========================================================= */
+
+function getMinutesBetweenTimes(start, end) {
+  if (!start || !end) return 0;
+
+  const startMatch = String(start).match(/^(\d{1,2}):(\d{2})/);
+  const endMatch = String(end).match(/^(\d{1,2}):(\d{2})/);
+
+  if (!startMatch || !endMatch) return 0;
+
+  const startMinutes = Number(startMatch[1]) * 60 + Number(startMatch[2]);
+  const endMinutes = Number(endMatch[1]) * 60 + Number(endMatch[2]);
+
+  if (endMinutes >= startMinutes) {
+    return endMinutes - startMinutes;
+  }
+
+  // Směna přes půlnoc, např. 22:00–02:00.
+  return 24 * 60 - startMinutes + endMinutes;
+}
+
+function formatDuration(minutes) {
+  const safeMinutes = Math.max(0, Number(minutes) || 0);
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+
+  if (hours === 0) return `${mins} min`;
+  if (mins === 0) return `${hours} h`;
+  return `${hours} h ${mins} min`;
+}
+
+function Members({ user }) {
+  const [members, setMembers] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState(null);
+
+  async function loadMembers() {
+    setLoading(true);
+    setError("");
+
+    const [membersResult, reportsResult] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, jmeno, role, created_at")
+        .order("jmeno", { ascending: true }),
+      supabase
+        .from("vykazy")
+        .select(
+          "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, provozovna_id"
+        )
+        .order("datum", { ascending: false })
+        .order("zacatek", { ascending: false }),
+    ]);
+
+    if (membersResult.error) {
+      setError(membersResult.error.message);
+      setMembers([]);
+    } else {
+      setMembers(membersResult.data || []);
+    }
+
+    if (reportsResult.error) {
+      setError((old) => old || reportsResult.error.message);
+      setReports([]);
+    } else {
+      setReports(reportsResult.data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadMembers();
+  }, []);
+
+  const statsByMember = members.reduce((acc, member) => {
+    const memberReports = reports.filter(
+      (report) => String(report.uzivatel_id) === String(member.id)
+    );
+
+    const totalMinutes = memberReports.reduce(
+      (sum, report) =>
+        sum + getMinutesBetweenTimes(report.zacatek, report.konec),
+      0
+    );
+
+    acc[member.id] = {
+      reports: memberReports,
+      totalMinutes,
+    };
+
+    return acc;
+  }, {});
+
+  const selectedMember = members.find(
+    (member) => String(member.id) === String(selectedMemberId)
+  );
+
+  const selectedStats = selectedMember
+    ? statsByMember[selectedMember.id] || { reports: [], totalMinutes: 0 }
+    : null;
+
+  if (selectedMember) {
+    return (
+      <div>
+        <div className="topbar">
+          <div>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setSelectedMemberId(null)}
+              style={{ marginBottom: 12 }}
+            >
+              ← Zpět na členy
+            </button>
+            <h1>{selectedMember.jmeno || "Bez jména"}</h1>
+            <p>{getRoleName(selectedMember.role)}</p>
+          </div>
+
+          <div className="profile-badge">
+            {formatDuration(selectedStats.totalMinutes)}
+          </div>
+        </div>
+
+        {error && (
+          <div className="error-box" style={{ marginBottom: 16 }}>
+            <strong>Chyba:</strong>
+            <br />
+            {error}
+          </div>
+        )}
+
+        <div className="member-detail-stats">
+          <div className="member-stat-card">
+            <span>Celkem hodin</span>
+            <strong>{formatDuration(selectedStats.totalMinutes)}</strong>
+          </div>
+          <div className="member-stat-card">
+            <span>Počet výkazů</span>
+            <strong>{selectedStats.reports.length}</strong>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="users-toolbar">
+            <div>
+              <h2>Historie směn</h2>
+              <p className="muted">
+                Všechny výkazy tohoto člena. Celkové hodiny se počítají přímo
+                ze začátku a konce jednotlivých směn.
+              </p>
+            </div>
+          </div>
+
+          {selectedStats.reports.length === 0 ? (
+            <div className="empty">Tento člen zatím nemá žádný výkaz.</div>
+          ) : (
+            <div className="member-reports-list">
+              {selectedStats.reports.map((report) => {
+                const duration = getMinutesBetweenTimes(
+                  report.zacatek,
+                  report.konec
+                );
+
+                return (
+                  <div className="member-report-card" key={report.id}>
+                    <div className="member-report-date">
+                      <strong>
+                        {report.datum
+                          ? new Date(
+                              `${report.datum}T00:00:00`
+                            ).toLocaleDateString("cs-CZ")
+                          : "-"}
+                      </strong>
+                      <small>
+                        {report.zacatek || "-"} – {report.konec || "-"}
+                      </small>
+                    </div>
+
+                    <div>
+                      <small>Vůz</small>
+                      <strong>{report.vuz || "-"}</strong>
+                    </div>
+
+                    <div>
+                      <small>Linka</small>
+                      <strong>{report.linka || "-"}</strong>
+                    </div>
+
+                    <div className="member-report-route">
+                      <small>Směr</small>
+                      <strong>{report.smer || "-"}</strong>
+                    </div>
+
+                    <div>
+                      <small>Délka</small>
+                      <strong>{formatDuration(duration)}</strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const totalMemberHours = Object.values(statsByMember).reduce(
+    (sum, stats) => sum + stats.totalMinutes,
+    0
+  );
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Členové</h1>
+          <p>Přehled členů a jejich odjetých směn</p>
+        </div>
+
+        <div className="profile-badge">
+          {members.length} ČLENŮ
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="member-summary-bar">
+          <div>
+            <span>Členové</span>
+            <strong>{members.length}</strong>
+          </div>
+          <div>
+            <span>Celkem hodin</span>
+            <strong>{formatDuration(totalMemberHours)}</strong>
+          </div>
+          <div>
+            <span>Celkem výkazů</span>
+            <strong>{reports.length}</strong>
+          </div>
+        </div>
+      )}
+
+      <div className="panel">
+        {loading ? (
+          <div className="empty">Načítání členů...</div>
+        ) : members.length === 0 ? (
+          <div className="empty">Žádní členové.</div>
+        ) : (
+          <div className="member-grid">
+            {members.map((member) => {
+              const stats = statsByMember[member.id] || {
+                reports: [],
+                totalMinutes: 0,
+              };
+
+              return (
+                <button
+                  type="button"
+                  className="member-card"
+                  key={member.id}
+                  onClick={() => setSelectedMemberId(member.id)}
+                >
+                  <div className="member-card-avatar">
+                    {(member.jmeno || "Č")
+                      .charAt(0)
+                      .toUpperCase()}
+                  </div>
+
+                  <div className="member-card-main">
+                    <strong>{member.jmeno || "Bez jména"}</strong>
+                    <small>{getRoleName(member.role)}</small>
+                  </div>
+
+                  <div className="member-card-stat">
+                    <span>Celkem hodin</span>
+                    <strong>{formatDuration(stats.totalMinutes)}</strong>
+                  </div>
+
+                  <div className="member-card-stat">
+                    <span>Výkazy</span>
+                    <strong>{stats.reports.length}</strong>
+                  </div>
+
+                  <div className="member-card-arrow">›</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    APP
 ========================================================= */
 
@@ -4114,6 +4421,20 @@ function App() {
               Vozy
             </button>
 
+            <button
+              className={
+                page === "members"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("members")
+              }
+            >
+              <span>👥</span>
+              Členové
+            </button>
+
             {useReports && (
               <button
                 className={
@@ -4327,6 +4648,8 @@ function App() {
 
           {page === "vehicles" && <Vehicles role={role} />}
 
+          {page === "members" && <Members user={user} />}
+
           {page === "vehicleRequest" && (
             <VehicleRequest
               user={user}
@@ -4369,6 +4692,177 @@ function App() {
 ========================================================= */
 
 const styles = `
+.member-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.member-summary-bar > div,
+.member-stat-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.member-summary-bar span,
+.member-stat-card span,
+.member-card-stat span,
+.member-report-card small {
+  color: #718096;
+  font-size: 12px;
+}
+
+.member-summary-bar strong,
+.member-stat-card strong {
+  font-size: 23px;
+}
+
+.member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.member-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  gap: 14px;
+  align-items: center;
+  cursor: pointer;
+  color: #172033;
+  transition: .15s ease;
+}
+
+.member-card:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 18px rgba(15, 23, 42, .06);
+}
+
+.member-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.member-card-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.member-card-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-card-main small,
+.member-card-stat small {
+  color: #718096;
+}
+
+.member-card-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.member-card-arrow {
+  color: #64748b;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.member-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.member-reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.member-report-card {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr .8fr 2fr 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 15px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.member-report-card > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.member-report-date strong {
+  font-size: 14px;
+}
+
+.member-report-date small {
+  color: #475569;
+}
+
+.member-report-route strong {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .member-report-card {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .member-report-route {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .member-summary-bar,
+  .member-detail-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .member-card {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .member-card-stat:nth-of-type(1),
+  .member-card-stat:nth-of-type(2) {
+    grid-column: 2 / 3;
+  }
+}
+
 .request-helper {
   margin-top: 6px;
   font-size: 12px;
