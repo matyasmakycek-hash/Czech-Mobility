@@ -1,55 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
-
-const depots = [
-  {
-    id: 1,
-    name: "Hradec Králové",
-    code: "HK",
-    vehicles: [
-      { id: 101, type: "Solaris Urbino 12", status: "Vypraven" },
-      { id: 102, type: "Škoda 12", status: "Volný" },
-      { id: 103, type: "SOR", status: "Volný" },
-    ],
-  },
-  {
-    id: 2,
-    name: "Pardubice",
-    code: "PCE",
-    vehicles: [
-      { id: 201, type: "Solaris Urbino 12", status: "Vypraven" },
-      { id: 202, type: "Crossway", status: "Volný" },
-    ],
-  },
-];
-
-const departures = [
-  {
-    vehicle: "101",
-    course: "101/1",
-    driver: "Maty",
-    depot: "Hradec Králové",
-    status: "Vypraven",
-  },
-  {
-    vehicle: "103",
-    course: "103/1",
-    driver: "Petr",
-    depot: "Hradec Králové",
-    status: "Vypraven",
-  },
-  {
-    vehicle: "201",
-    course: "201/1",
-    driver: "Jan",
-    depot: "Pardubice",
-    status: "Vypraven",
-  },
-];
 
 function App() {
   const [page, setPage] = useState("dashboard");
-  const [selectedDepot, setSelectedDepot] = useState(null);
+  const [vehicles, setVehicles] = useState([]);
+  const [depots, setDepots] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const menu = [
     { id: "dashboard", icon: "⌂", label: "Dashboard" },
@@ -59,10 +16,48 @@ function App() {
     { id: "depots", icon: "▦", label: "Provozovny" },
   ];
 
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+
+    const { data: depotData, error: depotError } = await supabase
+      .from("provozovny")
+      .select("*")
+      .order("nazev");
+
+    if (depotError) {
+      setError("Nepodařilo se načíst provozovny: " + depotError.message);
+      setLoading(false);
+      return;
+    }
+
+    const { data: vehicleData, error: vehicleError } = await supabase
+      .from("vozy")
+      .select("*")
+      .order("cislo");
+
+    if (vehicleError) {
+      setError("Nepodařilo se načíst vozy: " + vehicleError.message);
+      setLoading(false);
+      return;
+    }
+
+    setDepots(depotData || []);
+    setVehicles(vehicleData || []);
+    setLoading(false);
+  }
+
   function navigate(id) {
     setPage(id);
-    setSelectedDepot(null);
   }
+
+  const activeVehicles = vehicles.filter(
+    (vehicle) => vehicle.stav === "PROVOZNÍ"
+  );
 
   return (
     <div className="app">
@@ -291,14 +286,7 @@ function App() {
           border: 1px solid #e3e8f0;
           border-radius: 13px;
           padding: 18px;
-          cursor: pointer;
-          transition: .15s;
           background: white;
-        }
-
-        .depot-card:hover {
-          border-color: #2563eb;
-          transform: translateY(-1px);
         }
 
         .depot-code {
@@ -321,15 +309,6 @@ function App() {
           color: #7b879a;
           font-size: 12px;
           margin-top: 6px;
-        }
-
-        .back-button {
-          border: 0;
-          background: #eef2f7;
-          color: #374151;
-          padding: 9px 13px;
-          border-radius: 9px;
-          cursor: pointer;
         }
 
         table {
@@ -370,10 +349,29 @@ function App() {
           color: #6b7280;
         }
 
+        .badge-red {
+          background: #fdecec;
+          color: #c53030;
+        }
+
         .empty {
           text-align: center;
           color: #7b879a;
           padding: 35px;
+        }
+
+        .error {
+          background: #fff0f0;
+          color: #c53030;
+          padding: 15px;
+          border-radius: 10px;
+          margin-bottom: 20px;
+        }
+
+        .loading {
+          text-align: center;
+          padding: 50px;
+          color: #718096;
         }
 
         @media (max-width: 900px) {
@@ -425,7 +423,9 @@ function App() {
           {menu.map((item) => (
             <button
               key={item.id}
-              className={`menu-button ${page === item.id ? "active" : ""}`}
+              className={`menu-button ${
+                page === item.id ? "active" : ""
+              }`}
               onClick={() => navigate(item.id)}
             >
               <span>{item.icon}</span>
@@ -449,6 +449,7 @@ function App() {
             <h1 className="page-title">
               {menu.find((item) => item.id === page)?.label}
             </h1>
+
             <p className="page-description">
               Informační systém Czech Mobility
             </p>
@@ -457,191 +458,261 @@ function App() {
           <button className="profile-button">M</button>
         </div>
 
-        {page === "dashboard" && <Dashboard />}
-
-        {page === "departures" && (
-          <Departures
-            selectedDepot={selectedDepot}
-            setSelectedDepot={setSelectedDepot}
-          />
+        {loading && (
+          <div className="panel">
+            <div className="loading">
+              Načítám data...
+            </div>
+          </div>
         )}
 
-        {page === "vehicles" && <Vehicles />}
+        {error && <div className="error">{error}</div>}
 
-        {page === "reports" && <Reports />}
+        {!loading && !error && (
+          <>
+            {page === "dashboard" && (
+              <Dashboard
+                vehicles={vehicles}
+                activeVehicles={activeVehicles}
+                depots={depots}
+              />
+            )}
 
-        {page === "depots" && <Depots />}
+            {page === "vehicles" && (
+              <Vehicles
+                vehicles={vehicles}
+                depots={depots}
+              />
+            )}
+
+            {page === "depots" && (
+              <Depots
+                vehicles={vehicles}
+                depots={depots}
+              />
+            )}
+
+            {page === "departures" && <Departures />}
+
+            {page === "reports" && <Reports />}
+          </>
+        )}
       </main>
     </div>
   );
 }
 
-function Dashboard() {
+function Dashboard({ vehicles, activeVehicles, depots }) {
   return (
     <>
       <div className="stats">
         <div className="stat">
           <span className="stat-label">Dnešní výpravy</span>
-          <strong className="stat-value">3</strong>
+          <strong className="stat-value">0</strong>
         </div>
 
         <div className="stat">
           <span className="stat-label">Aktivní vozy</span>
-          <strong className="stat-value">3</strong>
+          <strong className="stat-value">
+            {activeVehicles.length}
+          </strong>
+        </div>
+
+        <div className="stat">
+          <span className="stat-label">Vozy celkem</span>
+          <strong className="stat-value">
+            {vehicles.length}
+          </strong>
         </div>
 
         <div className="stat">
           <span className="stat-label">Provozovny</span>
-          <strong className="stat-value">{depots.length}</strong>
-        </div>
-
-        <div className="stat">
-          <span className="stat-label">Moje výkazy</span>
-          <strong className="stat-value">0</strong>
+          <strong className="stat-value">
+            {depots.length}
+          </strong>
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-header">
-          <h2 className="panel-title">Czech Mobility</h2>
+          <h2 className="panel-title">
+            Czech Mobility
+          </h2>
         </div>
 
         <p>
           Vítejte v systému pro správu vozů, výprav a výkazů.
+        </p>
+
+        <p className="page-description">
+          Data o vozech jsou načítána přímo z databáze.
         </p>
       </div>
     </>
   );
 }
 
-function Departures({ selectedDepot, setSelectedDepot }) {
-  if (!selectedDepot) {
+function Vehicles({ vehicles, depots }) {
+  if (vehicles.length === 0) {
     return (
       <div className="panel">
-        <div className="panel-header">
-          <h2 className="panel-title">Vyberte provozovnu</h2>
-        </div>
-
-        <div className="grid">
-          {depots.map((depot) => (
-            <div
-              className="depot-card"
-              key={depot.id}
-              onClick={() => setSelectedDepot(depot.name)}
-            >
-              <span className="depot-code">{depot.code}</span>
-              <div className="depot-name">{depot.name}</div>
-              <div className="depot-info">
-                {depot.vehicles.length} vozů
-              </div>
-            </div>
-          ))}
+        <div className="empty">
+          V databázi nejsou žádné vozy.
         </div>
       </div>
     );
   }
 
-  const depotDepartures = departures.filter(
-    (item) => item.depot === selectedDepot
-  );
+  return (
+    <>
+      {depots.map((depot) => {
+        const depotVehicles = vehicles.filter(
+          (vehicle) =>
+            vehicle.provozovna_id === depot.id
+        );
 
+        return (
+          <div className="panel" key={depot.id}>
+            <div className="panel-header">
+              <div>
+                <h2 className="panel-title">
+                  {depot.nazev}
+                </h2>
+
+                <p className="page-description">
+                  Provozovna {depot.kod} ·{" "}
+                  {depotVehicles.length} vozů
+                </p>
+              </div>
+            </div>
+
+            {depotVehicles.length === 0 ? (
+              <div className="empty">
+                Žádné vozy v této provozovně.
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Vůz</th>
+                    <th>Výrobce</th>
+                    <th>Typ</th>
+                    <th>SPZ</th>
+                    <th>Rok</th>
+                    <th>Stav</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {depotVehicles.map((vehicle) => (
+                    <tr key={vehicle.id}>
+                      <td>
+                        <strong>{vehicle.cislo}</strong>
+                      </td>
+
+                      <td>
+                        {vehicle.vyrobce || "-"}
+                      </td>
+
+                      <td>
+                        {vehicle.typ || "-"}
+                      </td>
+
+                      <td>
+                        {vehicle.spz || "-"}
+                      </td>
+
+                      <td>
+                        {vehicle.rok || "-"}
+                      </td>
+
+                      <td>
+                        <span
+                          className={`badge ${
+                            vehicle.stav === "PROVOZNÍ"
+                              ? "badge-green"
+                              : vehicle.stav ===
+                                "PRODÁN / PŘEDÁN JINEMU DOPRAVCI"
+                              ? "badge-red"
+                              : "badge-gray"
+                          }`}
+                        >
+                          {vehicle.stav || "Neuvedeno"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function Depots({ vehicles, depots }) {
   return (
     <div className="panel">
       <div className="panel-header">
-        <div>
-          <h2 className="panel-title">{selectedDepot}</h2>
-          <p className="page-description">
-            Výpravy této provozovny
-          </p>
-        </div>
-
-        <button
-          className="back-button"
-          onClick={() => setSelectedDepot(null)}
-        >
-          ← Provozovny
-        </button>
+        <h2 className="panel-title">
+          Provozovny
+        </h2>
       </div>
 
-      {depotDepartures.length === 0 ? (
-        <div className="empty">Žádné výpravy.</div>
+      {depots.length === 0 ? (
+        <div className="empty">
+          Žádné provozovny.
+        </div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Vůz</th>
-              <th>Kurz</th>
-              <th>Řidič</th>
-              <th>Stav</th>
-            </tr>
-          </thead>
+        <div className="grid">
+          {depots.map((depot) => {
+            const count = vehicles.filter(
+              (vehicle) =>
+                vehicle.provozovna_id === depot.id
+            ).length;
 
-          <tbody>
-            {depotDepartures.map((item, index) => (
-              <tr key={index}>
-                <td><strong>{item.vehicle}</strong></td>
-                <td>{item.course}</td>
-                <td>{item.driver}</td>
-                <td>
-                  <span className="badge badge-green">
-                    {item.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            return (
+              <div
+                className="depot-card"
+                key={depot.id}
+              >
+                <span className="depot-code">
+                  {depot.kod}
+                </span>
+
+                <div className="depot-name">
+                  {depot.nazev}
+                </div>
+
+                <div className="depot-info">
+                  {count} vozů
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-function Vehicles() {
+function Departures() {
   return (
-    <>
-      {depots.map((depot) => (
-        <div className="panel" key={depot.id}>
-          <div className="panel-header">
-            <div>
-              <h2 className="panel-title">{depot.name}</h2>
-              <p className="page-description">
-                Provozovna {depot.code}
-              </p>
-            </div>
-          </div>
+    <div className="panel">
+      <div className="panel-header">
+        <h2 className="panel-title">
+          Výpravy
+        </h2>
+      </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Vůz</th>
-                <th>Typ</th>
-                <th>Stav</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {depot.vehicles.map((vehicle) => (
-                <tr key={vehicle.id}>
-                  <td><strong>{vehicle.id}</strong></td>
-                  <td>{vehicle.type}</td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        vehicle.status === "Vypraven"
-                          ? "badge-green"
-                          : "badge-gray"
-                      }`}
-                    >
-                      {vehicle.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </>
+      <div className="empty">
+        Výpravy zatím nejsou vytvořené.
+        <br />
+        Tuto část napojíme na databázi jako další krok.
+      </div>
+    </div>
   );
 }
 
@@ -649,33 +720,13 @@ function Reports() {
   return (
     <div className="panel">
       <div className="panel-header">
-        <h2 className="panel-title">Moje výkazy</h2>
+        <h2 className="panel-title">
+          Moje výkazy
+        </h2>
       </div>
 
       <div className="empty">
-        Zatím nemáte žádné výkazy.
-      </div>
-    </div>
-  );
-}
-
-function Depots() {
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <h2 className="panel-title">Provozovny</h2>
-      </div>
-
-      <div className="grid">
-        {depots.map((depot) => (
-          <div className="depot-card" key={depot.id}>
-            <span className="depot-code">{depot.code}</span>
-            <div className="depot-name">{depot.name}</div>
-            <div className="depot-info">
-              {depot.vehicles.length} vozů
-            </div>
-          </div>
-        ))}
+        Přihlášení a osobní výkazy přidáme v dalším kroku.
       </div>
     </div>
   );
