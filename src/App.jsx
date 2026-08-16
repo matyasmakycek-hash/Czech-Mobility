@@ -3528,7 +3528,7 @@ function VehicleRequest({ user, profile }) {
                 <div>
                   <span className="request-step">2</span>
                   <div>
-                    <h2>Co potřebuješ?</h2>
+                    <h2>Dodatek</h2>
                     <p>
                       Napiš důvod, termín nebo účel použití vozidla.
                     </p>
