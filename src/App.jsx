@@ -9,8 +9,8 @@ function Login({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin(event) {
-    event.preventDefault();
+  async function handleLogin(e) {
+    e.preventDefault();
     setError("");
     setLoading(true);
 
@@ -25,7 +25,7 @@ function Login({ onLogin }) {
       return;
     }
 
-    await onLogin(data.user);
+    onLogin(data.user);
     setLoading(false);
   }
 
@@ -42,7 +42,7 @@ function Login({ onLogin }) {
           <input
             type="email"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             placeholder="vas@email.cz"
             required
           />
@@ -51,7 +51,7 @@ function Login({ onLogin }) {
           <input
             type="password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             required
           />
@@ -64,6 +64,122 @@ function Login({ onLogin }) {
         </form>
       </div>
     </div>
+  );
+}
+
+function Vehicles() {
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    loadVehicles();
+  }, []);
+
+  async function loadVehicles() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("vozy")
+      .select("*")
+      .order("číslo", { ascending: true });
+
+    if (error) {
+      console.error(error);
+      setError(error.message);
+      setVehicles([]);
+    } else {
+      setVehicles(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  const filteredVehicles = vehicles.filter((vehicle) =>
+    [
+      vehicle.číslo,
+      vehicle.výrobce,
+      vehicle.typ,
+      vehicle.spz,
+      vehicle.rok,
+      vehicle.stav,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
+
+  return (
+    <>
+      <div className="topbar">
+        <div>
+          <h1>Vozy</h1>
+          <p>Vozový park Czech Mobility</p>
+        </div>
+
+        <div className="profile-badge">
+          {vehicles.length} VOZŮ
+        </div>
+      </div>
+
+      <div className="panel vehicles-panel">
+        <input
+          className="search"
+          type="text"
+          placeholder="🔎 Hledat vůz..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {loading && (
+          <div className="empty">
+            Načítání vozů...
+          </div>
+        )}
+
+        {error && (
+          <div className="error-box">
+            Chyba při načítání vozů: {error}
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div className="vehicle-header">
+              <span>Číslo</span>
+              <span>Výrobce</span>
+              <span>Typ</span>
+              <span>SPZ</span>
+              <span>Rok</span>
+              <span>Stav</span>
+            </div>
+
+            {filteredVehicles.map((vehicle) => (
+              <div className="vehicle-row" key={vehicle.id}>
+                <strong>{vehicle.číslo || "-"}</strong>
+                <span>{vehicle.výrobce || "-"}</span>
+                <span>{vehicle.typ || "-"}</span>
+                <span>{vehicle.spz || "-"}</span>
+                <span>{vehicle.rok || "-"}</span>
+                <span>
+                  <span className="status">
+                    {vehicle.stav || "-"}
+                  </span>
+                </span>
+              </div>
+            ))}
+
+            {filteredVehicles.length === 0 && (
+              <div className="empty">
+                Žádné vozy nebyly nalezeny.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -90,10 +206,10 @@ function App() {
 
   async function checkSession() {
     const {
-      data: { user: currentUser },
+      data: { user },
     } = await supabase.auth.getUser();
 
-    setUser(currentUser ?? null);
+    setUser(user ?? null);
     setLoading(false);
   }
 
@@ -134,12 +250,18 @@ function App() {
             <div className="brand-logo">CM</div>
 
             <div>
-              <div className="brand-title">Czech Mobility</div>
-              <div className="brand-subtitle">VDP systém</div>
+              <div className="brand-title">
+                Czech Mobility
+              </div>
+              <div className="brand-subtitle">
+                VDP systém
+              </div>
             </div>
           </div>
 
-          <div className="section-title">Navigace</div>
+          <div className="section-title">
+            Navigace
+          </div>
 
           <nav className="menu">
             <button
@@ -187,7 +309,9 @@ function App() {
 
           <div className="user-box">
             <div className="avatar">
-              {(user.email || "U").charAt(0).toUpperCase()}
+              {(user.email || "U")
+                .charAt(0)
+                .toUpperCase()}
             </div>
 
             <div className="user-info">
@@ -196,23 +320,31 @@ function App() {
               </div>
 
               <div className="user-role">
-                {isAdmin ? "Administrátor" : "Řidič"}
+                {isAdmin
+                  ? "Administrátor"
+                  : "Řidič"}
               </div>
             </div>
 
-            <button className="logout" onClick={logout}>
+            <button
+              className="logout"
+              onClick={logout}
+            >
               Odhlásit
             </button>
           </div>
         </aside>
 
         <main className="content">
+
           {page === "dashboard" && (
             <>
               <div className="topbar">
                 <div>
                   <h1>Dashboard</h1>
-                  <p>Informační systém Czech Mobility</p>
+                  <p>
+                    Informační systém Czech Mobility
+                  </p>
                 </div>
 
                 <div className="profile-badge">
@@ -243,12 +375,16 @@ function App() {
               </div>
 
               <div className="panel">
-                <h2>Vítej, {isAdmin ? "Maty" : user.email} 👋</h2>
+                <h2>
+                  Vítej, {isAdmin ? "Maty" : user.email} 👋
+                </h2>
 
                 <p>
                   Jsi přihlášen jako{" "}
                   <strong>
-                    {isAdmin ? "administrátor" : "řidič"}
+                    {isAdmin
+                      ? "administrátor"
+                      : "řidič"}
                   </strong>.
                 </p>
               </div>
@@ -259,8 +395,7 @@ function App() {
             <div className="panel">
               <h1>Výpravy</h1>
               <p>
-                Tady následně vytvoříme výběr provozovny a
-                výpravy vozů.
+                Tady budou výpravy vozů.
               </p>
             </div>
           )}
@@ -278,36 +413,13 @@ function App() {
 
           {page === "admin" && isAdmin && (
             <div className="panel">
-              <div className="topbar">
-                <div>
-                  <h1>Administrace</h1>
-                  <p>Správa systému Czech Mobility</p>
-                </div>
-              </div>
-
-              <div className="admin-grid">
-                <div className="admin-card">
-                  <h3>👥 Uživatelé</h3>
-                  <p>Správa účtů a rolí.</p>
-                </div>
-
-                <div className="admin-card">
-                  <h3>🚌 Vozy</h3>
-                  <p>Správa vozového parku.</p>
-                </div>
-
-                <div className="admin-card">
-                  <h3>🏢 Provozovny</h3>
-                  <p>Správa provozoven.</p>
-                </div>
-
-                <div className="admin-card">
-                  <h3>◈ Výpravy</h3>
-                  <p>Správa výprav a kurzů.</p>
-                </div>
-              </div>
+              <h1>Administrace</h1>
+              <p>
+                Správa systému Czech Mobility.
+              </p>
             </div>
           )}
+
         </main>
       </div>
     </>
@@ -336,7 +448,6 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f4f6fa;
 }
 
 .login-box {
@@ -344,7 +455,7 @@ input {
   background: white;
   padding: 35px;
   border-radius: 18px;
-  box-shadow: 0 8px 35px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 35px rgba(0,0,0,.08);
 }
 
 .login-logo {
@@ -357,7 +468,6 @@ input {
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 18px;
   margin-bottom: 20px;
 }
 
@@ -367,10 +477,6 @@ input {
 
 .login-box p {
   color: #718096;
-}
-
-.login-box form {
-  margin-top: 25px;
 }
 
 .login-box label {
@@ -385,11 +491,6 @@ input {
   padding: 12px;
   border: 1px solid #d9dee7;
   border-radius: 9px;
-  outline: none;
-}
-
-.login-box input:focus {
-  border-color: #2563eb;
 }
 
 .login-box form button {
@@ -410,7 +511,6 @@ input {
   padding: 10px;
   border-radius: 8px;
   margin-top: 15px;
-  font-size: 13px;
 }
 
 .loading {
@@ -462,7 +562,6 @@ input {
 .brand-subtitle {
   color: #8d99ad;
   font-size: 12px;
-  margin-top: 3px;
 }
 
 .section-title {
@@ -490,14 +589,9 @@ input {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 14px;
 }
 
-.menu button:hover {
-  background: #1a2537;
-  color: white;
-}
-
+.menu button:hover,
 .menu button.active {
   background: #2563eb;
   color: white;
@@ -539,7 +633,6 @@ input {
 .user-role {
   font-size: 11px;
   color: #8d99ad;
-  margin-top: 3px;
 }
 
 .logout {
@@ -592,7 +685,7 @@ input {
   background: white;
   padding: 20px;
   border-radius: 15px;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 3px 14px rgba(0,0,0,.04);
 }
 
 .stat span {
@@ -610,29 +703,70 @@ input {
   background: white;
   border-radius: 16px;
   padding: 25px;
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 3px 14px rgba(0,0,0,.04);
 }
 
-.admin-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 15px;
+.vehicles-panel {
   margin-top: 25px;
 }
 
-.admin-card {
-  border: 1px solid #e3e8f0;
-  border-radius: 12px;
-  padding: 20px;
+.search {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  outline: none;
+  margin-bottom: 20px;
 }
 
-.admin-card h3 {
-  margin: 0 0 8px;
+.search:focus {
+  border-color: #2563eb;
 }
 
-.admin-card p {
-  margin: 0;
+.vehicle-header,
+.vehicle-row {
+  display: grid;
+  grid-template-columns: 80px 140px 1fr 120px 80px 120px;
+  gap: 15px;
+  align-items: center;
+}
+
+.vehicle-header {
+  background: #f8fafc;
+  padding: 13px;
+  border-radius: 9px;
   color: #718096;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vehicle-row {
+  padding: 16px 13px;
+  border-bottom: 1px solid #edf0f5;
+  font-size: 14px;
+}
+
+.status {
+  display: inline-block;
+  padding: 5px 9px;
+  border-radius: 20px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.empty {
+  text-align: center;
+  padding: 30px;
+  color: #718096;
+}
+
+.error-box {
+  padding: 15px;
+  border-radius: 9px;
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 @media (max-width: 800px) {
@@ -647,6 +781,16 @@ input {
 
   .stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .vehicle-header,
+  .vehicle-row {
+    grid-template-columns: 70px 1fr 1fr;
+  }
+
+  .vehicle-header span:nth-child(n+4),
+  .vehicle-row span:nth-child(n+4) {
+    display: none;
   }
 }
 
