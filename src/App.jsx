@@ -2730,27 +2730,27 @@ function App() {
                 </div>
               </div>
 
-              <div className="stats">
-                <div className="stat">
-                  <span>Dnešní výpravy</span>
-                  <strong>0</strong>
-                </div>
+            <div className="stats">
+  <div className="stat">
+    <span>Dnešní výpravy</span>
+    <strong>{dashboardStats.vypravy}</strong>
+  </div>
 
-                <div className="stat">
-                  <span>Aktivní vozy</span>
-                  <strong>14</strong>
-                </div>
+  <div className="stat">
+    <span>Aktivní vozy</span>
+    <strong>{dashboardStats.aktivniVozy}</strong>
+  </div>
 
-                <div className="stat">
-                  <span>Vozy celkem</span>
-                  <strong>42</strong>
-                </div>
+  <div className="stat">
+    <span>Vozy celkem</span>
+    <strong>{dashboardStats.vozyCelkem}</strong>
+  </div>
 
-                <div className="stat">
-                  <span>Provozovny</span>
-                  <strong>2</strong>
-                </div>
-              </div>
+  <div className="stat">
+    <span>Provozovny</span>
+    <strong>{dashboardStats.provozovny}</strong>
+  </div>
+</div>
 
               <div className="panel">
                 <h2>
