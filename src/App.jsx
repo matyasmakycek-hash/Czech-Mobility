@@ -100,11 +100,7 @@ function Login({ onLogin }) {
             required
           />
 
-          {error && (
-            <div className="login-error">
-              {error}
-            </div>
-          )}
+          {error && <div className="login-error">{error}</div>}
 
           <button type="submit" disabled={loading}>
             {loading ? "Přihlašování..." : "Přihlásit se"}
@@ -165,9 +161,7 @@ function Register({ onRegistered }) {
     }
 
     if (!invite) {
-      setError(
-        "Tento e-mail nebyl pozván administrátorem."
-      );
+      setError("Tento e-mail nebyl pozván administrátorem.");
       setLoading(false);
       return;
     }
@@ -191,13 +185,11 @@ function Register({ onRegistered }) {
     }
 
     const { error: profileError } =
-      await supabase
-        .from("profiles")
-        .insert({
-          id: data.user.id,
-          jmeno: invite.jmeno || cleanName,
-          role: invite.role,
-        });
+      await supabase.from("profiles").insert({
+        id: data.user.id,
+        jmeno: invite.jmeno || cleanName,
+        role: invite.role,
+      });
 
     if (profileError) {
       setError(profileError.message);
@@ -205,15 +197,10 @@ function Register({ onRegistered }) {
       return;
     }
 
-    const { error: inviteUpdateError } =
-      await supabase
-        .from("user_invites")
-        .update({ used: true })
-        .eq("id", invite.id);
-
-    if (inviteUpdateError) {
-      console.error(inviteUpdateError);
-    }
+    await supabase
+      .from("user_invites")
+      .update({ used: true })
+      .eq("id", invite.id);
 
     setSuccess(
       "Registrace byla úspěšná. Nyní se můžeš přihlásit."
@@ -279,22 +266,12 @@ function Register({ onRegistered }) {
             required
           />
 
-          {error && (
-            <div className="login-error">
-              {error}
-            </div>
-          )}
+          {error && <div className="login-error">{error}</div>}
 
-          {success && (
-            <div className="success-box">
-              {success}
-            </div>
-          )}
+          {success && <div className="success-box">{success}</div>}
 
           <button type="submit" disabled={loading}>
-            {loading
-              ? "Registrace..."
-              : "Zaregistrovat se"}
+            {loading ? "Registrace..." : "Zaregistrovat se"}
           </button>
         </form>
 
@@ -306,6 +283,77 @@ function Register({ onRegistered }) {
           Zpět na přihlášení
         </button>
       </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   PROVOZOVNY
+========================================================= */
+
+function useProvozovny() {
+  const [provozovny, setProvozovny] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function loadProvozovny() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("provozovny")
+      .select("id, nazev, kod")
+      .order("nazev", { ascending: true });
+
+    if (!error) {
+      setProvozovny(data || []);
+    } else {
+      console.error(error);
+      setProvozovny([]);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadProvozovny();
+  }, []);
+
+  return {
+    provozovny,
+    loading,
+    reload: loadProvozovny,
+  };
+}
+
+function ProvozovnaSelect({
+  value,
+  onChange,
+  provozovny,
+  label = "Provozovna",
+  required = false,
+}) {
+  return (
+    <div>
+      <label>{label}</label>
+
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+      >
+        <option value="">Vyber provozovnu</option>
+
+        {provozovny.map((provozovna) => (
+          <option
+            key={provozovna.id}
+            value={provozovna.id}
+          >
+            {provozovna.nazev}
+            {provozovna.kod
+              ? ` (${provozovna.kod})`
+              : ""}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -336,13 +384,10 @@ function AdminUsers() {
   const [form, setForm] = useState(emptyForm);
 
   async function loadUsers() {
-    const { data, error } =
-      await supabase
-        .from("profiles")
-        .select("id, jmeno, role, created_at")
-        .order("created_at", {
-          ascending: false,
-        });
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, jmeno, role, created_at")
+      .order("created_at", { ascending: false });
 
     if (error) {
       setError(error.message);
@@ -353,22 +398,14 @@ function AdminUsers() {
   }
 
   async function loadInvites() {
-    const { data, error } =
-      await supabase
-        .from("user_invites")
-        .select(
-          "id, email, jmeno, role, used, created_at"
-        )
-        .order("created_at", {
-          ascending: false,
-        });
+    const { data, error } = await supabase
+      .from("user_invites")
+      .select("id, email, jmeno, role, used, created_at")
+      .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error(error);
-      return;
+    if (!error) {
+      setInvites(data || []);
     }
-
-    setInvites(data || []);
   }
 
   async function loadAll() {
@@ -427,22 +464,19 @@ function AdminUsers() {
         .maybeSingle();
 
     if (existingProfile) {
-      setError(
-        "Uživatel s tímto jménem už existuje."
-      );
+      setError("Uživatel s tímto jménem už existuje.");
       setSaving(false);
       return;
     }
 
-    const { error } =
-      await supabase
-        .from("user_invites")
-        .insert({
-          email,
-          jmeno: name,
-          role: form.role,
-          used: false,
-        });
+    const { error } = await supabase
+      .from("user_invites")
+      .insert({
+        email,
+        jmeno: name,
+        role: form.role,
+        used: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -450,10 +484,7 @@ function AdminUsers() {
       return;
     }
 
-    setSuccess(
-      `Pozvánka pro ${name} byla vytvořena.`
-    );
-
+    setSuccess(`Pozvánka pro ${name} byla vytvořena.`);
     setForm(emptyForm);
     setShowForm(false);
 
@@ -466,11 +497,10 @@ function AdminUsers() {
     setError("");
     setSuccess("");
 
-    const { error } =
-      await supabase
-        .from("profiles")
-        .update({ role })
-        .eq("id", id);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ role })
+      .eq("id", id);
 
     if (error) {
       setError(error.message);
@@ -483,19 +513,14 @@ function AdminUsers() {
   }
 
   async function deleteInvite(id) {
-    if (
-      !window.confirm(
-        "Opravdu chceš tuto pozvánku zrušit?"
-      )
-    ) {
+    if (!window.confirm("Opravdu chceš tuto pozvánku zrušit?")) {
       return;
     }
 
-    const { error } =
-      await supabase
-        .from("user_invites")
-        .delete()
-        .eq("id", id);
+    const { error } = await supabase
+      .from("user_invites")
+      .delete()
+      .eq("id", id);
 
     if (error) {
       setError(error.message);
@@ -507,16 +532,16 @@ function AdminUsers() {
     await loadInvites();
   }
 
-  const filteredUsers =
-    users.filter((user) => {
-      return (
-        filterRole === "Vše" ||
-        user.role === filterRole
-      );
-    });
+  const filteredUsers = users.filter((user) => {
+    return (
+      filterRole === "Vše" ||
+      user.role === filterRole
+    );
+  });
 
-  const pendingInvites =
-    invites.filter((invite) => !invite.used);
+  const pendingInvites = invites.filter(
+    (invite) => !invite.used
+  );
 
   return (
     <div>
@@ -526,9 +551,7 @@ function AdminUsers() {
           <p>Správa účtů a rolí</p>
         </div>
 
-        <div className="profile-badge">
-          POUZE ADMIN
-        </div>
+        <div className="profile-badge">POUZE ADMIN</div>
       </div>
 
       <div className="admin-user-stats">
@@ -540,33 +563,21 @@ function AdminUsers() {
         <div className="admin-user-stat">
           <span>Administrátoři</span>
           <strong>
-            {
-              users.filter(
-                (u) => u.role === ROLE_ADMIN
-              ).length
-            }
+            {users.filter((u) => u.role === ROLE_ADMIN).length}
           </strong>
         </div>
 
         <div className="admin-user-stat">
           <span>Dispečeři</span>
           <strong>
-            {
-              users.filter(
-                (u) => u.role === ROLE_DISPECER
-              ).length
-            }
+            {users.filter((u) => u.role === ROLE_DISPECER).length}
           </strong>
         </div>
 
         <div className="admin-user-stat">
           <span>Řidiči</span>
           <strong>
-            {
-              users.filter(
-                (u) => u.role === ROLE_RIDIC
-              ).length
-            }
+            {users.filter((u) => u.role === ROLE_RIDIC).length}
           </strong>
         </div>
       </div>
@@ -579,11 +590,7 @@ function AdminUsers() {
         </div>
       )}
 
-      {success && (
-        <div className="success-box">
-          {success}
-        </div>
-      )}
+      {success && <div className="success-box">{success}</div>}
 
       <div className="panel">
         <div className="users-toolbar">
@@ -597,24 +604,15 @@ function AdminUsers() {
           <button
             type="button"
             className="primary-button"
-            onClick={() =>
-              setShowForm(!showForm)
-            }
+            onClick={() => setShowForm(!showForm)}
           >
-            {showForm
-              ? "✕ Zavřít"
-              : "➕ Přidat uživatele"}
+            {showForm ? "✕ Zavřít" : "➕ Přidat uživatele"}
           </button>
         </div>
 
         {showForm && (
           <div className="user-create-box">
             <h3>➕ Přidat uživatele</h3>
-
-            <p>
-              Vytvoří se pozvánka. Uživatel si následně
-              vytvoří účet a vlastní heslo.
-            </p>
 
             <form onSubmit={createInvite}>
               <div className="form-grid">
@@ -629,7 +627,6 @@ function AdminUsers() {
                         jmeno: e.target.value,
                       })
                     }
-                    placeholder="Např. Petr Novák"
                     required
                   />
                 </div>
@@ -646,7 +643,6 @@ function AdminUsers() {
                         email: e.target.value,
                       })
                     }
-                    placeholder="petr@email.cz"
                     required
                   />
                 </div>
@@ -663,14 +659,8 @@ function AdminUsers() {
                       })
                     }
                   >
-                    <option value={ROLE_RIDIC}>
-                      Řidič
-                    </option>
-
-                    <option value={ROLE_DISPECER}>
-                      Dispečer
-                    </option>
-
+                    <option value={ROLE_RIDIC}>Řidič</option>
+                    <option value={ROLE_DISPECER}>Dispečer</option>
                     <option value={ROLE_ADMIN}>
                       Administrátor
                     </option>
@@ -696,136 +686,84 @@ function AdminUsers() {
         <div className="user-filter">
           <select
             value={filterRole}
-            onChange={(e) =>
-              setFilterRole(e.target.value)
-            }
+            onChange={(e) => setFilterRole(e.target.value)}
           >
-            <option value="Vše">
-              Vše
-            </option>
-
-            <option value={ROLE_ADMIN}>
-              Administrátoři
-            </option>
-
-            <option value={ROLE_DISPECER}>
-              Dispečeři
-            </option>
-
-            <option value={ROLE_RIDIC}>
-              Řidiči
-            </option>
+            <option value="Vše">Vše</option>
+            <option value={ROLE_ADMIN}>Administrátoři</option>
+            <option value={ROLE_DISPECER}>Dispečeři</option>
+            <option value={ROLE_RIDIC}>Řidiči</option>
           </select>
         </div>
 
         {loading && (
-          <div className="empty">
-            Načítání uživatelů...
-          </div>
+          <div className="empty">Načítání uživatelů...</div>
         )}
 
-        {!loading &&
-          filteredUsers.length === 0 && (
-            <div className="empty">
-              Žádní uživatelé.
-            </div>
-          )}
+        {!loading && filteredUsers.length === 0 && (
+          <div className="empty">Žádní uživatelé.</div>
+        )}
 
-        {!loading &&
-          filteredUsers.length > 0 && (
-            <div className="users-list">
-              {filteredUsers.map((user) => (
-                <div
-                  className="user-card"
-                  key={user.id}
-                >
-                  <div className="user-card-avatar">
-                    {(user.jmeno || "U")
-                      .charAt(0)
-                      .toUpperCase()}
-                  </div>
-
-                  <div className="user-card-main">
-                    <strong>
-                      {user.jmeno || "Bez jména"}
-                    </strong>
-
-                    <small>
-                      {user.id}
-                    </small>
-                  </div>
-
-                  <div>
-                    <small>Role</small>
-
-                    <strong>
-                      {getRoleName(user.role)}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <small>Vytvořeno</small>
-
-                    <strong>
-                      {user.created_at
-                        ? new Date(
-                            user.created_at
-                          ).toLocaleDateString(
-                            "cs-CZ"
-                          )
-                        : "-"}
-                    </strong>
-                  </div>
-
-                  <select
-                    value={
-                      user.role || ROLE_RIDIC
-                    }
-                    onChange={(e) =>
-                      changeRole(
-                        user.id,
-                        e.target.value
-                      )
-                    }
-                  >
-                    <option value={ROLE_RIDIC}>
-                      Řidič
-                    </option>
-
-                    <option value={ROLE_DISPECER}>
-                      Dispečer
-                    </option>
-
-                    <option value={ROLE_ADMIN}>
-                      Administrátor
-                    </option>
-                  </select>
+        {!loading && filteredUsers.length > 0 && (
+          <div className="users-list">
+            {filteredUsers.map((user) => (
+              <div className="user-card" key={user.id}>
+                <div className="user-card-avatar">
+                  {(user.jmeno || "U")
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
-              ))}
-            </div>
-          )}
+
+                <div className="user-card-main">
+                  <strong>{user.jmeno || "Bez jména"}</strong>
+                  <small>{user.id}</small>
+                </div>
+
+                <div>
+                  <small>Role</small>
+                  <strong>{getRoleName(user.role)}</strong>
+                </div>
+
+                <div>
+                  <small>Vytvořeno</small>
+
+                  <strong>
+                    {user.created_at
+                      ? new Date(
+                          user.created_at
+                        ).toLocaleDateString("cs-CZ")
+                      : "-"}
+                  </strong>
+                </div>
+
+                <select
+                  value={user.role || ROLE_RIDIC}
+                  onChange={(e) =>
+                    changeRole(user.id, e.target.value)
+                  }
+                >
+                  <option value={ROLE_RIDIC}>Řidič</option>
+                  <option value={ROLE_DISPECER}>Dispečer</option>
+                  <option value={ROLE_ADMIN}>
+                    Administrátor
+                  </option>
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="panel">
         <h2>Čekající registrace</h2>
 
-        <p className="muted">
-          Pozvánky, které ještě nebyly použity.
-        </p>
-
-        {pendingInvites.length === 0 && (
+        {pendingInvites.length === 0 ? (
           <div className="empty">
             Žádné čekající registrace.
           </div>
-        )}
-
-        {pendingInvites.length > 0 && (
+        ) : (
           <div className="users-list">
             {pendingInvites.map((invite) => (
-              <div
-                className="user-card"
-                key={invite.id}
-              >
+              <div className="user-card" key={invite.id}>
                 <div className="user-card-avatar pending-avatar">
                   {(invite.jmeno || "U")
                     .charAt(0)
@@ -833,21 +771,13 @@ function AdminUsers() {
                 </div>
 
                 <div className="user-card-main">
-                  <strong>
-                    {invite.jmeno}
-                  </strong>
-
-                  <small>
-                    {invite.email}
-                  </small>
+                  <strong>{invite.jmeno}</strong>
+                  <small>{invite.email}</small>
                 </div>
 
                 <div>
                   <small>Role</small>
-
-                  <strong>
-                    {getRoleName(invite.role)}
-                  </strong>
+                  <strong>{getRoleName(invite.role)}</strong>
                 </div>
 
                 <span className="pending-label">
@@ -857,9 +787,7 @@ function AdminUsers() {
                 <button
                   type="button"
                   className="delete-button"
-                  onClick={() =>
-                    deleteInvite(invite.id)
-                  }
+                  onClick={() => deleteInvite(invite.id)}
                 >
                   🗑️ Zrušit
                 </button>
@@ -908,7 +836,7 @@ function VehicleStatus({ status }) {
 }
 
 /* =========================================================
-   VOZY
+   VOZIDLO - FORMULÁŘ
 ========================================================= */
 
 const emptyVehicle = {
@@ -927,6 +855,7 @@ function VehicleForm({
   onSave,
   onCancel,
   saving,
+  provozovny,
 }) {
   const [form, setForm] = useState(
     initialData || emptyVehicle
@@ -951,88 +880,66 @@ function VehicleForm({
   return (
     <div className="crud-form">
       <h3>
-        {initialData
-          ? "✏️ Upravit vůz"
-          : "➕ Přidat vůz"}
+        {initialData ? "✏️ Upravit vůz" : "➕ Přidat vůz"}
       </h3>
 
       <form onSubmit={submit}>
         <div className="form-grid">
           <div>
             <label>Číslo vozu</label>
+
             <input
               type="number"
               value={form.cislo}
-              onChange={(e) =>
-                change(
-                  "cislo",
-                  e.target.value
-                )
-              }
+              onChange={(e) => change("cislo", e.target.value)}
               required
             />
           </div>
 
           <div>
             <label>Výrobce</label>
+
             <input
               value={form.vyrobce}
               onChange={(e) =>
-                change(
-                  "vyrobce",
-                  e.target.value
-                )
+                change("vyrobce", e.target.value)
               }
-              placeholder="SOR"
               required
             />
           </div>
 
           <div>
             <label>Typ</label>
+
             <input
               value={form.typ}
-              onChange={(e) =>
-                change(
-                  "typ",
-                  e.target.value
-                )
-              }
-              placeholder="NB 12"
+              onChange={(e) => change("typ", e.target.value)}
               required
             />
           </div>
 
           <div>
             <label>SPZ</label>
+
             <input
               value={form.spz}
-              onChange={(e) =>
-                change(
-                  "spz",
-                  e.target.value
-                )
-              }
-              placeholder="1H2 3456"
+              onChange={(e) => change("spz", e.target.value)}
             />
           </div>
 
           <div>
             <label>Rok</label>
+
             <input
               type="number"
               value={form.rok}
-              onChange={(e) =>
-                change(
-                  "rok",
-                  e.target.value
-                )
-              }
+              onChange={(e) => change("rok", e.target.value)}
             />
           </div>
 
           <div>
             <label>Barevné schéma</label>
+
             <input
               value={form.barevne_schema}
               onChange={(e) =>
@@ -1041,7 +948,6 @@ function VehicleForm({
                   e.target.value
                 )
               }
-              placeholder="Bílá / modrá"
             />
           </div>
 
@@ -1050,12 +956,7 @@ function VehicleForm({
 
             <select
               value={form.stav}
-              onChange={(e) =>
-                change(
-                  "stav",
-                  e.target.value
-                )
-              }
+              onChange={(e) => change("stav", e.target.value)}
             >
               <option>PROVOZNÍ</option>
               <option>V DÍLNĚ / V OPRAVĚ</option>
@@ -1073,21 +974,14 @@ function VehicleForm({
             </select>
           </div>
 
-          <div>
-            <label>ID provozovny</label>
-
-            <input
-              type="number"
-              value={form.provozovna_id}
-              onChange={(e) =>
-                change(
-                  "provozovna_id",
-                  e.target.value
-                )
-              }
-              placeholder="Např. 1"
-            />
-          </div>
+          <ProvozovnaSelect
+            value={form.provozovna_id}
+            onChange={(value) =>
+              change("provozovna_id", value)
+            }
+            provozovny={provozovny}
+            required
+          />
         </div>
 
         <div className="form-buttons">
@@ -1096,9 +990,7 @@ function VehicleForm({
             className="primary-button"
             disabled={saving}
           >
-            {saving
-              ? "Ukládání..."
-              : "✓ Uložit"}
+            {saving ? "Ukládání..." : "✓ Uložit"}
           </button>
 
           <button
@@ -1127,21 +1019,23 @@ function AdminVehicles() {
   const [editing, setEditing] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [selectedProvozovna, setSelectedProvozovna] =
+    useState("");
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const { provozovny } = useProvozovny();
 
   async function loadVehicles() {
     setLoading(true);
 
-    const { data, error } =
-      await supabase
-        .from("vozy")
-        .select(
-          "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-        )
-        .order("cislo", {
-          ascending: true,
-        });
+    const { data, error } = await supabase
+      .from("vozy")
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
+      .order("cislo", { ascending: true });
 
     if (error) {
       setError(error.message);
@@ -1156,6 +1050,13 @@ function AdminVehicles() {
   useEffect(() => {
     loadVehicles();
   }, []);
+
+  function getProvozovnaName(id) {
+    return (
+      provozovny.find((p) => Number(p.id) === Number(id))
+        ?.nazev || "-"
+    );
+  }
 
   async function saveVehicle(form) {
     setSaving(true);
@@ -1208,9 +1109,7 @@ function AdminVehicles() {
     }
 
     setSuccess(
-      editing
-        ? "Vůz byl upraven."
-        : "Vůz byl přidán."
+      editing ? "Vůz byl upraven." : "Vůz byl přidán."
     );
 
     setShowForm(false);
@@ -1230,14 +1129,10 @@ function AdminVehicles() {
       return;
     }
 
-    setError("");
-    setSuccess("");
-
-    const { error } =
-      await supabase
-        .from("vozy")
-        .delete()
-        .eq("id", vehicle.id);
+    const { error } = await supabase
+      .from("vozy")
+      .delete()
+      .eq("id", vehicle.id);
 
     if (error) {
       setError(error.message);
@@ -1249,42 +1144,46 @@ function AdminVehicles() {
     await loadVehicles();
   }
 
-  const filtered =
-    vehicles.filter((vehicle) => {
-      const text = [
-        vehicle.cislo,
-        vehicle.vyrobce,
-        vehicle.typ,
-        vehicle.spz,
-        vehicle.rok,
-        vehicle.barevne_schema,
-        vehicle.stav,
-      ]
-        .filter(
-          (x) =>
-            x !== null &&
-            x !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
+  const filtered = vehicles.filter((vehicle) => {
+    if (
+      selectedProvozovna &&
+      Number(vehicle.provozovna_id) !==
+        Number(selectedProvozovna)
+    ) {
+      return false;
+    }
 
-      return text.includes(
-        search.toLowerCase()
-      );
-    });
+    const text = [
+      vehicle.cislo,
+      vehicle.vyrobce,
+      vehicle.typ,
+      vehicle.spz,
+      vehicle.rok,
+      vehicle.barevne_schema,
+      vehicle.stav,
+      getProvozovnaName(vehicle.provozovna_id),
+    ]
+      .filter(
+        (x) =>
+          x !== null &&
+          x !== undefined
+      )
+      .join(" ")
+      .toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Administrace vozů</h1>
-          <p>
-            Přidávání, úprava a mazání vozů
-          </p>
+          <p>Přidávání, úprava a mazání vozů</p>
         </div>
 
         <div className="profile-badge">
-          {vehicles.length} VOZŮ
+          {filtered.length} VOZŮ
         </div>
       </div>
 
@@ -1303,6 +1202,23 @@ function AdminVehicles() {
       )}
 
       <div className="panel">
+        <div className="provozovna-bar">
+          <ProvozovnaSelect
+            value={selectedProvozovna}
+            onChange={setSelectedProvozovna}
+            provozovny={provozovny}
+            label="Zobrazit provozovnu"
+          />
+
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setSelectedProvozovna("")}
+          >
+            Všechny provozovny
+          </button>
+        </div>
+
         <div className="users-toolbar">
           <div>
             <h2>Vozový park</h2>
@@ -1319,9 +1235,7 @@ function AdminVehicles() {
               setShowForm(!showForm);
             }}
           >
-            {showForm
-              ? "✕ Zavřít"
-              : "➕ Přidat vůz"}
+            {showForm ? "✕ Zavřít" : "➕ Přidat vůz"}
           </button>
         </div>
 
@@ -1334,6 +1248,7 @@ function AdminVehicles() {
               setEditing(null);
             }}
             saving={saving}
+            provozovny={provozovny}
           />
         )}
 
@@ -1342,99 +1257,91 @@ function AdminVehicles() {
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
         />
 
         {loading && (
-          <div className="empty">
-            Načítání vozů...
-          </div>
+          <div className="empty">Načítání vozů...</div>
         )}
 
-        {!loading &&
-          filtered.length === 0 && (
-            <div className="empty">
-              Žádné vozy.
-            </div>
-          )}
+        {!loading && filtered.length === 0 && (
+          <div className="empty">Žádné vozy.</div>
+        )}
 
-        {!loading &&
-          filtered.length > 0 && (
-            <div className="admin-vehicles-list">
-              {filtered.map((vehicle) => (
-                <div
-                  className="admin-vehicle-card"
-                  key={vehicle.id}
-                >
-                  <div className="vehicle-number">
-                    {vehicle.cislo}
-                  </div>
-
-                  <div className="vehicle-main">
-                    <strong>
-                      {vehicle.vyrobce}{" "}
-                      {vehicle.typ}
-                    </strong>
-
-                    <small>
-                      SPZ: {vehicle.spz || "-"}{" "}
-                      • Rok: {vehicle.rok || "-"}
-                    </small>
-
-                    <small>
-                      Schéma:{" "}
-                      {vehicle.barevne_schema ||
-                        "-"}
-                    </small>
-                  </div>
-
-                  <VehicleStatus
-                    status={vehicle.stav}
-                  />
-
-                  <div className="vehicle-actions">
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => {
-                        setEditing({
-                          ...vehicle,
-                          cislo:
-                            vehicle.cislo ?? "",
-                          rok:
-                            vehicle.rok ?? "",
-                          provozovna_id:
-                            vehicle.provozovna_id ??
-                            "",
-                          spz:
-                            vehicle.spz || "",
-                          barevne_schema:
-                            vehicle.barevne_schema ||
-                            "",
-                        });
-
-                        setShowForm(true);
-                      }}
-                    >
-                      ✏️ Upravit
-                    </button>
-
-                    <button
-                      className="delete-button"
-                      type="button"
-                      onClick={() =>
-                        deleteVehicle(vehicle)
-                      }
-                    >
-                      🗑️ Smazat
-                    </button>
-                  </div>
+        {!loading && filtered.length > 0 && (
+          <div className="admin-vehicles-list">
+            {filtered.map((vehicle) => (
+              <div
+                className="admin-vehicle-card"
+                key={vehicle.id}
+              >
+                <div className="vehicle-number">
+                  {vehicle.cislo}
                 </div>
-              ))}
-            </div>
-          )}
+
+                <div className="vehicle-main">
+                  <strong>
+                    {vehicle.vyrobce} {vehicle.typ}
+                  </strong>
+
+                  <small>
+                    SPZ: {vehicle.spz || "-"} • Rok:{" "}
+                    {vehicle.rok || "-"}
+                  </small>
+
+                  <small>
+                    Provozovna:{" "}
+                    {getProvozovnaName(
+                      vehicle.provozovna_id
+                    )}
+                  </small>
+
+                  <small>
+                    Schéma:{" "}
+                    {vehicle.barevne_schema || "-"}
+                  </small>
+                </div>
+
+                <VehicleStatus status={vehicle.stav} />
+
+                <div className="vehicle-actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setEditing({
+                        ...vehicle,
+                        cislo:
+                          vehicle.cislo ?? "",
+                        rok:
+                          vehicle.rok ?? "",
+                        provozovna_id:
+                          vehicle.provozovna_id ?? "",
+                        spz: vehicle.spz || "",
+                        barevne_schema:
+                          vehicle.barevne_schema || "",
+                      });
+
+                      setShowForm(true);
+                    }}
+                  >
+                    ✏️ Upravit
+                  </button>
+
+                  <button
+                    className="delete-button"
+                    type="button"
+                    onClick={() =>
+                      deleteVehicle(vehicle)
+                    }
+                  >
+                    🗑️ Smazat
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1449,22 +1356,24 @@ function Vehicles() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedProvozovna, setSelectedProvozovna] =
+    useState("");
+
+  const { provozovny } = useProvozovny();
 
   async function loadVehicles() {
     setLoading(true);
 
-    const { data, error } =
-      await supabase
-        .from("vozy")
-        .select(
-          "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav"
-        )
-        .order("cislo", {
-          ascending: true,
-        });
+    const { data, error } = await supabase
+      .from("vozy")
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id"
+      )
+      .order("cislo", { ascending: true });
 
     if (error) {
       setError(error.message);
+      setVehicles([]);
     } else {
       setVehicles(data || []);
     }
@@ -1476,120 +1385,116 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filtered =
-    vehicles.filter((vehicle) => {
-      const text = [
-        vehicle.cislo,
-        vehicle.vyrobce,
-        vehicle.typ,
-        vehicle.spz,
-        vehicle.rok,
-        vehicle.barevne_schema,
-        vehicle.stav,
-      ]
-        .filter(
-          (x) =>
-            x !== null &&
-            x !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
+  const filtered = vehicles.filter((vehicle) => {
+    if (
+      selectedProvozovna &&
+      Number(vehicle.provozovna_id) !==
+        Number(selectedProvozovna)
+    ) {
+      return false;
+    }
 
-      return text.includes(
-        search.toLowerCase()
-      );
-    });
+    const text = [
+      vehicle.cislo,
+      vehicle.vyrobce,
+      vehicle.typ,
+      vehicle.spz,
+      vehicle.rok,
+      vehicle.barevne_schema,
+      vehicle.stav,
+    ]
+      .filter(
+        (x) =>
+          x !== null &&
+          x !== undefined
+      )
+      .join(" ")
+      .toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Vozy</h1>
-          <p>
-            Vozový park Czech Mobility
-          </p>
+          <p>Vozový park Czech Mobility</p>
         </div>
 
         <div className="profile-badge">
-          {vehicles.length} VOZŮ
+          {filtered.length} VOZŮ
         </div>
       </div>
 
-      <div className="panel vehicles-panel">
+      <div className="panel">
+        <div className="provozovna-bar">
+          <ProvozovnaSelect
+            value={selectedProvozovna}
+            onChange={setSelectedProvozovna}
+            provozovny={provozovny}
+            label="Provozovna"
+          />
+
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setSelectedProvozovna("")}
+          >
+            Všechny provozovny
+          </button>
+        </div>
+
         <input
           className="search"
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
         />
 
         {loading && (
-          <div className="empty">
-            Načítání vozů...
-          </div>
+          <div className="empty">Načítání vozů...</div>
         )}
 
-        {error && (
-          <div className="error-box">
-            {error}
-          </div>
-        )}
+        {error && <div className="error-box">{error}</div>}
 
-        {!loading &&
-          !error &&
-          filtered.length > 0 && (
-            <>
-              <div className="vehicle-header">
-                <span>Číslo</span>
-                <span>Výrobce</span>
-                <span>Typ</span>
-                <span>SPZ</span>
-                <span>Rok</span>
-                <span>Stav</span>
+        {!loading && !error && filtered.length > 0 && (
+          <>
+            <div className="vehicle-header">
+              <span>Číslo</span>
+              <span>Výrobce</span>
+              <span>Typ</span>
+              <span>SPZ</span>
+              <span>Rok</span>
+              <span>Stav</span>
+            </div>
+
+            {filtered.map((vehicle) => (
+              <div
+                className="vehicle-row"
+                key={vehicle.id}
+              >
+                <strong>{vehicle.cislo}</strong>
+
+                <span>{vehicle.vyrobce || "-"}</span>
+
+                <span>{vehicle.typ || "-"}</span>
+
+                <span>{vehicle.spz || "-"}</span>
+
+                <span>{vehicle.rok || "-"}</span>
+
+                <VehicleStatus status={vehicle.stav} />
               </div>
-
-              {filtered.map((vehicle) => (
-                <div
-                  className="vehicle-row"
-                  key={vehicle.id}
-                >
-                  <strong>
-                    {vehicle.cislo}
-                  </strong>
-
-                  <span>
-                    {vehicle.vyrobce || "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.typ || "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.spz || "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.rok || "-"}
-                  </span>
-
-                  <VehicleStatus
-                    status={vehicle.stav}
-                  />
-                </div>
-              ))}
-            </>
-          )}
+            ))}
+          </>
+        )}
 
         {!loading &&
           !error &&
           filtered.length === 0 && (
-            <div className="empty">
-              Žádné vozy.
-            </div>
+            <div className="empty">Žádné vozy.</div>
           )}
       </div>
     </div>
@@ -1602,6 +1507,7 @@ function Vehicles() {
 
 const emptyReport = {
   uzivatel_id: "",
+  provozovna_id: "",
   datum: "",
   linka: "",
   smer: "",
@@ -1622,6 +1528,7 @@ function ReportForm({
   onCancel,
   saving,
   adminMode,
+  provozovny,
 }) {
   const [form, setForm] = useState(
     initialData || {
@@ -1629,6 +1536,8 @@ function ReportForm({
       uzivatel_id: currentUserId,
     }
   );
+
+  const [vozy, setVozy] = useState([]);
 
   useEffect(() => {
     setForm(
@@ -1639,15 +1548,65 @@ function ReportForm({
     );
   }, [initialData, currentUserId]);
 
+  useEffect(() => {
+    async function loadVozy() {
+      if (!form.provozovna_id) {
+        setVozy([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("vozy")
+        .select(
+          "id, cislo, vyrobce, typ, spz"
+        )
+        .eq(
+          "provozovna_id",
+          Number(form.provozovna_id)
+        )
+        .order("cislo", {
+          ascending: true,
+        });
+
+      if (error) {
+        console.error(error);
+        setVozy([]);
+      } else {
+        setVozy(data || []);
+      }
+    }
+
+    loadVozy();
+  }, [form.provozovna_id]);
+
   function change(name, value) {
-    setForm((old) => ({
-      ...old,
-      [name]: value,
-    }));
+    setForm((old) => {
+      const next = {
+        ...old,
+        [name]: value,
+      };
+
+      if (name === "provozovna_id") {
+        next.vuz = "";
+      }
+
+      return next;
+    });
   }
 
   function submit(e) {
     e.preventDefault();
+
+    if (!form.provozovna_id) {
+      alert("Vyber provozovnu.");
+      return;
+    }
+
+    if (!form.vuz) {
+      alert("Vyber vůz.");
+      return;
+    }
+
     onSave(form);
   }
 
@@ -1684,17 +1643,52 @@ function ReportForm({
                     key={user.id}
                     value={user.id}
                   >
-                    {user.jmeno ||
-                      user.id}{" "}
-                    —{" "}
-                    {getRoleName(
-                      user.role
-                    )}
+                    {user.jmeno || user.id} —{" "}
+                    {getRoleName(user.role)}
                   </option>
                 ))}
               </select>
             </div>
           )}
+
+          <ProvozovnaSelect
+            value={form.provozovna_id}
+            onChange={(value) =>
+              change("provozovna_id", value)
+            }
+            provozovny={provozovny}
+            required
+          />
+
+          <div>
+            <label>Vůz</label>
+
+            <select
+              value={form.vuz || ""}
+              onChange={(e) =>
+                change("vuz", e.target.value)
+              }
+              disabled={!form.provozovna_id}
+              required
+            >
+              <option value="">
+                {!form.provozovna_id
+                  ? "Nejdříve vyber provozovnu"
+                  : "Vyber vůz"}
+              </option>
+
+              {vozy.map((vehicle) => (
+                <option
+                  key={vehicle.id}
+                  value={String(vehicle.cislo)}
+                >
+                  {vehicle.cislo} –{" "}
+                  {vehicle.vyrobce}{" "}
+                  {vehicle.typ}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div>
             <label>Datum</label>
@@ -1703,10 +1697,7 @@ function ReportForm({
               type="date"
               value={form.datum || ""}
               onChange={(e) =>
-                change(
-                  "datum",
-                  e.target.value
-                )
+                change("datum", e.target.value)
               }
               required
             />
@@ -1718,10 +1709,7 @@ function ReportForm({
             <input
               value={form.linka || ""}
               onChange={(e) =>
-                change(
-                  "linka",
-                  e.target.value
-                )
+                change("linka", e.target.value)
               }
               placeholder="Např. 12"
               required
@@ -1734,28 +1722,9 @@ function ReportForm({
             <input
               value={form.smer || ""}
               onChange={(e) =>
-                change(
-                  "smer",
-                  e.target.value
-                )
+                change("smer", e.target.value)
               }
-              placeholder="Např. Terminál HD → ..."
-              required
-            />
-          </div>
-
-          <div>
-            <label>Vůz</label>
-
-            <input
-              value={form.vuz || ""}
-              onChange={(e) =>
-                change(
-                  "vuz",
-                  e.target.value
-                )
-              }
-              placeholder="Např. 123"
+              placeholder="Např. Terminál → Břeclavsko"
               required
             />
           </div>
@@ -1767,10 +1736,7 @@ function ReportForm({
               type="time"
               value={form.zacatek || ""}
               onChange={(e) =>
-                change(
-                  "zacatek",
-                  e.target.value
-                )
+                change("zacatek", e.target.value)
               }
               required
             />
@@ -1783,10 +1749,7 @@ function ReportForm({
               type="time"
               value={form.konec || ""}
               onChange={(e) =>
-                change(
-                  "konec",
-                  e.target.value
-                )
+                change("konec", e.target.value)
               }
               required
             />
@@ -1799,9 +1762,7 @@ function ReportForm({
             className="primary-button"
             disabled={saving}
           >
-            {saving
-              ? "Ukládání..."
-              : "✓ Uložit výkaz"}
+            {saving ? "Ukládání..." : "✓ Uložit výkaz"}
           </button>
 
           <button
@@ -1813,6 +1774,81 @@ function ReportForm({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* =========================================================
+   KARTA VÝKAZU
+========================================================= */
+
+function ReportCard({
+  report,
+  userName,
+  provozovnaName,
+  onEdit,
+  onDelete,
+}) {
+  return (
+    <div className="report-card">
+      <div className="report-date">
+        <strong>
+          {report.datum
+            ? new Date(
+                `${report.datum}T00:00:00`
+              ).toLocaleDateString("cs-CZ")
+            : "-"}
+        </strong>
+
+        {userName && <small>{userName}</small>}
+      </div>
+
+      <div>
+        <small>Provozovna</small>
+        <strong>{provozovnaName || "-"}</strong>
+      </div>
+
+      <div>
+        <small>Linka</small>
+        <strong>{report.linka || "-"}</strong>
+      </div>
+
+      <div>
+        <small>Vůz</small>
+        <strong>{report.vuz || "-"}</strong>
+      </div>
+
+      <div>
+        <small>Čas</small>
+        <strong>
+          {report.zacatek || "-"} –{" "}
+          {report.konec || "-"}
+        </strong>
+      </div>
+
+      {(onEdit || onDelete) && (
+        <div className="report-actions">
+          {onEdit && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onEdit}
+            >
+              ✏️
+            </button>
+          )}
+
+          {onDelete && (
+            <button
+              className="delete-button"
+              type="button"
+              onClick={onDelete}
+            >
+              🗑️
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1832,22 +1868,19 @@ function MyReports({ user }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const { provozovny } = useProvozovny();
+
   async function loadReports() {
     setLoading(true);
 
-    const { data, error } =
-      await supabase
-        .from("vykazy")
-        .select(
-          "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec"
-        )
-        .eq("uzivatel_id", user.id)
-        .order("datum", {
-          ascending: false,
-        })
-        .order("zacatek", {
-          ascending: false,
-        });
+    const { data, error } = await supabase
+      .from("vykazy")
+      .select(
+        "id, uzivatel_id, provozovna_id, datum, linka, smer, vuz, zacatek, konec"
+      )
+      .eq("uzivatel_id", user.id)
+      .order("datum", { ascending: false })
+      .order("zacatek", { ascending: false });
 
     if (error) {
       setError(error.message);
@@ -1863,6 +1896,14 @@ function MyReports({ user }) {
     loadReports();
   }, [user.id]);
 
+  function getProvozovnaName(id) {
+    return (
+      provozovny.find(
+        (p) => Number(p.id) === Number(id)
+      )?.nazev || "-"
+    );
+  }
+
   async function saveReport(form) {
     setSaving(true);
     setError("");
@@ -1870,6 +1911,7 @@ function MyReports({ user }) {
 
     const payload = {
       uzivatel_id: user.id,
+      provozovna_id: Number(form.provozovna_id),
       datum: form.datum,
       linka: form.linka.trim(),
       smer: form.smer.trim(),
@@ -1921,12 +1963,11 @@ function MyReports({ user }) {
       return;
     }
 
-    const { error } =
-      await supabase
-        .from("vykazy")
-        .delete()
-        .eq("id", report.id)
-        .eq("uzivatel_id", user.id);
+    const { error } = await supabase
+      .from("vykazy")
+      .delete()
+      .eq("id", report.id)
+      .eq("uzivatel_id", user.id);
 
     if (error) {
       setError(error.message);
@@ -1943,30 +1984,21 @@ function MyReports({ user }) {
       <div className="topbar">
         <div>
           <h1>Moje výkazy</h1>
-          <p>
-            Výkazy přihlášeného uživatele
-          </p>
+          <p>Výkazy přihlášeného uživatele</p>
         </div>
       </div>
 
-      {error && (
-        <div className="error-box">
-          {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="success-box">
-          {success}
-        </div>
-      )}
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
 
       <div className="panel">
         <div className="users-toolbar">
           <div>
             <h2>Moje výkazy</h2>
+
             <p className="muted">
-              Zde vidíš pouze svoje výkazy.
+              Při přidání nejdříve vybereš provozovnu a potom
+              pouze vůz z této provozovny.
             </p>
           </div>
 
@@ -1978,9 +2010,7 @@ function MyReports({ user }) {
               setShowForm(!showForm);
             }}
           >
-            {showForm
-              ? "✕ Zavřít"
-              : "➕ Přidat výkaz"}
+            {showForm ? "✕ Zavřít" : "➕ Přidat výkaz"}
           </button>
         </div>
 
@@ -1996,6 +2026,7 @@ function MyReports({ user }) {
               setEditing(null);
             }}
             saving={saving}
+            provozovny={provozovny}
           />
         )}
 
@@ -2005,116 +2036,31 @@ function MyReports({ user }) {
           </div>
         )}
 
-        {!loading &&
-          reports.length === 0 && (
-            <div className="empty">
-              Zatím žádné výkazy.
-            </div>
-          )}
+        {!loading && reports.length === 0 && (
+          <div className="empty">
+            Zatím žádné výkazy.
+          </div>
+        )}
 
-        {!loading &&
-          reports.length > 0 && (
-            <div className="reports-list">
-              {reports.map((report) => (
-                <ReportCard
-                  key={report.id}
-                  report={report}
-                  onEdit={() => {
-                    setEditing(report);
-                    setShowForm(true);
-                  }}
-                  onDelete={() =>
-                    deleteReport(report)
-                  }
-                />
-              ))}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   KARTA VÝKAZU
-========================================================= */
-
-function ReportCard({
-  report,
-  userName,
-  onEdit,
-  onDelete,
-}) {
-  return (
-    <div className="report-card">
-      <div className="report-date">
-        <strong>
-          {report.datum
-            ? new Date(
-                `${report.datum}T00:00:00`
-              ).toLocaleDateString(
-                "cs-CZ"
-              )
-            : "-"}
-        </strong>
-
-        {userName && (
-          <small>{userName}</small>
+        {!loading && reports.length > 0 && (
+          <div className="reports-list">
+            {reports.map((report) => (
+              <ReportCard
+                key={report.id}
+                report={report}
+                provozovnaName={getProvozovnaName(
+                  report.provozovna_id
+                )}
+                onEdit={() => {
+                  setEditing(report);
+                  setShowForm(true);
+                }}
+                onDelete={() => deleteReport(report)}
+              />
+            ))}
+          </div>
         )}
       </div>
-
-      <div>
-        <small>Linka</small>
-        <strong>
-          {report.linka || "-"}
-        </strong>
-      </div>
-
-      <div>
-        <small>Směr</small>
-        <strong>
-          {report.smer || "-"}
-        </strong>
-      </div>
-
-      <div>
-        <small>Vůz</small>
-        <strong>
-          {report.vuz || "-"}
-        </strong>
-      </div>
-
-      <div>
-        <small>Čas</small>
-        <strong>
-          {report.zacatek || "-"} –{" "}
-          {report.konec || "-"}
-        </strong>
-      </div>
-
-      {(onEdit || onDelete) && (
-        <div className="report-actions">
-          {onEdit && (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onEdit}
-            >
-              ✏️
-            </button>
-          )}
-
-          {onDelete && (
-            <button
-              className="delete-button"
-              type="button"
-              onClick={onDelete}
-            >
-              🗑️
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -2134,51 +2080,42 @@ function AdminReports() {
   const [editing, setEditing] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [selectedProvozovna, setSelectedProvozovna] =
+    useState("");
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const { provozovny } = useProvozovny();
 
   async function loadData() {
     setLoading(true);
     setError("");
 
-    const [
-      reportsResult,
-      usersResult,
-    ] = await Promise.all([
-      supabase
-        .from("vykazy")
-        .select(
-          "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec"
-        )
-        .order("datum", {
-          ascending: false,
-        })
-        .order("zacatek", {
-          ascending: false,
-        }),
+    const [reportsResult, usersResult] =
+      await Promise.all([
+        supabase
+          .from("vykazy")
+          .select(
+            "id, uzivatel_id, provozovna_id, datum, linka, smer, vuz, zacatek, konec"
+          )
+          .order("datum", { ascending: false })
+          .order("zacatek", { ascending: false }),
 
-      supabase
-        .from("profiles")
-        .select("id, jmeno, role")
-        .order("jmeno", {
-          ascending: true,
-        }),
-    ]);
+        supabase
+          .from("profiles")
+          .select("id, jmeno, role")
+          .order("jmeno", { ascending: true }),
+      ]);
 
     if (reportsResult.error) {
-      setError(
-        reportsResult.error.message
-      );
+      setError(reportsResult.error.message);
     } else {
-      setReports(
-        reportsResult.data || []
-      );
+      setReports(reportsResult.data || []);
     }
 
     if (usersResult.error) {
-      setError(
-        usersResult.error.message
-      );
+      setError(usersResult.error.message);
     } else {
       setUsers(usersResult.data || []);
     }
@@ -2191,13 +2128,17 @@ function AdminReports() {
   }, []);
 
   function getUserName(id) {
-    const user = users.find(
-      (u) => u.id === id
-    );
-
     return (
-      user?.jmeno ||
+      users.find((u) => u.id === id)?.jmeno ||
       "Neznámý uživatel"
+    );
+  }
+
+  function getProvozovnaName(id) {
+    return (
+      provozovny.find(
+        (p) => Number(p.id) === Number(id)
+      )?.nazev || "-"
     );
   }
 
@@ -2212,8 +2153,21 @@ function AdminReports() {
       return;
     }
 
+    if (!form.provozovna_id) {
+      setError("Vyber provozovnu.");
+      setSaving(false);
+      return;
+    }
+
+    if (!form.vuz) {
+      setError("Vyber vůz.");
+      setSaving(false);
+      return;
+    }
+
     const payload = {
       uzivatel_id: form.uzivatel_id,
+      provozovna_id: Number(form.provozovna_id),
       datum: form.datum,
       linka: form.linka.trim(),
       smer: form.smer.trim(),
@@ -2264,11 +2218,10 @@ function AdminReports() {
       return;
     }
 
-    const { error } =
-      await supabase
-        .from("vykazy")
-        .delete()
-        .eq("id", report.id);
+    const { error } = await supabase
+      .from("vykazy")
+      .delete()
+      .eq("id", report.id);
 
     if (error) {
       setError(error.message);
@@ -2280,63 +2233,74 @@ function AdminReports() {
     await loadData();
   }
 
-  const filtered =
-    reports.filter((report) => {
-      const text = [
-        report.datum,
-        report.linka,
-        report.smer,
-        report.vuz,
-        report.zacatek,
-        report.konec,
-        getUserName(
-          report.uzivatel_id
-        ),
-      ]
-        .filter(
-          (x) =>
-            x !== null &&
-            x !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
+  const filtered = reports.filter((report) => {
+    if (
+      selectedProvozovna &&
+      Number(report.provozovna_id) !==
+        Number(selectedProvozovna)
+    ) {
+      return false;
+    }
 
-      return text.includes(
-        search.toLowerCase()
-      );
-    });
+    const text = [
+      report.datum,
+      report.linka,
+      report.smer,
+      report.vuz,
+      report.zacatek,
+      report.konec,
+      getUserName(report.uzivatel_id),
+      getProvozovnaName(report.provozovna_id),
+    ]
+      .filter(
+        (x) =>
+          x !== null &&
+          x !== undefined
+      )
+      .join(" ")
+      .toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Správa výkazů</h1>
-          <p>
-            Administrace výkazů řidičů
-          </p>
+          <p>Administrace výkazů řidičů</p>
         </div>
 
         <div className="profile-badge">
-          {reports.length} VÝKAZŮ
+          {filtered.length} VÝKAZŮ
         </div>
       </div>
 
-      {error && (
-        <div className="error-box">
-          {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="success-box">
-          {success}
-        </div>
-      )}
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
 
       <div className="panel">
+        <div className="provozovna-bar">
+          <ProvozovnaSelect
+            value={selectedProvozovna}
+            onChange={setSelectedProvozovna}
+            provozovny={provozovny}
+            label="Zobrazit výkazy provozovny"
+          />
+
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setSelectedProvozovna("")}
+          >
+            Všechny provozovny
+          </button>
+        </div>
+
         <div className="users-toolbar">
           <div>
             <h2>Výkazy řidičů</h2>
+
             <p className="muted">
               Přidávání, úprava a mazání výkazů.
             </p>
@@ -2350,9 +2314,7 @@ function AdminReports() {
               setShowForm(!showForm);
             }}
           >
-            {showForm
-              ? "✕ Zavřít"
-              : "➕ Přidat výkaz"}
+            {showForm ? "✕ Zavřít" : "➕ Přidat výkaz"}
           </button>
         </div>
 
@@ -2368,6 +2330,7 @@ function AdminReports() {
               setEditing(null);
             }}
             saving={saving}
+            provozovny={provozovny}
           />
         )}
 
@@ -2376,9 +2339,7 @@ function AdminReports() {
           type="text"
           placeholder="🔎 Hledat výkaz..."
           value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
         />
 
         {loading && (
@@ -2387,34 +2348,35 @@ function AdminReports() {
           </div>
         )}
 
-        {!loading &&
-          filtered.length === 0 && (
-            <div className="empty">
-              Žádné výkazy.
-            </div>
-          )}
+        {!loading && filtered.length === 0 && (
+          <div className="empty">
+            Žádné výkazy.
+          </div>
+        )}
 
-        {!loading &&
-          filtered.length > 0 && (
-            <div className="reports-list">
-              {filtered.map((report) => (
-                <ReportCard
-                  key={report.id}
-                  report={report}
-                  userName={getUserName(
-                    report.uzivatel_id
-                  )}
-                  onEdit={() => {
-                    setEditing(report);
-                    setShowForm(true);
-                  }}
-                  onDelete={() =>
-                    deleteReport(report)
-                  }
-                />
-              ))}
-            </div>
-          )}
+        {!loading && filtered.length > 0 && (
+          <div className="reports-list">
+            {filtered.map((report) => (
+              <ReportCard
+                key={report.id}
+                report={report}
+                userName={getUserName(
+                  report.uzivatel_id
+                )}
+                provozovnaName={getProvozovnaName(
+                  report.provozovna_id
+                )}
+                onEdit={() => {
+                  setEditing(report);
+                  setShowForm(true);
+                }}
+                onDelete={() =>
+                  deleteReport(report)
+                }
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2432,9 +2394,7 @@ function App() {
   const [profileLoading, setProfileLoading] =
     useState(false);
 
-  const [page, setPage] =
-    useState("dashboard");
-
+  const [page, setPage] = useState("dashboard");
   const [showRegister, setShowRegister] =
     useState(false);
 
@@ -2446,21 +2406,14 @@ function App() {
 
     setProfileLoading(true);
 
-    const { data, error } =
-      await supabase
-        .from("profiles")
-        .select(
-          "id, jmeno, role, created_at"
-        )
-        .eq("id", authUser.id)
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, jmeno, role, created_at")
+      .eq("id", authUser.id)
+      .maybeSingle();
 
     if (error) {
-      console.error(
-        "PROFILE ERROR:",
-        error
-      );
-
+      console.error("PROFILE ERROR:", error);
       setProfile(null);
     } else {
       setProfile(data || null);
@@ -2474,24 +2427,20 @@ function App() {
 
     const {
       data: { subscription },
-    } =
-      supabase.auth.onAuthStateChange(
-        async (_event, session) => {
-          const loggedUser =
-            session?.user || null;
+    } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        const loggedUser = session?.user || null;
 
-          setUser(loggedUser);
+        setUser(loggedUser);
 
-          if (loggedUser) {
-            await loadProfile(
-              loggedUser
-            );
-          } else {
-            setProfile(null);
-            setPage("dashboard");
-          }
+        if (loggedUser) {
+          await loadProfile(loggedUser);
+        } else {
+          setProfile(null);
+          setPage("dashboard");
         }
-      );
+      }
+    );
 
     return () => {
       subscription.unsubscribe();
@@ -2506,15 +2455,12 @@ function App() {
       console.error(error);
     }
 
-    const loggedUser =
-      data?.user || null;
+    const loggedUser = data?.user || null;
 
     setUser(loggedUser);
 
     if (loggedUser) {
-      await loadProfile(
-        loggedUser
-      );
+      await loadProfile(loggedUser);
     }
 
     setLoading(false);
@@ -2562,9 +2508,7 @@ function App() {
         <Login
           onLogin={async (loggedUser) => {
             setUser(loggedUser);
-            await loadProfile(
-              loggedUser
-            );
+            await loadProfile(loggedUser);
           }}
         />
 
@@ -2580,23 +2524,13 @@ function App() {
     );
   }
 
-  const role =
-    profile?.role?.toLowerCase() || "";
+  const role = profile?.role?.toLowerCase() || "";
+  const roleName = getRoleName(role);
 
-  const roleName =
-    getRoleName(role);
-
-  const manageVehicles =
-    canManageVehicles(role);
-
-  const manageReports =
-    canManageReports(role);
-
-  const manageUsers =
-    canManageUsers(role);
-
-  const useReports =
-    canUseReports(role);
+  const manageVehicles = canManageVehicles(role);
+  const manageReports = canManageReports(role);
+  const manageUsers = canManageUsers(role);
+  const useReports = canUseReports(role);
 
   return (
     <>
@@ -2605,9 +2539,7 @@ function App() {
       <div className="app">
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-logo">
-              CM
-            </div>
+            <div className="brand-logo">CM</div>
 
             <div>
               <div className="brand-title">
@@ -2703,9 +2635,7 @@ function App() {
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "adminVehicles"
-                  )
+                  setPage("adminVehicles")
                 }
               >
                 <span>⚙</span>
@@ -2721,9 +2651,7 @@ function App() {
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "adminReports"
-                  )
+                  setPage("adminReports")
                 }
               >
                 <span>📋</span>
@@ -2739,9 +2667,7 @@ function App() {
                     : ""
                 }
                 onClick={() =>
-                  setPage(
-                    "adminUsers"
-                  )
+                  setPage("adminUsers")
                 }
               >
                 <span>👥</span>
@@ -2763,8 +2689,7 @@ function App() {
 
             <div className="user-info">
               <div className="user-name">
-                {profile?.jmeno ||
-                  user.email}
+                {profile?.jmeno || user.email}
               </div>
 
               <div className="user-role">
@@ -2787,9 +2712,9 @@ function App() {
               <div className="topbar">
                 <div>
                   <h1>Dashboard</h1>
+
                   <p>
-                    Informační systém
-                    Czech Mobility
+                    Informační systém Czech Mobility
                   </p>
                 </div>
 
@@ -2800,40 +2725,30 @@ function App() {
 
               <div className="stats">
                 <div className="stat">
-                  <span>
-                    Dnešní výpravy
-                  </span>
+                  <span>Dnešní výpravy</span>
                   <strong>0</strong>
                 </div>
 
                 <div className="stat">
-                  <span>
-                    Aktivní vozy
-                  </span>
+                  <span>Aktivní vozy</span>
                   <strong>14</strong>
                 </div>
 
                 <div className="stat">
-                  <span>
-                    Vozy celkem
-                  </span>
+                  <span>Vozy celkem</span>
                   <strong>42</strong>
                 </div>
 
                 <div className="stat">
-                  <span>
-                    Provozovny
-                  </span>
-                  <strong>1</strong>
+                  <span>Provozovny</span>
+                  <strong>2</strong>
                 </div>
               </div>
 
               <div className="panel">
                 <h2>
                   Vítej,{" "}
-                  {profile?.jmeno ||
-                    user.email}{" "}
-                  👋
+                  {profile?.jmeno || user.email} 👋
                 </h2>
 
                 <p>
@@ -2856,9 +2771,7 @@ function App() {
             </div>
           )}
 
-          {page === "vehicles" && (
-            <Vehicles />
-          )}
+          {page === "vehicles" && <Vehicles />}
 
           {page === "reports" &&
             useReports && (
@@ -2910,8 +2823,6 @@ select {
 button {
   user-select: none;
 }
-
-/* LOGIN */
 
 .login-page {
   min-height: 100vh;
@@ -3015,16 +2926,12 @@ button {
   cursor: pointer;
 }
 
-/* LOADING */
-
 .loading {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-
-/* APP */
 
 .app {
   min-height: 100vh;
@@ -3268,8 +3175,6 @@ button {
   color: #718096;
 }
 
-/* BUTTONS */
-
 .primary-button,
 .secondary-button,
 .delete-button {
@@ -3300,17 +3205,11 @@ button {
   color: #b91c1c;
 }
 
-/* USERS */
-
 .users-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 15px;
-}
-
-.users-toolbar h2 {
-  margin-bottom: 5px;
 }
 
 .user-create-box,
@@ -3322,18 +3221,11 @@ button {
   border-radius: 12px;
 }
 
-.user-create-box h3,
-.crud-form h3 {
-  margin-top: 0;
-}
-
 .user-filter {
   margin: 20px 0;
 }
 
-.user-filter select,
-.user-card select,
-.form-grid select {
+.user-filter select {
   padding: 10px;
   border: 1px solid #d9dee7;
   border-radius: 9px;
@@ -3362,10 +3254,6 @@ button {
   min-width: 0;
 }
 
-.user-card-main strong {
-  font-size: 15px;
-}
-
 .user-card small {
   display: block;
   color: #718096;
@@ -3387,8 +3275,6 @@ button {
   font-size: 11px;
   font-weight: 700;
 }
-
-/* FORMS */
 
 .form-grid {
   display: grid;
@@ -3425,7 +3311,31 @@ button {
   flex-wrap: wrap;
 }
 
-/* VOZY */
+.provozovna-bar {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.provozovna-bar > div:first-child {
+  flex: 1;
+}
+
+.provozovna-bar label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.provozovna-bar select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  background: white;
+}
 
 .search {
   width: 100%;
@@ -3476,8 +3386,6 @@ button {
   white-space: nowrap;
 }
 
-/* ADMIN VOZY */
-
 .admin-vehicles-list {
   display: flex;
   flex-direction: column;
@@ -3520,8 +3428,6 @@ button {
   gap: 7px;
 }
 
-/* VÝKAZY */
-
 .reports-list {
   display: flex;
   flex-direction: column;
@@ -3530,7 +3436,7 @@ button {
 .report-card {
   display: grid;
   grid-template-columns:
-    130px 100px 1.5fr 90px 150px auto;
+    130px 130px 100px 100px 150px auto;
   gap: 18px;
   align-items: center;
   padding: 18px 5px;
@@ -3553,25 +3459,15 @@ button {
   overflow-wrap: anywhere;
 }
 
-.report-date strong {
-  font-size: 14px;
-}
-
-.report-date small {
-  margin-top: 4px;
-}
-
 .report-actions {
   display: flex;
   gap: 7px;
 }
 
-/* RESPONSIVE */
-
 @media (max-width: 1200px) {
   .report-card {
     grid-template-columns:
-      120px 80px 1fr 80px 130px auto;
+      120px 120px 80px 90px 130px auto;
   }
 
   .admin-vehicle-card {
@@ -3594,11 +3490,6 @@ button {
   .admin-vehicle-card {
     grid-template-columns:
       60px 1fr;
-  }
-
-  .admin-vehicle-card > *:nth-child(3),
-  .admin-vehicle-card > *:nth-child(4) {
-    grid-column: span 1;
   }
 
   .report-card {
@@ -3638,6 +3529,11 @@ button {
 
   .vehicle-row > * {
     margin-bottom: 5px;
+  }
+
+  .provozovna-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
