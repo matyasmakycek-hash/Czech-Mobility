@@ -5601,11 +5601,20 @@ button {
 
   .vehicle-row {
     grid-template-columns:
-      70px 1fr;
+      70px minmax(0, 1fr);
   }
 
   .vehicle-row > * {
+    min-width: 0;
     margin-bottom: 5px;
+  }
+
+  .vehicle-row .vehicle-status {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+    line-height: 1.25;
   }
 
   .provozovna-bar {
