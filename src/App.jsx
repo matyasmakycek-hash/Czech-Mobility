@@ -1675,14 +1675,11 @@ function Vehicles({ role }) {
     setLoading(true);
     setError("");
 
-    // Záměrně načítáme jen sloupce, které v původní databázi
-    // prokazatelně existují. Detailní položky, které si doplníš
-    // později do `vozy`, se zobrazí jako —.
+    // Načítáme celý záznam vozu, aby detailní údaje
+    // (reklamy, vybavení, dveře, STK atd.) zůstaly dostupné i po refreshi.
     const { data, error } = await supabase
       .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-      )
+      .select("*")
       .order("cislo", { ascending: true });
 
     if (error) {
