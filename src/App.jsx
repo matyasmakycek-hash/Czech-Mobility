@@ -4,39 +4,74 @@ import { supabase } from "./supabase";
 const ADMIN_EMAIL = "matyas.makycek@gmail.com";
 
 /* =========================================================
-   STAVY VOZIDEL
+   BARVY STAVŮ VOZIDEL
 ========================================================= */
 
-const VEHICLE_STATUSES = [
-  "PROVOZNÍ",
-  "V DÍLNĚ / V OPRAVĚ",
-  "DOČASNĚ ODSTAVEN",
-  "DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN",
-  "SEŠROTOVÁN",
-  "PRODÁN / PŘEDÁN JINÉMU DOPRAVCI",
-  "DOSUD NEZAŘAZEN DO PROVOZU",
-  "SLUŽEBNÍ",
-  "RETRO",
-];
+const VEHICLE_STATUS_COLORS = {
+  "PROVOZNÍ": {
+    background: "#caffca",
+    color: "#166534",
+  },
 
-const STATUS_COLORS = {
-  "PROVOZNÍ": "#CAFFCA",
-  "V DÍLNĚ / V OPRAVĚ": "#FFCA97",
-  "DOČASNĚ ODSTAVEN": "#EAEAEA",
-  "DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN": "#CACACA",
-  "SEŠROTOVÁN": "#FFCACA",
-  "PRODÁN / PŘEDÁN JINÉMU DOPRAVCI": "#FFCAFF",
-  "DOSUD NEZAŘAZEN DO PROVOZU": "#CACAFF",
-  "SLUŽEBNÍ": "#FFFFCA",
-  "RETRO": "#CAFFFF",
+  "V DÍLNĚ / V OPRAVĚ": {
+    background: "#ffca97",
+    color: "#92400e",
+  },
+
+  "DOČASNĚ ODSTAVEN": {
+    background: "#eaeaea",
+    color: "#374151",
+  },
+
+  "DLOUHODOBĚ / DEFINITIVNĚ ODSTAVEN": {
+    background: "#cacaca",
+    color: "#111827",
+  },
+
+  "SEŠROTOVÁN": {
+    background: "#ffcaca",
+    color: "#991b1b",
+  },
+
+  "PRODÁN / PŘEDÁN JINÉMU DOPRAVCI": {
+    background: "#ffcaff",
+    color: "#86198f",
+  },
+
+  "DOSUD NEZAŘAZEN DO PROVOZU": {
+    background: "#cacaff",
+    color: "#3730a3",
+  },
+
+  "SLUŽEBNÍ": {
+    background: "#ffffca",
+    color: "#854d0e",
+  },
+
+  "RETRO": {
+    background: "#caffff",
+    color: "#155e75",
+  },
 };
 
-function getStatusStyle(status) {
-  return {
-    backgroundColor:
-      STATUS_COLORS[status] || "#EAEAEA",
-    color: "#172033",
-  };
+function VehicleStatus({ status }) {
+  const colors =
+    VEHICLE_STATUS_COLORS[status] || {
+      background: "#e5e7eb",
+      color: "#374151",
+    };
+
+  return (
+    <span
+      className="status"
+      style={{
+        background: colors.background,
+        color: colors.color,
+      }}
+    >
+      {status || "-"}
+    </span>
+  );
 }
 
 /* =========================================================
@@ -151,10 +186,8 @@ function Vehicles() {
         ascending: true,
       });
 
-    console.log("VOZY DATA:", data);
-    console.log("VOZY ERROR:", error);
-
     if (error) {
+      console.error("VOZY ERROR:", error);
       setError(error.message);
       setVehicles([]);
     } else {
@@ -168,8 +201,8 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filteredVehicles =
-    vehicles.filter((vehicle) => {
+  const filteredVehicles = vehicles.filter(
+    (vehicle) => {
       const searchText = [
         vehicle.cislo,
         vehicle.vyrobce,
@@ -190,16 +223,15 @@ function Vehicles() {
       return searchText.includes(
         search.toLowerCase()
       );
-    });
+    }
+  );
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Vozy</h1>
-          <p>
-            Vozový park Czech Mobility
-          </p>
+          <p>Vozový park Czech Mobility</p>
         </div>
 
         <div className="profile-badge">
@@ -229,9 +261,7 @@ function Vehicles() {
             <strong>
               Chyba při načítání vozů:
             </strong>
-
             <br />
-
             {error}
           </div>
         )}
@@ -276,21 +306,15 @@ function Vehicles() {
                   </span>
 
                   <span>
-                    <span
-                      className="status"
-                      style={getStatusStyle(
-                        vehicle.stav
-                      )}
-                    >
-                      {vehicle.stav ?? "-"}
-                    </span>
+                    <VehicleStatus
+                      status={vehicle.stav}
+                    />
                   </span>
                 </div>
               )
             )}
 
-            {filteredVehicles.length ===
-              0 && (
+            {filteredVehicles.length === 0 && (
               <div className="empty">
                 {vehicles.length === 0
                   ? "Tabulka vozy neobsahuje žádné záznamy."
@@ -342,35 +366,25 @@ function AdminVehicles() {
   const [success, setSuccess] =
     useState("");
 
-  /* -------------------------------------------------------
-     NAČTENÍ VOZŮ
-  ------------------------------------------------------- */
-
   async function loadVehicles() {
     setLoading(true);
     setError("");
 
-    const { data, error } =
-      await supabase
-        .from("vozy")
-        .select(
-          "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-        )
-        .order("cislo", {
-          ascending: true,
-        });
-
-    console.log(
-      "ADMIN VOZY:",
-      data
-    );
-
-    console.log(
-      "ADMIN ERROR:",
-      error
-    );
+    const { data, error } = await supabase
+      .from("vozy")
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
 
     if (error) {
+      console.error(
+        "ADMIN VOZY ERROR:",
+        error
+      );
+
       setError(error.message);
       setVehicles([]);
     } else {
@@ -379,10 +393,6 @@ function AdminVehicles() {
 
     setLoading(false);
   }
-
-  /* -------------------------------------------------------
-     NAČTENÍ PROVOZOVEN
-  ------------------------------------------------------- */
 
   async function loadProvozovny() {
     const { data, error } =
@@ -393,19 +403,9 @@ function AdminVehicles() {
           ascending: true,
         });
 
-    console.log(
-      "PROVOZOVNY DATA:",
-      data
-    );
-
-    console.log(
-      "PROVOZOVNY ERROR:",
-      error
-    );
-
     if (error) {
       console.error(
-        "CHYBA PROVOZOVEN:",
+        "PROVOZOVNY ERROR:",
         error
       );
 
@@ -420,25 +420,14 @@ function AdminVehicles() {
     loadProvozovny();
   }, []);
 
-  /* -------------------------------------------------------
-     ZMĚNA FORMULÁŘE
-  ------------------------------------------------------- */
-
   function handleChange(e) {
-    const {
-      name,
-      value,
-    } = e.target;
+    const { name, value } = e.target;
 
     setForm((previous) => ({
       ...previous,
       [name]: value,
     }));
   }
-
-  /* -------------------------------------------------------
-     ZAČÍT EDITACI
-  ------------------------------------------------------- */
 
   function startEdit(vehicle) {
     setEditingId(vehicle.id);
@@ -469,17 +458,12 @@ function AdminVehicles() {
         vehicle.barevne_schema ?? "",
 
       stav:
-        vehicle.stav ??
-        "PROVOZNÍ",
+        vehicle.stav ?? "PROVOZNÍ",
 
       provozovna_id:
-        vehicle.provozovna_id !==
-          null &&
-        vehicle.provozovna_id !==
-          undefined
-          ? String(
-              vehicle.provozovna_id
-            )
+        vehicle.provozovna_id !== null &&
+        vehicle.provozovna_id !== undefined
+          ? String(vehicle.provozovna_id)
           : "",
     });
 
@@ -492,10 +476,6 @@ function AdminVehicles() {
     });
   }
 
-  /* -------------------------------------------------------
-     ZRUŠIT EDITACI
-  ------------------------------------------------------- */
-
   function cancelEdit() {
     setEditingId(null);
     setForm({
@@ -504,10 +484,6 @@ function AdminVehicles() {
     setError("");
     setSuccess("");
   }
-
-  /* -------------------------------------------------------
-     ULOŽENÍ VOZU
-  ------------------------------------------------------- */
 
   async function saveVehicle(e) {
     e.preventDefault();
@@ -543,8 +519,7 @@ function AdminVehicles() {
           : null,
 
       barevne_schema:
-        form.barevne_schema.trim() !==
-        ""
+        form.barevne_schema.trim() !== ""
           ? form.barevne_schema.trim()
           : null,
 
@@ -554,16 +529,10 @@ function AdminVehicles() {
           : null,
 
       provozovna_id:
-        form.provozovna_id.trim() !==
-        ""
+        form.provozovna_id.trim() !== ""
           ? form.provozovna_id.trim()
           : null,
     };
-
-    console.log(
-      "ODESÍLANÁ DATA:",
-      vehicleData
-    );
 
     let result;
 
@@ -580,11 +549,6 @@ function AdminVehicles() {
         .select();
     }
 
-    console.log(
-      "SUPABASE RESULT:",
-      result
-    );
-
     if (result.error) {
       console.error(
         "CHYBA ULOŽENÍ:",
@@ -600,15 +564,11 @@ function AdminVehicles() {
       return;
     }
 
-    if (editingId !== null) {
-      setSuccess(
-        "Vůz byl úspěšně upraven."
-      );
-    } else {
-      setSuccess(
-        "Vůz byl úspěšně přidán."
-      );
-    }
+    setSuccess(
+      editingId !== null
+        ? "Vůz byl úspěšně upraven."
+        : "Vůz byl úspěšně přidán."
+    );
 
     setForm({
       ...emptyForm,
@@ -620,10 +580,6 @@ function AdminVehicles() {
 
     setSaving(false);
   }
-
-  /* -------------------------------------------------------
-     SMAZÁNÍ VOZU
-  ------------------------------------------------------- */
 
   async function deleteVehicle(
     id,
@@ -649,11 +605,6 @@ function AdminVehicles() {
         .delete()
         .eq("id", id);
 
-    console.log(
-      "DELETE ERROR:",
-      error
-    );
-
     if (error) {
       console.error(error);
 
@@ -676,10 +627,6 @@ function AdminVehicles() {
     await loadVehicles();
   }
 
-  /* -------------------------------------------------------
-     RENDER
-  ------------------------------------------------------- */
-
   return (
     <div>
       <div className="topbar">
@@ -689,8 +636,7 @@ function AdminVehicles() {
           </h1>
 
           <p>
-            Přidávání, úprava a mazání
-            vozů
+            Přidávání, úprava a mazání vozů
           </p>
         </div>
 
@@ -698,8 +644,6 @@ function AdminVehicles() {
           ADMIN
         </div>
       </div>
-
-      {/* FORMULÁŘ */}
 
       <div className="panel admin-form-panel">
         <h2>
@@ -711,9 +655,7 @@ function AdminVehicles() {
         {error && (
           <div className="error-box">
             <strong>Chyba:</strong>
-
             <br />
-
             {error}
           </div>
         )}
@@ -738,9 +680,7 @@ function AdminVehicles() {
                 name="cislo"
                 type="number"
                 value={form.cislo}
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
                 placeholder="Např. 101"
                 required
               />
@@ -754,12 +694,8 @@ function AdminVehicles() {
               <input
                 name="vyrobce"
                 type="text"
-                value={
-                  form.vyrobce
-                }
-                onChange={
-                  handleChange
-                }
+                value={form.vyrobce}
+                onChange={handleChange}
                 placeholder="Např. Škoda"
                 required
               />
@@ -774,9 +710,7 @@ function AdminVehicles() {
                 name="typ"
                 type="text"
                 value={form.typ}
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
                 placeholder="Např. 12T"
                 required
               />
@@ -791,9 +725,7 @@ function AdminVehicles() {
                 name="spz"
                 type="text"
                 value={form.spz}
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
                 placeholder="1AA 1234"
               />
             </div>
@@ -809,9 +741,7 @@ function AdminVehicles() {
                 min="1900"
                 max="2100"
                 value={form.rok}
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
                 placeholder="2026"
               />
             </div>
@@ -827,9 +757,7 @@ function AdminVehicles() {
                 value={
                   form.barevne_schema
                 }
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
                 placeholder="Např. modro-bílé"
               />
             </div>
@@ -842,30 +770,44 @@ function AdminVehicles() {
               <select
                 name="stav"
                 value={form.stav}
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
               >
-                {VEHICLE_STATUSES.map(
-                  (status) => (
-                    <option
-                      key={status}
-                      value={status}
-                    >
-                      {status}
-                    </option>
-                  )
-                )}
-              </select>
+                <option>
+                  PROVOZNÍ
+                </option>
 
-              <div
-                className="status-preview"
-                style={getStatusStyle(
-                  form.stav
-                )}
-              >
-                {form.stav}
-              </div>
+                <option>
+                  V DÍLNĚ / V OPRAVĚ
+                </option>
+
+                <option>
+                  DOČASNĚ ODSTAVEN
+                </option>
+
+                <option>
+                  DLOUHODOBĚ / DEFINITIVNĚ ODSTAVEN
+                </option>
+
+                <option>
+                  SEŠROTOVÁN
+                </option>
+
+                <option>
+                  PRODÁN / PŘEDÁN JINÉMU DOPRAVCI
+                </option>
+
+                <option>
+                  DOSUD NEZAŘAZEN DO PROVOZU
+                </option>
+
+                <option>
+                  SLUŽEBNÍ
+                </option>
+
+                <option>
+                  RETRO
+                </option>
+              </select>
             </div>
 
             <div>
@@ -878,9 +820,7 @@ function AdminVehicles() {
                 value={
                   form.provozovna_id
                 }
-                onChange={
-                  handleChange
-                }
+                onChange={handleChange}
               >
                 <option value="">
                   Vyber provozovnu
@@ -923,9 +863,7 @@ function AdminVehicles() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={
-                  cancelEdit
-                }
+                onClick={cancelEdit}
                 disabled={saving}
               >
                 Zrušit úpravu
@@ -935,8 +873,6 @@ function AdminVehicles() {
         </form>
       </div>
 
-      {/* SEZNAM VOZŮ */}
-
       <div className="panel admin-list-panel">
         <div className="admin-list-title">
           <div>
@@ -945,8 +881,7 @@ function AdminVehicles() {
             </h2>
 
             <p>
-              Celkem{" "}
-              {vehicles.length} vozů
+              Celkem {vehicles.length} vozů
             </p>
           </div>
         </div>
@@ -960,8 +895,7 @@ function AdminVehicles() {
         {!loading &&
           vehicles.length === 0 && (
             <div className="empty">
-              Zatím zde nejsou žádné
-              vozy.
+              Zatím zde nejsou žádné vozy.
             </div>
           )}
 
@@ -1020,15 +954,11 @@ function AdminVehicles() {
                         Stav
                       </small>
 
-                      <span
-                        className="status"
-                        style={getStatusStyle(
+                      <VehicleStatus
+                        status={
                           vehicle.stav
-                        )}
-                      >
-                        {vehicle.stav ??
-                          "-"}
-                      </span>
+                        }
+                      />
                     </div>
 
                     <div className="admin-actions">
@@ -1055,6 +985,665 @@ function AdminVehicles() {
                         }
                       >
                         🗑️ Smazat
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   MOJE VÝKAZY
+========================================================= */
+
+function Reports({ user }) {
+  const emptyForm = {
+    datum:
+      new Date()
+        .toISOString()
+        .split("T")[0],
+    linka: "",
+    smer: "",
+    vuz: "",
+    zacatek: "",
+    konec: "",
+    km: "",
+    poznamka: "",
+  };
+
+  const [reports, setReports] =
+    useState([]);
+
+  const [vehicles, setVehicles] =
+    useState([]);
+
+  const [form, setForm] =
+    useState(emptyForm);
+
+  const [showForm, setShowForm] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
+
+  async function loadReports() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } =
+      await supabase
+        .from("vykazy")
+        .select(
+          "id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
+        )
+        .eq(
+          "uzivatel_id",
+          user.id
+        )
+        .order("datum", {
+          ascending: false,
+        })
+        .order("vytvoreno", {
+          ascending: false,
+        });
+
+    if (error) {
+      console.error(
+        "VYKAZY ERROR:",
+        error
+      );
+
+      setError(error.message);
+      setReports([]);
+    } else {
+      setReports(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadVehicles() {
+    const { data, error } =
+      await supabase
+        .from("vozy")
+        .select(
+          "id, cislo, vyrobce, typ, stav"
+        )
+        .order("cislo", {
+          ascending: true,
+        });
+
+    if (error) {
+      console.error(
+        "REPORT VOZY ERROR:",
+        error
+      );
+
+      return;
+    }
+
+    setVehicles(data || []);
+  }
+
+  useEffect(() => {
+    loadReports();
+    loadVehicles();
+  }, [user.id]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  function openNewReport() {
+    setForm({
+      ...emptyForm,
+      datum:
+        new Date()
+          .toISOString()
+          .split("T")[0],
+    });
+
+    setError("");
+    setSuccess("");
+    setShowForm(true);
+  }
+
+  function cancelReport() {
+    setShowForm(false);
+    setForm({
+      ...emptyForm,
+    });
+    setError("");
+  }
+
+  async function saveReport(e) {
+    e.preventDefault();
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const reportData = {
+      uzivatel_id: user.id,
+
+      datum: form.datum,
+
+      linka:
+        form.linka.trim() !== ""
+          ? form.linka.trim()
+          : null,
+
+      smer:
+        form.smer.trim() !== ""
+          ? form.smer.trim()
+          : null,
+
+      vuz:
+        form.vuz.trim() !== ""
+          ? form.vuz.trim()
+          : null,
+
+      zacatek:
+        form.zacatek !== ""
+          ? form.zacatek
+          : null,
+
+      konec:
+        form.konec !== ""
+          ? form.konec
+          : null,
+
+      km:
+        form.km.trim() !== ""
+          ? Number(form.km)
+          : null,
+
+      poznamka:
+        form.poznamka.trim() !== ""
+          ? form.poznamka.trim()
+          : null,
+
+      stav: "Ke schválení",
+    };
+
+    const { error } =
+      await supabase
+        .from("vykazy")
+        .insert([reportData]);
+
+    if (error) {
+      console.error(
+        "SAVE REPORT ERROR:",
+        error
+      );
+
+      setError(
+        error.message ||
+          "Nepodařilo se uložit výkaz."
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      "Výkaz byl úspěšně přidán."
+    );
+
+    setForm({
+      ...emptyForm,
+    });
+
+    setShowForm(false);
+
+    await loadReports();
+
+    setSaving(false);
+  }
+
+  async function deleteReport(id) {
+    const confirmed =
+      window.confirm(
+        "Opravdu chceš tento výkaz smazat?"
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error } =
+      await supabase
+        .from("vykazy")
+        .delete()
+        .eq("id", id)
+        .eq(
+          "uzivatel_id",
+          user.id
+        );
+
+    if (error) {
+      console.error(
+        "DELETE REPORT ERROR:",
+        error
+      );
+
+      setError(
+        error.message ||
+          "Nepodařilo se smazat výkaz."
+      );
+
+      return;
+    }
+
+    setSuccess(
+      "Výkaz byl smazán."
+    );
+
+    await loadReports();
+  }
+
+  function reportStatusClass(status) {
+    if (status === "Schváleno") {
+      return "report-status approved";
+    }
+
+    if (status === "Zamítnuto") {
+      return "report-status rejected";
+    }
+
+    return "report-status pending";
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>
+            Moje výkazy
+          </h1>
+
+          <p>
+            Přehled tvých odjetých výprav
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          {reports.length} VÝKAZŮ
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box reports-message">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="success-box reports-message">
+          {success}
+        </div>
+      )}
+
+      {!showForm && (
+        <div className="reports-toolbar">
+          <button
+            type="button"
+            className="primary-button"
+            onClick={openNewReport}
+          >
+            ➕ Nový výkaz
+          </button>
+        </div>
+      )}
+
+      {showForm && (
+        <div className="panel report-form-panel">
+          <div className="report-form-header">
+            <div>
+              <h2>
+                ➕ Nový výkaz
+              </h2>
+
+              <p>
+                Vyplň údaje o odjeté výpravě.
+              </p>
+            </div>
+          </div>
+
+          <form
+            onSubmit={saveReport}
+          >
+            <div className="form-grid">
+              <div>
+                <label>
+                  Datum
+                </label>
+
+                <input
+                  name="datum"
+                  type="date"
+                  value={form.datum}
+                  onChange={
+                    handleChange
+                  }
+                  required
+                />
+              </div>
+
+              <div>
+                <label>
+                  Linka
+                </label>
+
+                <input
+                  name="linka"
+                  type="text"
+                  value={form.linka}
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Např. 101"
+                  required
+                />
+              </div>
+
+              <div>
+                <label>
+                  Směr
+                </label>
+
+                <input
+                  name="smer"
+                  type="text"
+                  value={form.smer}
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Např. Terminál → Centrum"
+                />
+              </div>
+
+              <div>
+                <label>
+                  Vůz
+                </label>
+
+                <select
+                  name="vuz"
+                  value={form.vuz}
+                  onChange={
+                    handleChange
+                  }
+                >
+                  <option value="">
+                    Vyber vůz
+                  </option>
+
+                  {vehicles.map(
+                    (vehicle) => (
+                      <option
+                        key={
+                          vehicle.id
+                        }
+                        value={
+                          vehicle.cislo
+                        }
+                      >
+                        {vehicle.cislo} —{" "}
+                        {
+                          vehicle.vyrobce
+                        }{" "}
+                        {
+                          vehicle.typ
+                        }
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label>
+                  Začátek
+                </label>
+
+                <input
+                  name="zacatek"
+                  type="time"
+                  value={
+                    form.zacatek
+                  }
+                  onChange={
+                    handleChange
+                  }
+                />
+              </div>
+
+              <div>
+                <label>
+                  Konec
+                </label>
+
+                <input
+                  name="konec"
+                  type="time"
+                  value={
+                    form.konec
+                  }
+                  onChange={
+                    handleChange
+                  }
+                />
+              </div>
+
+              <div>
+                <label>
+                  Počet km
+                </label>
+
+                <input
+                  name="km"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={form.km}
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Např. 42.5"
+                />
+              </div>
+
+              <div>
+                <label>
+                  Poznámka
+                </label>
+
+                <input
+                  name="poznamka"
+                  type="text"
+                  value={
+                    form.poznamka
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Volitelná poznámka"
+                />
+              </div>
+            </div>
+
+            <div className="form-buttons">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={saving}
+              >
+                {saving
+                  ? "Ukládání..."
+                  : "💾 Uložit výkaz"}
+              </button>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={
+                  cancelReport
+                }
+                disabled={saving}
+              >
+                Zrušit
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="panel reports-panel">
+        <div className="admin-list-title">
+          <h2>
+            Moje výkazy
+          </h2>
+
+          <p>
+            Celkem {reports.length} výkazů
+          </p>
+        </div>
+
+        {loading && (
+          <div className="empty">
+            Načítání výkazů...
+          </div>
+        )}
+
+        {!loading &&
+          reports.length === 0 && (
+            <div className="empty">
+              Zatím nemáš žádné výkazy.
+            </div>
+          )}
+
+        {!loading &&
+          reports.length > 0 && (
+            <div className="reports-list">
+              {reports.map(
+                (report) => (
+                  <div
+                    className="report-row"
+                    key={report.id}
+                  >
+                    <div className="report-date">
+                      <small>
+                        DATUM
+                      </small>
+
+                      <strong>
+                        {report.datum}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>
+                        LINKA
+                      </small>
+
+                      <strong>
+                        {report.linka ||
+                          "-"}
+                      </strong>
+
+                      <span>
+                        {report.smer ||
+                          "Směr neuveden"}
+                      </span>
+                    </div>
+
+                    <div>
+                      <small>
+                        VŮZ
+                      </small>
+
+                      <strong>
+                        {report.vuz ||
+                          "-"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>
+                        ČAS
+                      </small>
+
+                      <strong>
+                        {report.zacatek ||
+                          "--:--"}{" "}
+                        –{" "}
+                        {report.konec ||
+                          "--:--"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>
+                        KM
+                      </small>
+
+                      <strong>
+                        {report.km ??
+                          "-"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>
+                        STAV
+                      </small>
+
+                      <span
+                        className={reportStatusClass(
+                          report.stav
+                        )}
+                      >
+                        {report.stav ||
+                          "Ke schválení"}
+                      </span>
+                    </div>
+
+                    <div className="report-actions">
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() =>
+                          deleteReport(
+                            report.id
+                          )
+                        }
+                      >
+                        🗑️
                       </button>
                     </div>
                   </div>
@@ -1096,9 +1685,7 @@ function App() {
           );
 
           if (!session?.user) {
-            setPage(
-              "dashboard"
-            );
+            setPage("dashboard");
           }
         }
       );
@@ -1298,10 +1885,8 @@ function App() {
 
           <div className="user-box">
             <div className="avatar">
-              {(
-                user.email ||
-                "U"
-              )
+              {(user.email ||
+                "U")
                 .charAt(0)
                 .toUpperCase()}
             </div>
@@ -1440,21 +2025,12 @@ function App() {
 
           {page ===
             "reports" && (
-            <div className="panel">
-              <h1>
-                Moje výkazy
-              </h1>
-
-              <p>
-                Zde budou výkazy
-                přihlášeného
-                řidiče.
-              </p>
-            </div>
+            <Reports
+              user={user}
+            />
           )}
 
-          {page ===
-            "admin" &&
+          {page === "admin" &&
             isAdmin && (
               <AdminVehicles />
             )}
@@ -1834,16 +2410,7 @@ button {
   border-radius: 20px;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.3;
-}
-
-.status-preview {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
+  white-space: nowrap;
 }
 
 .empty {
@@ -2041,7 +2608,123 @@ button {
   background: #fecaca;
 }
 
+/* =========================================================
+   VÝKAZY
+========================================================= */
+
+.reports-toolbar {
+  margin-top: 25px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reports-message {
+  margin-top: 25px;
+}
+
+.report-form-panel {
+  margin-top: 25px;
+}
+
+.report-form-header {
+  margin-bottom: 25px;
+}
+
+.report-form-header h2 {
+  margin: 0;
+}
+
+.report-form-header p {
+  color: #718096;
+  margin-bottom: 0;
+}
+
+.reports-panel {
+  margin-top: 25px;
+}
+
+.reports-list {
+  border-top: 1px solid #edf0f5;
+}
+
+.report-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr 1fr .7fr 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 17px 5px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.report-row small {
+  display: block;
+  color: #718096;
+  font-size: 10px;
+  margin-bottom: 5px;
+  font-weight: 700;
+}
+
+.report-row strong {
+  display: block;
+  font-size: 13px;
+}
+
+.report-row span {
+  display: block;
+  color: #718096;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.report-date strong {
+  font-size: 14px;
+}
+
+.report-status {
+  display: inline-block !important;
+  padding: 5px 9px;
+  border-radius: 20px;
+  font-size: 10px !important;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.report-status.pending {
+  background: #fef3c7;
+  color: #92400e !important;
+}
+
+.report-status.approved {
+  background: #dcfce7;
+  color: #15803d !important;
+}
+
+.report-status.rejected {
+  background: #fee2e2;
+  color: #b91c1c !important;
+}
+
+.report-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.report-actions .delete-button {
+  padding: 8px 10px;
+}
+
 /* RESPONSIVE */
+
+@media (max-width: 1200px) {
+  .report-row {
+    grid-template-columns: 1fr 1.5fr 1fr 1fr;
+  }
+
+  .report-actions {
+    justify-content: flex-start;
+  }
+}
 
 @media (max-width: 1100px) {
   .stats {
@@ -2081,6 +2764,11 @@ button {
   .form-grid {
     grid-template-columns: 1fr;
   }
+
+  .report-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+  }
 }
 
 @media (max-width: 600px) {
@@ -2114,6 +2802,10 @@ button {
 
   .panel {
     padding: 18px;
+  }
+
+  .report-row {
+    grid-template-columns: 1fr;
   }
 }
 `;
