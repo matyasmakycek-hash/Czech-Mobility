@@ -267,6 +267,7 @@ function AdminVehicles() {
   };
 
   const [vehicles, setVehicles] = useState([]);
+  const [provozovny, setProvozovny] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
 
@@ -306,8 +307,32 @@ function AdminVehicles() {
     setLoading(false);
   }
 
+  /* -------------------------------------------------------
+     NAČTENÍ PROVOZOVEN
+  ------------------------------------------------------- */
+
+  async function loadProvozovny() {
+    const { data, error } = await supabase
+      .from("provozovny")
+      .select("id, nazev")
+      .order("nazev", {
+        ascending: true,
+      });
+
+    console.log("PROVOZOVNY DATA:", data);
+    console.log("PROVOZOVNY ERROR:", error);
+
+    if (error) {
+      setError(error.message);
+      setProvozovny([]);
+    } else {
+      setProvozovny(data || []);
+    }
+  }
+
   useEffect(() => {
     loadVehicles();
+    loadProvozovny();
   }, []);
 
   /* -------------------------------------------------------
@@ -395,13 +420,6 @@ function AdminVehicles() {
     setSaving(true);
     setError("");
     setSuccess("");
-
-    /*
-      cislo převádíme na číslo.
-      Pokud máš v Supabase cislo jako text,
-      změň tuto část na:
-      cislo: form.cislo || null
-    */
 
     const vehicleData = {
       cislo:
@@ -725,16 +743,27 @@ function AdminVehicles() {
 
             <div>
               <label>
-                Provozovna ID
+                Provozovna
               </label>
 
-              <input
+              <select
                 name="provozovna_id"
-                type="text"
                 value={form.provozovna_id}
                 onChange={handleChange}
-                placeholder="ID provozovny"
-              />
+              >
+                <option value="">
+                  Vyber provozovnu
+                </option>
+
+                {provozovny.map((provozovna) => (
+                  <option
+                    key={provozovna.id}
+                    value={provozovna.id}
+                  >
+                    {provozovna.nazev}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
