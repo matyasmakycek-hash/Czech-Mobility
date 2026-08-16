@@ -162,6 +162,24 @@ function VehicleStatus({ status }) {
    VOZY
 ========================================================= */
 
+const vehicleDetailFields = [
+  { key: "vyrobce", label: "Výrobce" },
+  { key: "typ", label: "Typ" },
+  { key: "spz", label: "SPZ" },
+  { key: "rok", label: "Rok výroby" },
+  { key: "stav", label: "Stav" },
+  { key: "barevne_schema", label: "Nátěr" },
+  { key: "reklamy", label: "Reklamy", multiline: true },
+  { key: "vybaveni", label: "Vybavení", multiline: true },
+  { key: "prevodovka", label: "Převodovka" },
+  { key: "rozlozeni_dveri", label: "Rozložení dveří" },
+  { key: "stk", label: "STK" },
+  { key: "palubni_deska", label: "Palubní deska" },
+  { key: "informacni_system", label: "Informační systém" },
+  { key: "ridic_1", label: "Řidič 1" },
+  { key: "ridic_2", label: "Řidič 2" },
+];
+
 function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const canEdit = canManageVehicles(role);
   const [editing, setEditing] = useState(false);
@@ -169,24 +187,6 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  const detailFields = [
-    { key: "vyrobce", label: "Výrobce" },
-    { key: "typ", label: "Typ" },
-    { key: "spz", label: "SPZ" },
-    { key: "rok", label: "Rok výroby" },
-    { key: "stav", label: "Stav" },
-    { key: "barevne_schema", label: "Nátěr" },
-    { key: "reklamy", label: "Reklamy", multiline: true },
-    { key: "vybaveni", label: "Vybavení", multiline: true },
-    { key: "prevodovka", label: "Převodovka" },
-    { key: "rozlozeni_dveri", label: "Rozložení dveří" },
-    { key: "stk", label: "STK" },
-    { key: "palubni_deska", label: "Palubní deska" },
-    { key: "informacni_system", label: "Informační systém" },
-    { key: "ridic_1", label: "Řidič 1" },
-    { key: "ridic_2", label: "Řidič 2" },
-  ];
 
   useEffect(() => {
     setForm(vehicle || {});
@@ -204,12 +204,10 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
     setError("");
     setSuccess("");
 
-    // Ukládáme pouze pole, která v aktuálním záznamu existují.
-    // Nová pole lze později jednoduše přidat do tabulky `vozy`.
     const payload = {};
-    detailFields.forEach((field) => {
-      if (Object.prototype.hasOwnProperty.call(vehicle || {}, field.key)) {
-        const value = form?.[field.key];
+    vehicleDetailFields.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(vehicle, field.key)) {
+        const value = form[field.key];
         payload[field.key] =
           value === "" || value === undefined ? null : value;
       }
@@ -228,31 +226,22 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
       return;
     }
 
-    const updated = data || { ...vehicle, ...form };
-    setForm(updated);
+    setForm(data || form);
     setEditing(false);
     setSuccess("Údaje vozu byly uloženy.");
     setSaving(false);
-    onSaved?.(updated);
+    onSaved?.(data || form);
   }
 
   return (
-    <div className="vehicle-detail-page">
-      <div className="topbar vehicle-detail-topbar">
+    <div>
+      <div className="topbar">
         <div>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={onBack}
-          >
+          <button className="secondary-button" type="button" onClick={onBack}>
             ← Zpět na vozy
           </button>
-
           <h1>Vůz {vehicle?.cislo ?? "-"}</h1>
-
-          <p>
-            {vehicle?.vyrobce || "-"} {vehicle?.typ || ""}
-          </p>
+          <p>{vehicle?.vyrobce || "-"} {vehicle?.typ || ""}</p>
         </div>
 
         {canEdit && (
@@ -272,73 +261,53 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
 
       {error && (
         <div className="error-box">
-          <strong>Chyba:</strong>
-          <br />
-          {error}
+          <strong>Chyba:</strong><br />{error}
         </div>
       )}
 
-      {success && (
-        <div className="success-box">
-          {success}
-        </div>
-      )}
+      {success && <div className="success-box">{success}</div>}
 
       <div className="panel vehicle-detail-panel">
         <div className="vehicle-detail-title">
           <div>
-            <span className="vehicle-detail-number">
-              {vehicle?.cislo ?? "-"}
-            </span>
-            <h2>
-              {vehicle?.vyrobce || "-"} {vehicle?.typ || ""}
-            </h2>
+            <span className="vehicle-detail-number">{vehicle?.cislo ?? "-"}</span>
+            <h2>{vehicle?.vyrobce || "-"} {vehicle?.typ || ""}</h2>
           </div>
-
           <VehicleStatus status={vehicle?.stav} />
         </div>
 
         <div className="vehicle-detail-grid">
-          {detailFields.map((field) => {
-            const value = form?.[field.key];
-            const empty =
-              value === null ||
-              value === undefined ||
-              value === "";
-
-            return (
-              <div className="vehicle-detail-item" key={field.key}>
-                <label>{field.label}</label>
-
-                {editing && canEdit ? (
-                  field.multiline ? (
-                    <textarea
-                      value={value ?? ""}
-                      onChange={(e) =>
-                        change(field.key, e.target.value)
-                      }
-                      rows={3}
-                      placeholder={`Doplň ${field.label.toLowerCase()}`}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={value ?? ""}
-                      onChange={(e) =>
-                        change(field.key, e.target.value)
-                      }
-                      placeholder={`Doplň ${field.label.toLowerCase()}`}
-                    />
-                  )
+          {vehicleDetailFields.map((field) => (
+            <div className="vehicle-detail-item" key={field.key}>
+              <label>{field.label}</label>
+              {editing ? (
+                field.multiline ? (
+                  <textarea
+                    value={form?.[field.key] ?? ""}
+                    onChange={(e) => change(field.key, e.target.value)}
+                    rows={3}
+                  />
                 ) : (
-                  <strong>{empty ? "-" : String(value)}</strong>
-                )}
-              </div>
-            );
-          })}
+                  <input
+                    type="text"
+                    value={form?.[field.key] ?? ""}
+                    onChange={(e) => change(field.key, e.target.value)}
+                  />
+                )
+              ) : (
+                <strong>
+                  {form?.[field.key] === null ||
+                  form?.[field.key] === undefined ||
+                  form?.[field.key] === ""
+                    ? "-"
+                    : String(form[field.key])}
+                </strong>
+              )}
+            </div>
+          ))}
         </div>
 
-        {editing && canEdit && (
+        {editing && (
           <div className="vehicle-detail-actions">
             <button
               className="primary-button"
@@ -348,7 +317,6 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
             >
               {saving ? "Ukládám..." : "💾 Uložit změny"}
             </button>
-
             <button
               className="secondary-button"
               type="button"
@@ -356,7 +324,6 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                 setForm(vehicle || {});
                 setEditing(false);
                 setError("");
-                setSuccess("");
               }}
               disabled={saving}
             >
@@ -374,7 +341,9 @@ function Vehicles({ role }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedProvozovna, setSelectedProvozovna] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const { provozovny } = useProvozovny();
 
   async function loadVehicles() {
     setLoading(true);
@@ -383,9 +352,7 @@ function Vehicles({ role }) {
     const { data, error } = await supabase
       .from("vozy")
       .select("*")
-      .order("cislo", {
-        ascending: true,
-      });
+      .order("cislo", { ascending: true });
 
     if (error) {
       setError(error.message);
@@ -393,7 +360,6 @@ function Vehicles({ role }) {
     } else {
       setVehicles(data || []);
     }
-
     setLoading(false);
   }
 
@@ -402,13 +368,9 @@ function Vehicles({ role }) {
   }, []);
 
   function updateSelectedVehicle(updated) {
-    if (!updated) return;
-
     setSelectedVehicle(updated);
     setVehicles((old) =>
-      old.map((item) =>
-        item.id === updated.id ? updated : item
-      )
+      old.map((item) => item.id === updated.id ? updated : item)
     );
   }
 
@@ -423,39 +385,27 @@ function Vehicles({ role }) {
     );
   }
 
-  const filteredVehicles = vehicles.filter(
-    (vehicle) => {
-      const searchText = [
-        vehicle.cislo,
-        vehicle.vyrobce,
-        vehicle.typ,
-        vehicle.spz,
-        vehicle.rok,
-        vehicle.barevne_schema,
-        vehicle.stav,
-        vehicle.reklamy,
-        vehicle.vybaveni,
-        vehicle.prevodovka,
-        vehicle.rozlozeni_dveri,
-        vehicle.stk,
-        vehicle.palubni_deska,
-        vehicle.informacni_system,
-        vehicle.ridic_1,
-        vehicle.ridic_2,
-      ]
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
-
-      return searchText.includes(
-        search.toLowerCase()
-      );
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    if (
+      selectedProvozovna &&
+      Number(vehicle.provozovna_id) !== Number(selectedProvozovna)
+    ) {
+      return false;
     }
-  );
+
+    const searchText = [
+      vehicle.cislo, vehicle.vyrobce, vehicle.typ, vehicle.spz, vehicle.rok,
+      vehicle.barevne_schema, vehicle.stav, vehicle.reklamy, vehicle.vybaveni,
+      vehicle.prevodovka, vehicle.rozlozeni_dveri, vehicle.stk,
+      vehicle.palubni_deska, vehicle.informacni_system, vehicle.ridic_1,
+      vehicle.ridic_2,
+    ]
+      .filter((value) => value !== null && value !== undefined)
+      .join(" ")
+      .toLowerCase();
+
+    return searchText.includes(search.toLowerCase());
+  });
 
   return (
     <div>
@@ -464,34 +414,39 @@ function Vehicles({ role }) {
           <h1>Vozy</h1>
           <p>Vozový park Czech Mobility</p>
         </div>
-
-        <div className="profile-badge">
-          {filteredVehicles.length} VOZŮ
-        </div>
+        <div className="profile-badge">{filteredVehicles.length} VOZŮ</div>
       </div>
 
-      <div className="panel vehicles-panel">
+      <div className="panel">
+        <div className="provozovna-bar">
+          <ProvozovnaSelect
+            value={selectedProvozovna}
+            onChange={setSelectedProvozovna}
+            provozovny={provozovny}
+            label="Provozovna"
+          />
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setSelectedProvozovna("")}
+          >
+            Všechny provozovny
+          </button>
+        </div>
+
         <input
           className="search"
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
         />
 
-        {loading && (
-          <div className="empty">
-            Načítání vozů...
-          </div>
-        )}
+        {loading && <div className="empty">Načítání vozů...</div>}
 
         {error && (
           <div className="error-box">
-            <strong>Chyba:</strong>
-            <br />
-            {error}
+            <strong>Chyba:</strong><br />{error}
           </div>
         )}
 
@@ -508,45 +463,22 @@ function Vehicles({ role }) {
               </div>
             )}
 
-            {filteredVehicles.map(
-              (vehicle) => (
-                <button
-                  className="vehicle-row vehicle-row-button"
-                  key={vehicle.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedVehicle(vehicle)
-                  }
-                  title={`Otevřít detail vozu ${vehicle.cislo ?? ""}`}
-                >
-                  <strong>
-                    {vehicle.cislo ?? "-"}
-                  </strong>
-
-                  <span>
-                    {vehicle.vyrobce ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.typ ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.spz ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.rok ?? "-"}
-                  </span>
-
-                  <span>
-                    <VehicleStatus
-                      status={vehicle.stav}
-                    />
-                  </span>
-                </button>
-              )
-            )}
+            {filteredVehicles.map((vehicle) => (
+              <button
+                className="vehicle-row vehicle-row-button"
+                key={vehicle.id}
+                type="button"
+                onClick={() => setSelectedVehicle(vehicle)}
+                title={`Otevřít detail vozu ${vehicle.cislo ?? ""}`}
+              >
+                <strong>{vehicle.cislo ?? "-"}</strong>
+                <span>{vehicle.vyrobce ?? "-"}</span>
+                <span>{vehicle.typ ?? "-"}</span>
+                <span>{vehicle.spz ?? "-"}</span>
+                <span>{vehicle.rok ?? "-"}</span>
+                <span><VehicleStatus status={vehicle.stav} /></span>
+              </button>
+            ))}
 
             {filteredVehicles.length === 0 && (
               <div className="empty">
@@ -2860,138 +2792,6 @@ button {
   margin-top: 25px;
 }
 
-.vehicle-row-button {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  transition: background .15s ease, transform .05s ease;
-}
-
-.vehicle-row-button:hover {
-  background: #f8fafc;
-}
-
-.vehicle-row-button:active {
-  transform: translateY(1px);
-}
-
-.vehicle-row-button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, .25);
-  outline-offset: -3px;
-}
-
-.vehicle-detail-page {
-  width: 100%;
-}
-
-.vehicle-detail-topbar {
-  align-items: flex-start;
-}
-
-.vehicle-detail-topbar h1 {
-  margin-top: 18px;
-}
-
-.vehicle-detail-topbar p {
-  margin-bottom: 0;
-}
-
-.vehicle-detail-panel {
-  margin-top: 25px;
-}
-
-.vehicle-detail-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 25px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.vehicle-detail-title h2 {
-  margin: 7px 0 0;
-  font-size: 22px;
-}
-
-.vehicle-detail-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 58px;
-  min-height: 42px;
-  padding: 5px 10px;
-  border-radius: 10px;
-  background: #eef2ff;
-  color: #1e3a8a;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.vehicle-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.vehicle-detail-item {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid #edf0f5;
-  border-radius: 12px;
-  background: #fbfcfe;
-}
-
-.vehicle-detail-item label {
-  display: block;
-  margin-bottom: 8px;
-  color: #718096;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .03em;
-}
-
-.vehicle-detail-item strong {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.vehicle-detail-item input,
-.vehicle-detail-item textarea {
-  width: 100%;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  padding: 10px 11px;
-  background: #fff;
-  font: inherit;
-  outline: none;
-}
-
-.vehicle-detail-item textarea {
-  resize: vertical;
-  min-height: 78px;
-}
-
-.vehicle-detail-item input:focus,
-.vehicle-detail-item textarea:focus {
-  border-color: #2563eb;
-}
-
-.vehicle-detail-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px solid #edf0f5;
-}
-
 .search {
   width: 100%;
   padding: 13px;
@@ -3005,6 +2805,84 @@ button {
   border-color: #2563eb;
 }
 
+.vehicle-row-button {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+}
+.vehicle-row-button:hover { background: #eef5ff; }
+.vehicle-detail-panel { margin-top: 18px; }
+.vehicle-detail-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.vehicle-detail-title h2 { margin: 6px 0 0; }
+.vehicle-detail-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #172033;
+  color: white;
+  font-weight: 800;
+}
+.vehicle-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.vehicle-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e3e8ef;
+  border-radius: 12px;
+  background: #fff;
+}
+.vehicle-detail-item label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #687386;
+}
+.vehicle-detail-item strong { min-height: 22px; white-space: pre-wrap; }
+.vehicle-detail-item input,
+.vehicle-detail-item textarea {
+  width: 100%;
+  border: 1px solid #cfd6e1;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  resize: vertical;
+}
+.vehicle-detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.success-box {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #e7f8ea;
+  color: #216b2a;
+}
+@media (max-width: 800px) {
+  .vehicle-detail-grid { grid-template-columns: 1fr; }
+  .vehicle-detail-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .vehicle-header,
 .vehicle-row {
   display: grid;
@@ -3471,10 +3349,6 @@ button {
   }
 }
 
-.vehicle-detail-grid {
-  grid-template-columns: 1fr;
-}
-
 @media (max-width: 800px) {
   .sidebar {
     width: 210px;
@@ -3541,20 +3415,6 @@ button {
   }
 
   .admin-report-header {
-    flex-direction: column;
-  }
-
-  .vehicle-detail-topbar {
-    align-items: stretch;
-  }
-
-  .vehicle-detail-title {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .vehicle-detail-actions {
-    justify-content: stretch;
     flex-direction: column;
   }
 
