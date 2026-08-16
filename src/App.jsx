@@ -1854,6 +1854,9 @@ function App() {
     }
 
     setProfile(data || null);
+    console.log("PROFILE DATA:", data);
+    console.log("PROFILE ERROR:", error);
+    console.log("AUTH USER ID:", authUser.id);
     setProfileLoading(false);
   }
 
