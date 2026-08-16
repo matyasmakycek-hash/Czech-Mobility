@@ -10,15 +10,17 @@ const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
 
 function canManageVehicles(role) {
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return (
+    role === ROLE_ADMIN ||
+    role === ROLE_DISPECER
+  );
 }
 
 function canManageReports(role) {
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
-}
-
-function canManageUsers(role) {
-  return role === ROLE_ADMIN;
+  return (
+    role === ROLE_ADMIN ||
+    role === ROLE_DISPECER
+  );
 }
 
 function canUseReports(role) {
@@ -29,14 +31,11 @@ function canUseReports(role) {
   );
 }
 
-function canManageNews(role) {
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
-}
-
 function getRoleName(role) {
   if (role === ROLE_ADMIN) return "Administrátor";
   if (role === ROLE_DISPECER) return "Dispečer";
   if (role === ROLE_RIDIC) return "Řidič";
+
   return "Neznámá role";
 }
 
@@ -104,708 +103,28 @@ function Login({ onLogin }) {
             required
           />
 
-          {error && <div className="login-error">{error}</div>}
-
-          <button type="submit" disabled={loading}>
-            {loading ? "Přihlašování..." : "Přihlásit se"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   REGISTRACE
-========================================================= */
-
-function Register({ onRegistered }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [password2, setPassword2] = useState("");
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleRegister(e) {
-    e.preventDefault();
-
-    setError("");
-    setSuccess("");
-
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanName = name.trim();
-
-    if (password.length < 6) {
-      setError("Heslo musí mít alespoň 6 znaků.");
-      return;
-    }
-
-    if (password !== password2) {
-      setError("Hesla se neshodují.");
-      return;
-    }
-
-    setLoading(true);
-
-    const { data: invite, error: inviteError } =
-      await supabase
-        .from("user_invites")
-        .select("id, email, jmeno, role, used")
-        .eq("email", cleanEmail)
-        .eq("used", false)
-        .maybeSingle();
-
-    if (inviteError) {
-      setError(inviteError.message);
-      setLoading(false);
-      return;
-    }
-
-    if (!invite) {
-      setError("Tento e-mail nebyl pozván administrátorem.");
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } =
-      await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-      });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (!data?.user) {
-      setError("Účet se nepodařilo vytvořit.");
-      setLoading(false);
-      return;
-    }
-
-    const { error: profileError } =
-      await supabase.from("profiles").insert({
-        id: data.user.id,
-        jmeno: invite.jmeno || cleanName,
-        role: invite.role,
-      });
-
-    if (profileError) {
-      setError(profileError.message);
-      setLoading(false);
-      return;
-    }
-
-    await supabase
-      .from("user_invites")
-      .update({ used: true })
-      .eq("id", invite.id);
-
-    setSuccess(
-      "Registrace byla úspěšná. Nyní se můžeš přihlásit."
-    );
-
-    setLoading(false);
-
-    setTimeout(() => {
-      onRegistered();
-    }, 1500);
-  }
-
-  return (
-    <div className="login-page">
-      <div className="login-box">
-        <div className="login-logo">CM</div>
-
-        <h1>Registrace</h1>
-
-        <p>
-          Zaregistruj se pomocí e-mailu,
-          který ti přidělil administrátor.
-        </p>
-
-        <form onSubmit={handleRegister}>
-          <label>Jméno</label>
-
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Tvoje jméno"
-            required
-          />
-
-          <label>E-mail</label>
-
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="vas@email.cz"
-            required
-          />
-
-          <label>Heslo</label>
-
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Min. 6 znaků"
-            required
-          />
-
-          <label>Heslo znovu</label>
-
-          <input
-            type="password"
-            value={password2}
-            onChange={(e) => setPassword2(e.target.value)}
-            placeholder="Zopakuj heslo"
-            required
-          />
-
-          {error && <div className="login-error">{error}</div>}
-
-          {success && <div className="success-box">{success}</div>}
-
-          <button type="submit" disabled={loading}>
-            {loading ? "Registrace..." : "Zaregistrovat se"}
-          </button>
-        </form>
-
-        <button
-          type="button"
-          className="register-back"
-          onClick={onRegistered}
-        >
-          Zpět na přihlášení
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   PROVOZOVNY
-========================================================= */
-
-function useProvozovny() {
-  const [provozovny, setProvozovny] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  async function loadProvozovny() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("provozovny")
-      .select("id, nazev, kod")
-      .order("nazev", { ascending: true });
-
-    if (!error) {
-      setProvozovny(data || []);
-    } else {
-      console.error(error);
-      setProvozovny([]);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadProvozovny();
-  }, []);
-
-  return {
-    provozovny,
-    loading,
-    reload: loadProvozovny,
-  };
-}
-
-function ProvozovnaSelect({
-  value,
-  onChange,
-  provozovny,
-  label = "Provozovna",
-  required = false,
-}) {
-  return (
-    <div>
-      <label>{label}</label>
-
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-      >
-        <option value="">Vyber provozovnu</option>
-
-        {provozovny.map((provozovna) => (
-          <option
-            key={provozovna.id}
-            value={provozovna.id}
-          >
-            {provozovna.nazev}
-            {provozovna.kod
-              ? ` (${provozovna.kod})`
-              : ""}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-/* =========================================================
-   SPRÁVA UŽIVATELŮ
-========================================================= */
-
-function AdminUsers() {
-  const [users, setUsers] = useState([]);
-  const [invites, setInvites] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const [showForm, setShowForm] = useState(false);
-  const [filterRole, setFilterRole] = useState("Vše");
-
-  const emptyForm = {
-    jmeno: "",
-    email: "",
-    role: ROLE_RIDIC,
-  };
-
-  const [form, setForm] = useState(emptyForm);
-
-  async function loadUsers() {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, jmeno, role, created_at")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      setError(error.message);
-      setUsers([]);
-    } else {
-      setUsers(data || []);
-    }
-  }
-
-  async function loadInvites() {
-    const { data, error } = await supabase
-      .from("user_invites")
-      .select("id, email, jmeno, role, used, created_at")
-      .order("created_at", { ascending: false });
-
-    if (!error) {
-      setInvites(data || []);
-    }
-  }
-
-  async function loadAll() {
-    setLoading(true);
-    setError("");
-
-    await Promise.all([
-      loadUsers(),
-      loadInvites(),
-    ]);
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadAll();
-  }, []);
-
-  async function createInvite(e) {
-    e.preventDefault();
-
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const email = form.email.trim().toLowerCase();
-    const name = form.jmeno.trim();
-
-    if (!name || !email) {
-      setError("Vyplň jméno a e-mail.");
-      setSaving(false);
-      return;
-    }
-
-    const { data: existingInvite } =
-      await supabase
-        .from("user_invites")
-        .select("id")
-        .eq("email", email)
-        .eq("used", false)
-        .maybeSingle();
-
-    if (existingInvite) {
-      setError(
-        "Pro tento e-mail už existuje aktivní pozvánka."
-      );
-      setSaving(false);
-      return;
-    }
-
-    const { data: existingProfile } =
-      await supabase
-        .from("profiles")
-        .select("id")
-        .eq("jmeno", name)
-        .maybeSingle();
-
-    if (existingProfile) {
-      setError("Uživatel s tímto jménem už existuje.");
-      setSaving(false);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("user_invites")
-      .insert({
-        email,
-        jmeno: name,
-        role: form.role,
-        used: false,
-      });
-
-    if (error) {
-      setError(error.message);
-      setSaving(false);
-      return;
-    }
-
-    setSuccess(`Pozvánka pro ${name} byla vytvořena.`);
-    setForm(emptyForm);
-    setShowForm(false);
-
-    await loadInvites();
-
-    setSaving(false);
-  }
-
-  async function changeRole(id, role) {
-    setError("");
-    setSuccess("");
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role })
-      .eq("id", id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess("Role uživatele byla změněna.");
-
-    await loadUsers();
-  }
-
-  async function deleteInvite(id) {
-    if (!window.confirm("Opravdu chceš tuto pozvánku zrušit?")) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("user_invites")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess("Pozvánka byla zrušena.");
-
-    await loadInvites();
-  }
-
-  const filteredUsers = users.filter((user) => {
-    return (
-      filterRole === "Vše" ||
-      user.role === filterRole
-    );
-  });
-
-  const pendingInvites = invites.filter(
-    (invite) => !invite.used
-  );
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Správa uživatelů</h1>
-          <p>Správa účtů a rolí</p>
-        </div>
-
-        <div className="profile-badge">POUZE ADMIN</div>
-      </div>
-
-      <div className="admin-user-stats">
-        <div className="admin-user-stat">
-          <span>Celkem uživatelů</span>
-          <strong>{users.length}</strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Administrátoři</span>
-          <strong>
-            {users.filter((u) => u.role === ROLE_ADMIN).length}
-          </strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Dispečeři</span>
-          <strong>
-            {users.filter((u) => u.role === ROLE_DISPECER).length}
-          </strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Řidiči</span>
-          <strong>
-            {users.filter((u) => u.role === ROLE_RIDIC).length}
-          </strong>
-        </div>
-      </div>
-
-      {error && (
-        <div className="error-box">
-          <strong>Chyba:</strong>
-          <br />
-          {error}
-        </div>
-      )}
-
-      {success && <div className="success-box">{success}</div>}
-
-      <div className="panel">
-        <div className="users-toolbar">
-          <div>
-            <h2>Uživatelé</h2>
-            <p className="muted">
-              Registrovaní uživatelé systému.
-            </p>
-          </div>
+          {error && (
+            <div className="login-error">
+              {error}
+            </div>
+          )}
 
           <button
-            type="button"
-            className="primary-button"
-            onClick={() => setShowForm(!showForm)}
+            type="submit"
+            disabled={loading}
           >
-            {showForm ? "✕ Zavřít" : "➕ Přidat uživatele"}
+            {loading
+              ? "Přihlašování..."
+              : "Přihlásit se"}
           </button>
-        </div>
-
-        {showForm && (
-          <div className="user-create-box">
-            <h3>➕ Přidat uživatele</h3>
-
-            <form onSubmit={createInvite}>
-              <div className="form-grid">
-                <div>
-                  <label>Jméno</label>
-
-                  <input
-                    value={form.jmeno}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        jmeno: e.target.value,
-                      })
-                    }
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label>E-mail</label>
-
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        email: e.target.value,
-                      })
-                    }
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label>Role</label>
-
-                  <select
-                    value={form.role}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        role: e.target.value,
-                      })
-                    }
-                  >
-                    <option value={ROLE_RIDIC}>Řidič</option>
-                    <option value={ROLE_DISPECER}>Dispečer</option>
-                    <option value={ROLE_ADMIN}>
-                      Administrátor
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-buttons">
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={saving}
-                >
-                  {saving
-                    ? "Vytváření..."
-                    : "✓ Vytvořit pozvánku"}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        <div className="user-filter">
-          <select
-            value={filterRole}
-            onChange={(e) => setFilterRole(e.target.value)}
-          >
-            <option value="Vše">Vše</option>
-            <option value={ROLE_ADMIN}>Administrátoři</option>
-            <option value={ROLE_DISPECER}>Dispečeři</option>
-            <option value={ROLE_RIDIC}>Řidiči</option>
-          </select>
-        </div>
-
-        {loading && (
-          <div className="empty">Načítání uživatelů...</div>
-        )}
-
-        {!loading && filteredUsers.length === 0 && (
-          <div className="empty">Žádní uživatelé.</div>
-        )}
-
-        {!loading && filteredUsers.length > 0 && (
-          <div className="users-list">
-            {filteredUsers.map((user) => (
-              <div className="user-card" key={user.id}>
-                <div className="user-card-avatar">
-                  {(user.jmeno || "U")
-                    .charAt(0)
-                    .toUpperCase()}
-                </div>
-
-                <div className="user-card-main">
-                  <strong>{user.jmeno || "Bez jména"}</strong>
-                  <small>{user.id}</small>
-                </div>
-
-                <div>
-                  <small>Role</small>
-                  <strong>{getRoleName(user.role)}</strong>
-                </div>
-
-                <div>
-                  <small>Vytvořeno</small>
-
-                  <strong>
-                    {user.created_at
-                      ? new Date(
-                          user.created_at
-                        ).toLocaleDateString("cs-CZ")
-                      : "-"}
-                  </strong>
-                </div>
-
-                <select
-                  value={user.role || ROLE_RIDIC}
-                  onChange={(e) =>
-                    changeRole(user.id, e.target.value)
-                  }
-                >
-                  <option value={ROLE_RIDIC}>Řidič</option>
-                  <option value={ROLE_DISPECER}>Dispečer</option>
-                  <option value={ROLE_ADMIN}>
-                    Administrátor
-                  </option>
-                </select>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <h2>Čekající registrace</h2>
-
-        {pendingInvites.length === 0 ? (
-          <div className="empty">
-            Žádné čekající registrace.
-          </div>
-        ) : (
-          <div className="users-list">
-            {pendingInvites.map((invite) => (
-              <div className="user-card" key={invite.id}>
-                <div className="user-card-avatar pending-avatar">
-                  {(invite.jmeno || "U")
-                    .charAt(0)
-                    .toUpperCase()}
-                </div>
-
-                <div className="user-card-main">
-                  <strong>{invite.jmeno}</strong>
-                  <small>{invite.email}</small>
-                </div>
-
-                <div>
-                  <small>Role</small>
-                  <strong>{getRoleName(invite.role)}</strong>
-                </div>
-
-                <span className="pending-label">
-                  Čeká na registraci
-                </span>
-
-                <button
-                  type="button"
-                  className="delete-button"
-                  onClick={() => deleteInvite(invite.id)}
-                >
-                  🗑️ Zrušit
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        </form>
       </div>
     </div>
   );
 }
 
 /* =========================================================
-   STAVY VOZŮ
+   STAVY VOZIDEL
 ========================================================= */
 
 const vehicleStatusColors = {
@@ -840,355 +159,115 @@ function VehicleStatus({ status }) {
 }
 
 /* =========================================================
-   VOZIDLO - FORMULÁŘ
+   VOZY
 ========================================================= */
 
-const emptyVehicle = {
-  cislo: "",
-  vyrobce: "",
-  typ: "",
-  spz: "",
-  rok: "",
-  barevne_schema: "",
-  stav: "PROVOZNÍ",
-  provozovna_id: "",
-};
-
-function VehicleForm({
-  initialData,
-  onSave,
-  onCancel,
-  saving,
-  provozovny,
-}) {
-  const [form, setForm] = useState(
-    initialData || emptyVehicle
-  );
-
-  useEffect(() => {
-    setForm(initialData || emptyVehicle);
-  }, [initialData]);
-
-  function change(name, value) {
-    setForm((old) => ({
-      ...old,
-      [name]: value,
-    }));
-  }
-
-  function submit(e) {
-    e.preventDefault();
-    onSave(form);
-  }
-
-  return (
-    <div className="crud-form">
-      <h3>
-        {initialData ? "✏️ Upravit vůz" : "➕ Přidat vůz"}
-      </h3>
-
-      <form onSubmit={submit}>
-        <div className="form-grid">
-          <div>
-            <label>Číslo vozu</label>
-
-            <input
-              type="number"
-              value={form.cislo}
-              onChange={(e) => change("cislo", e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label>Výrobce</label>
-
-            <input
-              value={form.vyrobce}
-              onChange={(e) =>
-                change("vyrobce", e.target.value)
-              }
-              required
-            />
-          </div>
-
-          <div>
-            <label>Typ</label>
-
-            <input
-              value={form.typ}
-              onChange={(e) => change("typ", e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label>SPZ</label>
-
-            <input
-              value={form.spz}
-              onChange={(e) => change("spz", e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label>Rok</label>
-
-            <input
-              type="number"
-              value={form.rok}
-              onChange={(e) => change("rok", e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label>Barevné schéma</label>
-
-            <input
-              value={form.barevne_schema}
-              onChange={(e) =>
-                change(
-                  "barevne_schema",
-                  e.target.value
-                )
-              }
-            />
-          </div>
-
-          <div>
-            <label>Stav</label>
-
-            <select
-              value={form.stav}
-              onChange={(e) => change("stav", e.target.value)}
-            >
-              <option>PROVOZNÍ</option>
-              <option>V DÍLNĚ / V OPRAVĚ</option>
-              <option>DOČASNĚ ODSTAVEN</option>
-              <option>DLOUHODOBĚ ODSTAVEN</option>
-              <option>SEŠROTOVÁN</option>
-              <option>
-                PRODÁN / PŘEDÁN JINÉMU DOPRAVCI
-              </option>
-              <option>
-                DOSUD NEZAŘAZEN DO PROVOZU
-              </option>
-              <option>SLUŽEBNÍ</option>
-              <option>RETRO</option>
-            </select>
-          </div>
-
-          <ProvozovnaSelect
-            value={form.provozovna_id}
-            onChange={(value) =>
-              change("provozovna_id", value)
-            }
-            provozovny={provozovny}
-            required
-          />
-        </div>
-
-        <div className="form-buttons">
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={saving}
-          >
-            {saving ? "Ukládání..." : "✓ Uložit"}
-          </button>
-
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onCancel}
-          >
-            Zrušit
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/* =========================================================
-   ADMINISTRACE VOZŮ
-========================================================= */
-
-function AdminVehicles() {
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
+function VehicleDetail({ vehicle, role, onBack, onSaved }) {
+  const canEdit = canManageVehicles(role);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(vehicle || {});
   const [saving, setSaving] = useState(false);
-
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-
-  const [search, setSearch] = useState("");
-  const [selectedProvozovna, setSelectedProvozovna] =
-    useState("");
-
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const { provozovny } = useProvozovny();
-
-  async function loadVehicles() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-      )
-      .order("cislo", { ascending: true });
-
-    if (error) {
-      setError(error.message);
-      setVehicles([]);
-    } else {
-      setVehicles(data || []);
-    }
-
-    setLoading(false);
-  }
+  const detailFields = [
+    { key: "vyrobce", label: "Výrobce" },
+    { key: "typ", label: "Typ" },
+    { key: "spz", label: "SPZ" },
+    { key: "rok", label: "Rok výroby" },
+    { key: "stav", label: "Stav" },
+    { key: "barevne_schema", label: "Nátěr" },
+    { key: "reklamy", label: "Reklamy", multiline: true },
+    { key: "vybaveni", label: "Vybavení", multiline: true },
+    { key: "prevodovka", label: "Převodovka" },
+    { key: "rozlozeni_dveri", label: "Rozložení dveří" },
+    { key: "stk", label: "STK" },
+    { key: "palubni_deska", label: "Palubní deska" },
+    { key: "informacni_system", label: "Informační systém" },
+    { key: "ridic_1", label: "Řidič 1" },
+    { key: "ridic_2", label: "Řidič 2" },
+  ];
 
   useEffect(() => {
-    loadVehicles();
-  }, []);
+    setForm(vehicle || {});
+    setEditing(false);
+    setError("");
+    setSuccess("");
+  }, [vehicle]);
 
-  function getProvozovnaName(id) {
-    return (
-      provozovny.find((p) => Number(p.id) === Number(id))
-        ?.nazev || "-"
-    );
+  function change(name, value) {
+    setForm((old) => ({ ...old, [name]: value }));
   }
 
-  async function saveVehicle(form) {
+  async function save() {
     setSaving(true);
     setError("");
     setSuccess("");
 
-    const payload = {
-      cislo:
-        form.cislo === ""
-          ? null
-          : Number(form.cislo),
+    // Ukládáme pouze pole, která v aktuálním záznamu existují.
+    // Nová pole lze později jednoduše přidat do tabulky `vozy`.
+    const payload = {};
+    detailFields.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(vehicle || {}, field.key)) {
+        const value = form?.[field.key];
+        payload[field.key] =
+          value === "" || value === undefined ? null : value;
+      }
+    });
 
-      vyrobce: form.vyrobce.trim(),
-      typ: form.typ.trim(),
-      spz: form.spz.trim() || null,
+    const { data, error: saveError } = await supabase
+      .from("vozy")
+      .update(payload)
+      .eq("id", vehicle.id)
+      .select("*")
+      .single();
 
-      rok:
-        form.rok === ""
-          ? null
-          : Number(form.rok),
-
-      barevne_schema:
-        form.barevne_schema.trim() || null,
-
-      stav: form.stav || null,
-
-      provozovna_id:
-        form.provozovna_id === ""
-          ? null
-          : Number(form.provozovna_id),
-    };
-
-    let result;
-
-    if (editing) {
-      result = await supabase
-        .from("vozy")
-        .update(payload)
-        .eq("id", editing.id);
-    } else {
-      result = await supabase
-        .from("vozy")
-        .insert(payload);
-    }
-
-    if (result.error) {
-      setError(result.error.message);
+    if (saveError) {
+      setError(saveError.message);
       setSaving(false);
       return;
     }
 
-    setSuccess(
-      editing ? "Vůz byl upraven." : "Vůz byl přidán."
-    );
-
-    setShowForm(false);
-    setEditing(null);
-
-    await loadVehicles();
-
+    const updated = data || { ...vehicle, ...form };
+    setForm(updated);
+    setEditing(false);
+    setSuccess("Údaje vozu byly uloženy.");
     setSaving(false);
+    onSaved?.(updated);
   }
-
-  async function deleteVehicle(vehicle) {
-    if (
-      !window.confirm(
-        `Opravdu chceš smazat vůz č. ${vehicle.cislo}?`
-      )
-    ) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("vozy")
-      .delete()
-      .eq("id", vehicle.id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess("Vůz byl smazán.");
-
-    await loadVehicles();
-  }
-
-  const filtered = vehicles.filter((vehicle) => {
-    if (
-      selectedProvozovna &&
-      Number(vehicle.provozovna_id) !==
-        Number(selectedProvozovna)
-    ) {
-      return false;
-    }
-
-    const text = [
-      vehicle.cislo,
-      vehicle.vyrobce,
-      vehicle.typ,
-      vehicle.spz,
-      vehicle.rok,
-      vehicle.barevne_schema,
-      vehicle.stav,
-      getProvozovnaName(vehicle.provozovna_id),
-    ]
-      .filter(
-        (x) =>
-          x !== null &&
-          x !== undefined
-      )
-      .join(" ")
-      .toLowerCase();
-
-    return text.includes(search.toLowerCase());
-  });
 
   return (
-    <div>
-      <div className="topbar">
+    <div className="vehicle-detail-page">
+      <div className="topbar vehicle-detail-topbar">
         <div>
-          <h1>Administrace vozů</h1>
-          <p>Přidávání, úprava a mazání vozů</p>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onBack}
+          >
+            ← Zpět na vozy
+          </button>
+
+          <h1>Vůz {vehicle?.cislo ?? "-"}</h1>
+
+          <p>
+            {vehicle?.vyrobce || "-"} {vehicle?.typ || ""}
+          </p>
         </div>
 
-        <div className="profile-badge">
-          {filtered.length} VOZŮ
-        </div>
+        {canEdit && (
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => {
+              setEditing((old) => !old);
+              setError("");
+              setSuccess("");
+            }}
+          >
+            {editing ? "Zrušit úpravy" : "✏️ Upravit vůz"}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -1205,145 +284,84 @@ function AdminVehicles() {
         </div>
       )}
 
-      <div className="panel">
-        <div className="provozovna-bar">
-          <ProvozovnaSelect
-            value={selectedProvozovna}
-            onChange={setSelectedProvozovna}
-            provozovny={provozovny}
-            label="Zobrazit provozovnu"
-          />
-
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setSelectedProvozovna("")}
-          >
-            Všechny provozovny
-          </button>
-        </div>
-
-        <div className="users-toolbar">
+      <div className="panel vehicle-detail-panel">
+        <div className="vehicle-detail-title">
           <div>
-            <h2>Vozový park</h2>
-            <p className="muted">
-              Správa vozidel Czech Mobility.
-            </p>
+            <span className="vehicle-detail-number">
+              {vehicle?.cislo ?? "-"}
+            </span>
+            <h2>
+              {vehicle?.vyrobce || "-"} {vehicle?.typ || ""}
+            </h2>
           </div>
 
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => {
-              setEditing(null);
-              setShowForm(!showForm);
-            }}
-          >
-            {showForm ? "✕ Zavřít" : "➕ Přidat vůz"}
-          </button>
+          <VehicleStatus status={vehicle?.stav} />
         </div>
 
-        {showForm && (
-          <VehicleForm
-            initialData={editing}
-            onSave={saveVehicle}
-            onCancel={() => {
-              setShowForm(false);
-              setEditing(null);
-            }}
-            saving={saving}
-            provozovny={provozovny}
-          />
-        )}
+        <div className="vehicle-detail-grid">
+          {detailFields.map((field) => {
+            const value = form?.[field.key];
+            const empty =
+              value === null ||
+              value === undefined ||
+              value === "";
 
-        <input
-          className="search"
-          type="text"
-          placeholder="🔎 Hledat vůz..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+            return (
+              <div className="vehicle-detail-item" key={field.key}>
+                <label>{field.label}</label>
 
-        {loading && (
-          <div className="empty">Načítání vozů...</div>
-        )}
-
-        {!loading && filtered.length === 0 && (
-          <div className="empty">Žádné vozy.</div>
-        )}
-
-        {!loading && filtered.length > 0 && (
-          <div className="admin-vehicles-list">
-            {filtered.map((vehicle) => (
-              <div
-                className="admin-vehicle-card"
-                key={vehicle.id}
-              >
-                <div className="vehicle-number">
-                  {vehicle.cislo}
-                </div>
-
-                <div className="vehicle-main">
-                  <strong>
-                    {vehicle.vyrobce} {vehicle.typ}
-                  </strong>
-
-                  <small>
-                    SPZ: {vehicle.spz || "-"} • Rok:{" "}
-                    {vehicle.rok || "-"}
-                  </small>
-
-                  <small>
-                    Provozovna:{" "}
-                    {getProvozovnaName(
-                      vehicle.provozovna_id
-                    )}
-                  </small>
-
-                  <small>
-                    Schéma:{" "}
-                    {vehicle.barevne_schema || "-"}
-                  </small>
-                </div>
-
-                <VehicleStatus status={vehicle.stav} />
-
-                <div className="vehicle-actions">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      setEditing({
-                        ...vehicle,
-                        cislo:
-                          vehicle.cislo ?? "",
-                        rok:
-                          vehicle.rok ?? "",
-                        provozovna_id:
-                          vehicle.provozovna_id ?? "",
-                        spz: vehicle.spz || "",
-                        barevne_schema:
-                          vehicle.barevne_schema || "",
-                      });
-
-                      setShowForm(true);
-                    }}
-                  >
-                    ✏️ Upravit
-                  </button>
-
-                  <button
-                    className="delete-button"
-                    type="button"
-                    onClick={() =>
-                      deleteVehicle(vehicle)
-                    }
-                  >
-                    🗑️ Smazat
-                  </button>
-                </div>
+                {editing && canEdit ? (
+                  field.multiline ? (
+                    <textarea
+                      value={value ?? ""}
+                      onChange={(e) =>
+                        change(field.key, e.target.value)
+                      }
+                      rows={3}
+                      placeholder={`Doplň ${field.label.toLowerCase()}`}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={value ?? ""}
+                      onChange={(e) =>
+                        change(field.key, e.target.value)
+                      }
+                      placeholder={`Doplň ${field.label.toLowerCase()}`}
+                    />
+                  )
+                ) : (
+                  <strong>{empty ? "-" : String(value)}</strong>
+                )}
               </div>
-            ))}
+            );
+          })}
+        </div>
+
+        {editing && canEdit && (
+          <div className="vehicle-detail-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={save}
+              disabled={saving}
+            >
+              {saving ? "Ukládám..." : "💾 Uložit změny"}
+            </button>
+
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setForm(vehicle || {});
+                setEditing(false);
+                setError("");
+                setSuccess("");
+              }}
+              disabled={saving}
+            >
+              Zrušit
+            </button>
           </div>
         )}
       </div>
@@ -1351,29 +369,23 @@ function AdminVehicles() {
   );
 }
 
-/* =========================================================
-   VEŘEJNÝ SEZNAM VOZŮ
-========================================================= */
-
-function Vehicles() {
+function Vehicles({ role }) {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [selectedProvozovna, setSelectedProvozovna] =
-    useState("");
-
-  const { provozovny } = useProvozovny();
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
 
   async function loadVehicles() {
     setLoading(true);
+    setError("");
 
     const { data, error } = await supabase
       .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id"
-      )
-      .order("cislo", { ascending: true });
+      .select("*")
+      .order("cislo", {
+        ascending: true,
+      });
 
     if (error) {
       setError(error.message);
@@ -1389,34 +401,61 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filtered = vehicles.filter((vehicle) => {
-    if (
-      selectedProvozovna &&
-      Number(vehicle.provozovna_id) !==
-        Number(selectedProvozovna)
-    ) {
-      return false;
-    }
+  function updateSelectedVehicle(updated) {
+    if (!updated) return;
 
-    const text = [
-      vehicle.cislo,
-      vehicle.vyrobce,
-      vehicle.typ,
-      vehicle.spz,
-      vehicle.rok,
-      vehicle.barevne_schema,
-      vehicle.stav,
-    ]
-      .filter(
-        (x) =>
-          x !== null &&
-          x !== undefined
+    setSelectedVehicle(updated);
+    setVehicles((old) =>
+      old.map((item) =>
+        item.id === updated.id ? updated : item
       )
-      .join(" ")
-      .toLowerCase();
+    );
+  }
 
-    return text.includes(search.toLowerCase());
-  });
+  if (selectedVehicle) {
+    return (
+      <VehicleDetail
+        vehicle={selectedVehicle}
+        role={role}
+        onBack={() => setSelectedVehicle(null)}
+        onSaved={updateSelectedVehicle}
+      />
+    );
+  }
+
+  const filteredVehicles = vehicles.filter(
+    (vehicle) => {
+      const searchText = [
+        vehicle.cislo,
+        vehicle.vyrobce,
+        vehicle.typ,
+        vehicle.spz,
+        vehicle.rok,
+        vehicle.barevne_schema,
+        vehicle.stav,
+        vehicle.reklamy,
+        vehicle.vybaveni,
+        vehicle.prevodovka,
+        vehicle.rozlozeni_dveri,
+        vehicle.stk,
+        vehicle.palubni_deska,
+        vehicle.informacni_system,
+        vehicle.ridic_1,
+        vehicle.ridic_2,
+      ]
+        .filter(
+          (value) =>
+            value !== null &&
+            value !== undefined
+        )
+        .join(" ")
+        .toLowerCase();
+
+      return searchText.includes(
+        search.toLowerCase()
+      );
+    }
+  );
 
   return (
     <div>
@@ -1427,432 +466,675 @@ function Vehicles() {
         </div>
 
         <div className="profile-badge">
-          {filtered.length} VOZŮ
+          {filteredVehicles.length} VOZŮ
         </div>
       </div>
 
-      <div className="panel">
-        <div className="provozovna-bar">
-          <ProvozovnaSelect
-            value={selectedProvozovna}
-            onChange={setSelectedProvozovna}
-            provozovny={provozovny}
-            label="Provozovna"
-          />
-
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setSelectedProvozovna("")}
-          >
-            Všechny provozovny
-          </button>
-        </div>
-
+      <div className="panel vehicles-panel">
         <input
           className="search"
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) =>
+            setSearch(e.target.value)
+          }
         />
 
         {loading && (
-          <div className="empty">Načítání vozů...</div>
+          <div className="empty">
+            Načítání vozů...
+          </div>
         )}
 
-        {error && <div className="error-box">{error}</div>}
+        {error && (
+          <div className="error-box">
+            <strong>Chyba:</strong>
+            <br />
+            {error}
+          </div>
+        )}
 
-        {!loading && !error && filtered.length > 0 && (
+        {!loading && !error && (
           <>
-            <div className="vehicle-header">
-              <span>Číslo</span>
-              <span>Výrobce</span>
-              <span>Typ</span>
-              <span>SPZ</span>
-              <span>Rok</span>
-              <span>Stav</span>
-            </div>
-
-            {filtered.map((vehicle) => (
-              <div
-                className="vehicle-row"
-                key={vehicle.id}
-              >
-                <strong>{vehicle.cislo}</strong>
-
-                <span>{vehicle.vyrobce || "-"}</span>
-
-                <span>{vehicle.typ || "-"}</span>
-
-                <span>{vehicle.spz || "-"}</span>
-
-                <span>{vehicle.rok || "-"}</span>
-
-                <VehicleStatus status={vehicle.stav} />
+            {filteredVehicles.length > 0 && (
+              <div className="vehicle-header">
+                <span>Číslo</span>
+                <span>Výrobce</span>
+                <span>Typ</span>
+                <span>SPZ</span>
+                <span>Rok</span>
+                <span>Stav</span>
               </div>
-            ))}
+            )}
+
+            {filteredVehicles.map(
+              (vehicle) => (
+                <button
+                  className="vehicle-row vehicle-row-button"
+                  key={vehicle.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedVehicle(vehicle)
+                  }
+                  title={`Otevřít detail vozu ${vehicle.cislo ?? ""}`}
+                >
+                  <strong>
+                    {vehicle.cislo ?? "-"}
+                  </strong>
+
+                  <span>
+                    {vehicle.vyrobce ?? "-"}
+                  </span>
+
+                  <span>
+                    {vehicle.typ ?? "-"}
+                  </span>
+
+                  <span>
+                    {vehicle.spz ?? "-"}
+                  </span>
+
+                  <span>
+                    {vehicle.rok ?? "-"}
+                  </span>
+
+                  <span>
+                    <VehicleStatus
+                      status={vehicle.stav}
+                    />
+                  </span>
+                </button>
+              )
+            )}
+
+            {filteredVehicles.length === 0 && (
+              <div className="empty">
+                {vehicles.length === 0
+                  ? "Tabulka vozy neobsahuje žádné záznamy."
+                  : "Žádné vozy neodpovídají hledání."}
+              </div>
+            )}
           </>
         )}
-
-        {!loading &&
-          !error &&
-          filtered.length === 0 && (
-            <div className="empty">Žádné vozy.</div>
-          )}
       </div>
     </div>
   );
 }
 
 /* =========================================================
-   VÝKAZY
+   ADMINISTRACE VOZŮ
 ========================================================= */
 
-const emptyReport = {
-  uzivatel_id: "",
-  provozovna_id: "",
-  datum: "",
-  linka: "",
-  smer: "",
-  vuz: "",
-  zacatek: "",
-  konec: "",
-};
+function AdminVehicles() {
+  const emptyForm = {
+    cislo: "",
+    vyrobce: "",
+    typ: "",
+    spz: "",
+    rok: "",
+    barevne_schema: "",
+    stav: "PROVOZNÍ",
+    provozovna_id: "",
+  };
 
-/* =========================================================
-   FORMULÁŘ VÝKAZU
-========================================================= */
+  const [vehicles, setVehicles] = useState([]);
+  const [provozovny, setProvozovny] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState(null);
 
-function ReportForm({
-  initialData,
-  users,
-  currentUserId,
-  onSave,
-  onCancel,
-  saving,
-  adminMode,
-  provozovny,
-}) {
-  const [form, setForm] = useState(
-    initialData || {
-      ...emptyReport,
-      uzivatel_id: currentUserId,
-    }
-  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const [vozy, setVozy] = useState([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    setForm(
-      initialData || {
-        ...emptyReport,
-        uzivatel_id: currentUserId,
-      }
-    );
-  }, [initialData, currentUserId]);
+  async function loadVehicles() {
+    setLoading(true);
 
-  useEffect(() => {
-    async function loadVozy() {
-      if (!form.provozovna_id) {
-        setVozy([]);
-        return;
-      }
+    const { data, error } = await supabase
+      .from("vozy")
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
 
-      const { data, error } = await supabase
-        .from("vozy")
-        .select(
-          "id, cislo, vyrobce, typ, spz"
-        )
-        .eq(
-          "provozovna_id",
-          Number(form.provozovna_id)
-        )
-        .order("cislo", {
-          ascending: true,
-        });
-
-      if (error) {
-        console.error(error);
-        setVozy([]);
-      } else {
-        setVozy(data || []);
-      }
+    if (error) {
+      setError(error.message);
+      setVehicles([]);
+    } else {
+      setVehicles(data || []);
     }
 
-    loadVozy();
-  }, [form.provozovna_id]);
+    setLoading(false);
+  }
 
-  function change(name, value) {
-    setForm((old) => {
-      const next = {
-        ...old,
-        [name]: value,
-      };
+  async function loadProvozovny() {
+    const { data, error } = await supabase
+      .from("provozovny")
+      .select("id, nazev")
+      .order("nazev", {
+        ascending: true,
+      });
 
-      if (name === "provozovna_id") {
-        next.vuz = "";
-      }
+    if (error) {
+      console.error(
+        "CHYBA PROVOZOVEN:",
+        error.message
+      );
 
-      return next;
+      setProvozovny([]);
+      return;
+    }
+
+    setProvozovny(data || []);
+  }
+
+  useEffect(() => {
+    loadVehicles();
+    loadProvozovny();
+  }, []);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  function startEdit(vehicle) {
+    setEditingId(vehicle.id);
+
+    setForm({
+      cislo:
+        vehicle.cislo !== null &&
+        vehicle.cislo !== undefined
+          ? String(vehicle.cislo)
+          : "",
+
+      vyrobce: vehicle.vyrobce ?? "",
+      typ: vehicle.typ ?? "",
+      spz: vehicle.spz ?? "",
+
+      rok:
+        vehicle.rok !== null &&
+        vehicle.rok !== undefined
+          ? String(vehicle.rok)
+          : "",
+
+      barevne_schema:
+        vehicle.barevne_schema ?? "",
+
+      stav:
+        vehicle.stav ?? "PROVOZNÍ",
+
+      provozovna_id:
+        vehicle.provozovna_id !== null &&
+        vehicle.provozovna_id !== undefined
+          ? String(vehicle.provozovna_id)
+          : "",
+    });
+
+    setError("");
+    setSuccess("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
     });
   }
 
-  function submit(e) {
+  function cancelEdit() {
+    setEditingId(null);
+    setForm({ ...emptyForm });
+    setError("");
+    setSuccess("");
+  }
+
+  async function saveVehicle(e) {
     e.preventDefault();
 
-    if (!form.provozovna_id) {
-      alert("Vyber provozovnu.");
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const vehicleData = {
+      cislo:
+        form.cislo.trim() !== ""
+          ? Number(form.cislo)
+          : null,
+
+      vyrobce:
+        form.vyrobce.trim() !== ""
+          ? form.vyrobce.trim()
+          : null,
+
+      typ:
+        form.typ.trim() !== ""
+          ? form.typ.trim()
+          : null,
+
+      spz:
+        form.spz.trim() !== ""
+          ? form.spz.trim()
+          : null,
+
+      rok:
+        form.rok.trim() !== ""
+          ? Number(form.rok)
+          : null,
+
+      barevne_schema:
+        form.barevne_schema.trim() !== ""
+          ? form.barevne_schema.trim()
+          : null,
+
+      stav:
+        form.stav.trim() !== ""
+          ? form.stav.trim()
+          : null,
+
+      provozovna_id:
+        form.provozovna_id.trim() !== ""
+          ? Number(form.provozovna_id)
+          : null,
+    };
+
+    let result;
+
+    if (editingId !== null) {
+      result = await supabase
+        .from("vozy")
+        .update(vehicleData)
+        .eq("id", editingId)
+        .select();
+    } else {
+      result = await supabase
+        .from("vozy")
+        .insert([vehicleData])
+        .select();
+    }
+
+    if (result.error) {
+      setError(
+        result.error.message ||
+          "Nepodařilo se uložit vůz."
+      );
+
+      setSaving(false);
       return;
     }
 
-    if (!form.vuz) {
-      alert("Vyber vůz.");
+    setSuccess(
+      editingId !== null
+        ? "Vůz byl úspěšně upraven."
+        : "Vůz byl úspěšně přidán."
+    );
+
+    setForm({ ...emptyForm });
+    setEditingId(null);
+
+    await loadVehicles();
+
+    setSaving(false);
+  }
+
+  async function deleteVehicle(id, cislo) {
+    const confirmed = window.confirm(
+      `Opravdu chceš smazat vůz ${cislo ?? ""}?`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+
+    const { error } = await supabase
+      .from("vozy")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setError(
+        error.message ||
+          "Nepodařilo se smazat vůz."
+      );
+
       return;
     }
 
-    onSave(form);
+    setSuccess(
+      "Vůz byl úspěšně smazán."
+    );
+
+    if (editingId === id) {
+      setEditingId(null);
+      setForm({ ...emptyForm });
+    }
+
+    await loadVehicles();
   }
 
   return (
-    <div className="crud-form">
-      <h3>
-        {initialData
-          ? "✏️ Upravit výkaz"
-          : "➕ Přidat výkaz"}
-      </h3>
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Administrace vozů</h1>
 
-      <form onSubmit={submit}>
-        <div className="form-grid">
-          {adminMode && (
+          <p>
+            Přidávání, úprava a mazání vozů
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          ADMIN / DISPEČER
+        </div>
+      </div>
+
+      <div className="panel admin-form-panel">
+        <h2>
+          {editingId !== null
+            ? "✏️ Upravit vůz"
+            : "➕ Přidat nový vůz"}
+        </h2>
+
+        {error && (
+          <div className="error-box">
+            <strong>Chyba:</strong>
+            <br />
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
+
+        <form
+          onSubmit={saveVehicle}
+          className="vehicle-form"
+        >
+          <div className="form-grid">
             <div>
-              <label>Řidič</label>
+              <label>Číslo vozu</label>
+
+              <input
+                name="cislo"
+                type="number"
+                value={form.cislo}
+                onChange={handleChange}
+                placeholder="Např. 101"
+                required
+              />
+            </div>
+
+            <div>
+              <label>Výrobce</label>
+
+              <input
+                name="vyrobce"
+                value={form.vyrobce}
+                onChange={handleChange}
+                placeholder="Např. Škoda"
+                required
+              />
+            </div>
+
+            <div>
+              <label>Typ</label>
+
+              <input
+                name="typ"
+                value={form.typ}
+                onChange={handleChange}
+                placeholder="Např. 12T"
+                required
+              />
+            </div>
+
+            <div>
+              <label>SPZ</label>
+
+              <input
+                name="spz"
+                value={form.spz}
+                onChange={handleChange}
+                placeholder="1AA 1234"
+              />
+            </div>
+
+            <div>
+              <label>Rok výroby</label>
+
+              <input
+                name="rok"
+                type="number"
+                min="1900"
+                max="2100"
+                value={form.rok}
+                onChange={handleChange}
+                placeholder="2026"
+              />
+            </div>
+
+            <div>
+              <label>Barevné schéma</label>
+
+              <input
+                name="barevne_schema"
+                value={form.barevne_schema}
+                onChange={handleChange}
+                placeholder="Např. modro-bílé"
+              />
+            </div>
+
+            <div>
+              <label>Stav</label>
 
               <select
-                value={form.uzivatel_id}
-                onChange={(e) =>
-                  change(
-                    "uzivatel_id",
-                    e.target.value
-                  )
-                }
-                required
+                name="stav"
+                value={form.stav}
+                onChange={handleChange}
               >
-                <option value="">
-                  Vyber řidiče
+                <option value="PROVOZNÍ">
+                  PROVOZNÍ
                 </option>
 
-                {users.map((user) => (
-                  <option
-                    key={user.id}
-                    value={user.id}
-                  >
-                    {user.jmeno || user.id} —{" "}
-                    {getRoleName(user.role)}
-                  </option>
-                ))}
+                <option value="V DÍLNĚ / V OPRAVĚ">
+                  V DÍLNĚ / V OPRAVĚ
+                </option>
+
+                <option value="DOČASNĚ ODSTAVEN">
+                  DOČASNĚ ODSTAVEN
+                </option>
+
+                <option value="DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN">
+                  DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN
+                </option>
+
+                <option value="SEŠROTOVÁN">
+                  SEŠROTOVÁN
+                </option>
+
+                <option value="PRODÁN / PŘEDÁN JINÉMU DOPRAVCI">
+                  PRODÁN / PŘEDÁN JINÉMU DOPRAVCI
+                </option>
+
+                <option value="DOSUD NEZAŘAZEN DO PROVOZU">
+                  DOSUD NEZAŘAZEN DO PROVOZU
+                </option>
+
+                <option value="SLUŽEBNÍ">
+                  SLUŽEBNÍ
+                </option>
+
+                <option value="RETRO">
+                  RETRO
+                </option>
               </select>
+            </div>
+
+            <div>
+              <label>Provozovna</label>
+
+              <select
+                name="provozovna_id"
+                value={form.provozovna_id}
+                onChange={handleChange}
+              >
+                <option value="">
+                  Vyber provozovnu
+                </option>
+
+                {provozovny.map(
+                  (provozovna) => (
+                    <option
+                      key={provozovna.id}
+                      value={provozovna.id}
+                    >
+                      {provozovna.nazev}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div className="form-buttons">
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={saving}
+            >
+              {saving
+                ? "Ukládání..."
+                : editingId !== null
+                ? "💾 Uložit změny"
+                : "➕ Přidat vůz"}
+            </button>
+
+            {editingId !== null && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={cancelEdit}
+              >
+                Zrušit úpravu
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+
+      <div className="panel admin-list-panel">
+        <div className="admin-list-title">
+          <div>
+            <h2>Vozový park</h2>
+
+            <p>
+              Celkem {vehicles.length} vozů
+            </p>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="empty">
+            Načítání vozů...
+          </div>
+        )}
+
+        {!loading &&
+          vehicles.length === 0 && (
+            <div className="empty">
+              Zatím zde nejsou žádné vozy.
             </div>
           )}
 
-          <ProvozovnaSelect
-            value={form.provozovna_id}
-            onChange={(value) =>
-              change("provozovna_id", value)
-            }
-            provozovny={provozovny}
-            required
-          />
+        {!loading &&
+          vehicles.length > 0 && (
+            <div className="admin-vehicle-list">
+              {vehicles.map(
+                (vehicle) => (
+                  <div
+                    className="admin-vehicle-row"
+                    key={vehicle.id}
+                  >
+                    <div className="vehicle-main">
+                      <strong>
+                        {vehicle.cislo ?? "-"}
+                      </strong>
 
-          <div>
-            <label>Vůz</label>
+                      <div>
+                        <b>
+                          {vehicle.vyrobce ?? "-"}
+                        </b>
 
-            <select
-              value={form.vuz || ""}
-              onChange={(e) =>
-                change("vuz", e.target.value)
-              }
-              disabled={!form.provozovna_id}
-              required
-            >
-              <option value="">
-                {!form.provozovna_id
-                  ? "Nejdříve vyber provozovnu"
-                  : "Vyber vůz"}
-              </option>
+                        <span>
+                          {vehicle.typ ?? "-"}
+                        </span>
+                      </div>
+                    </div>
 
-              {vozy.map((vehicle) => (
-                <option
-                  key={vehicle.id}
-                  value={String(vehicle.cislo)}
-                >
-                  {vehicle.cislo} –{" "}
-                  {vehicle.vyrobce}{" "}
-                  {vehicle.typ}
-                </option>
-              ))}
-            </select>
-          </div>
+                    <div>
+                      <small>SPZ</small>
 
-          <div>
-            <label>Datum</label>
+                      <strong>
+                        {vehicle.spz ?? "-"}
+                      </strong>
+                    </div>
 
-            <input
-              type="date"
-              value={form.datum || ""}
-              onChange={(e) =>
-                change("datum", e.target.value)
-              }
-              required
-            />
-          </div>
+                    <div>
+                      <small>Rok</small>
 
-          <div>
-            <label>Linka</label>
+                      <strong>
+                        {vehicle.rok ?? "-"}
+                      </strong>
+                    </div>
 
-            <input
-              value={form.linka || ""}
-              onChange={(e) =>
-                change("linka", e.target.value)
-              }
-              placeholder="Např. 12"
-              required
-            />
-          </div>
+                    <div>
+                      <small>Stav</small>
 
-          <div>
-            <label>Směr</label>
+                      <VehicleStatus
+                        status={vehicle.stav}
+                      />
+                    </div>
 
-            <input
-              value={form.smer || ""}
-              onChange={(e) =>
-                change("smer", e.target.value)
-              }
-              placeholder="Např. Terminál → Břeclavsko"
-              required
-            />
-          </div>
+                    <div className="admin-actions">
+                      <button
+                        type="button"
+                        className="edit-button"
+                        onClick={() =>
+                          startEdit(vehicle)
+                        }
+                      >
+                        ✏️ Upravit
+                      </button>
 
-          <div>
-            <label>Začátek</label>
-
-            <input
-              type="time"
-              value={form.zacatek || ""}
-              onChange={(e) =>
-                change("zacatek", e.target.value)
-              }
-              required
-            />
-          </div>
-
-          <div>
-            <label>Konec</label>
-
-            <input
-              type="time"
-              value={form.konec || ""}
-              onChange={(e) =>
-                change("konec", e.target.value)
-              }
-              required
-            />
-          </div>
-        </div>
-
-        <div className="form-buttons">
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={saving}
-          >
-            {saving ? "Ukládání..." : "✓ Uložit výkaz"}
-          </button>
-
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onCancel}
-          >
-            Zrušit
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/* =========================================================
-   KARTA VÝKAZU
-========================================================= */
-
-function ReportCard({
-  report,
-  userName,
-  provozovnaName,
-  onEdit,
-  onDelete,
-}) {
-  return (
-    <div className="report-card">
-      <div className="report-date">
-        <strong>
-          {report.datum
-            ? new Date(
-                `${report.datum}T00:00:00`
-              ).toLocaleDateString("cs-CZ")
-            : "-"}
-        </strong>
-
-        {userName && <small>{userName}</small>}
-      </div>
-
-      <div>
-        <small>Provozovna</small>
-        <strong>{provozovnaName || "-"}</strong>
-      </div>
-
-      <div>
-        <small>Linka</small>
-        <strong>{report.linka || "-"}</strong>
-      </div>
-
-      <div>
-        <small>Vůz</small>
-        <strong>{report.vuz || "-"}</strong>
-      </div>
-
-      <div>
-        <small>Čas</small>
-        <strong>
-          {report.zacatek || "-"} –{" "}
-          {report.konec || "-"}
-        </strong>
-      </div>
-
-      {(onEdit || onDelete) && (
-        <div className="report-actions">
-          {onEdit && (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onEdit}
-            >
-              ✏️
-            </button>
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() =>
+                          deleteVehicle(
+                            vehicle.id,
+                            vehicle.cislo
+                          )
+                        }
+                      >
+                        🗑️ Smazat
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
           )}
-
-          {onDelete && (
-            <button
-              className="delete-button"
-              type="button"
-              onClick={onDelete}
-            >
-              🗑️
-            </button>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -1861,30 +1143,504 @@ function ReportCard({
    MOJE VÝKAZY
 ========================================================= */
 
-function MyReports({ user }) {
+function Reports({ user }) {
+  const emptyForm = {
+    datum: new Date()
+      .toISOString()
+      .slice(0, 10),
+
+    linka: "",
+    smer: "",
+    vuz: "",
+    zacatek: "",
+    konec: "",
+    km: "",
+    poznamka: "",
+  };
+
   const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [vehicles, setVehicles] = useState([]);
+  const [form, setForm] =
+    useState(emptyForm);
 
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [saving, setSaving] =
+    useState(false);
 
-  const { provozovny } = useProvozovny();
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
 
   async function loadReports() {
     setLoading(true);
+    setError("");
 
     const { data, error } = await supabase
       .from("vykazy")
       .select(
-        "id, uzivatel_id, provozovna_id, datum, linka, smer, vuz, zacatek, konec"
+        "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
       )
       .eq("uzivatel_id", user.id)
-      .order("datum", { ascending: false })
-      .order("zacatek", { ascending: false });
+      .order("datum", {
+        ascending: false,
+      })
+      .order("vytvoreno", {
+        ascending: false,
+      });
+
+    if (error) {
+      setError(error.message);
+      setReports([]);
+    } else {
+      setReports(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadVehicles() {
+    const { data } = await supabase
+      .from("vozy")
+      .select(
+        "id, cislo, vyrobce, typ"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
+
+    setVehicles(data || []);
+  }
+
+  useEffect(() => {
+    loadReports();
+    loadVehicles();
+  }, [user.id]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  async function saveReport(e) {
+    e.preventDefault();
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const reportData = {
+      uzivatel_id: user.id,
+      datum: form.datum || null,
+      linka: form.linka.trim() || null,
+      smer: form.smer.trim() || null,
+      vuz: form.vuz.trim() || null,
+      zacatek: form.zacatek || null,
+      konec: form.konec || null,
+
+      km:
+        form.km.trim() !== ""
+          ? Number(form.km)
+          : null,
+
+      poznamka:
+        form.poznamka.trim() || null,
+
+      stav: "Čeká na schválení",
+    };
+
+    const { error } = await supabase
+      .from("vykazy")
+      .insert([reportData]);
+
+    if (error) {
+      setError(error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      "Výkaz byl úspěšně odeslán."
+    );
+
+    setForm({
+      ...emptyForm,
+      datum: new Date()
+        .toISOString()
+        .slice(0, 10),
+    });
+
+    await loadReports();
+
+    setSaving(false);
+  }
+
+  async function deleteReport(id) {
+    if (
+      !window.confirm(
+        "Opravdu chceš tento výkaz smazat?"
+      )
+    ) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("vykazy")
+      .delete()
+      .eq("id", id)
+      .eq("uzivatel_id", user.id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setSuccess(
+      "Výkaz byl smazán."
+    );
+
+    await loadReports();
+  }
+
+  function reportStatusClass(stav) {
+    if (stav === "Schváleno") {
+      return "report-status approved";
+    }
+
+    if (stav === "Zamítnuto") {
+      return "report-status rejected";
+    }
+
+    return "report-status pending";
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Moje výkazy</h1>
+
+          <p>
+            Evidence odjetých výkonů
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          {reports.length} VÝKAZŮ
+        </div>
+      </div>
+
+      <div className="panel admin-form-panel">
+        <h2>➕ Nový výkaz</h2>
+
+        {error && (
+          <div className="error-box">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
+
+        <form
+          onSubmit={saveReport}
+          className="vehicle-form"
+        >
+          <div className="form-grid">
+            <div>
+              <label>Datum</label>
+
+              <input
+                name="datum"
+                type="date"
+                value={form.datum}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            <div>
+              <label>Linka</label>
+
+              <input
+                name="linka"
+                value={form.linka}
+                onChange={handleChange}
+                placeholder="Např. 12"
+                required
+              />
+            </div>
+
+            <div>
+              <label>Směr</label>
+
+              <input
+                name="smer"
+                value={form.smer}
+                onChange={handleChange}
+                placeholder="Např. Pod Strání"
+              />
+            </div>
+
+            <div>
+              <label>Vůz</label>
+
+              <select
+                name="vuz"
+                value={form.vuz}
+                onChange={handleChange}
+              >
+                <option value="">
+                  Vyber vůz
+                </option>
+
+                {vehicles.map(
+                  (vehicle) => (
+                    <option
+                      key={vehicle.id}
+                      value={vehicle.cislo}
+                    >
+                      {vehicle.cislo} –{" "}
+                      {vehicle.vyrobce}{" "}
+                      {vehicle.typ}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label>Začátek</label>
+
+              <input
+                name="zacatek"
+                type="time"
+                value={form.zacatek}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div>
+              <label>Konec</label>
+
+              <input
+                name="konec"
+                type="time"
+                value={form.konec}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div>
+              <label>Počet km</label>
+
+              <input
+                name="km"
+                type="number"
+                min="0"
+                step="0.1"
+                value={form.km}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div>
+              <label>Poznámka</label>
+
+              <input
+                name="poznamka"
+                value={form.poznamka}
+                onChange={handleChange}
+              />
+            </div>
+          </div>
+
+          <div className="form-buttons">
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={saving}
+            >
+              {saving
+                ? "Odesílání..."
+                : "📋 Odeslat výkaz"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="panel admin-list-panel">
+        <h2>Moje výkazy</h2>
+
+        {loading && (
+          <div className="empty">
+            Načítání výkazů...
+          </div>
+        )}
+
+        {!loading &&
+          reports.length === 0 && (
+            <div className="empty">
+              Zatím nemáš žádné výkazy.
+            </div>
+          )}
+
+        {!loading &&
+          reports.length > 0 && (
+            <div className="reports-list">
+              {reports.map(
+                (report) => (
+                  <div
+                    className="report-card"
+                    key={report.id}
+                  >
+                    <div className="report-main">
+                      <div className="report-date">
+                        {report.datum
+                          ? new Date(
+                              `${report.datum}T00:00:00`
+                            ).toLocaleDateString(
+                              "cs-CZ"
+                            )
+                          : "-"}
+                      </div>
+
+                      <div className="report-info">
+                        <strong>
+                          Linka{" "}
+                          {report.linka ?? "-"}
+                        </strong>
+
+                        <span>
+                          Směr:{" "}
+                          {report.smer ?? "-"}
+                        </span>
+
+                        <span>
+                          Vůz:{" "}
+                          {report.vuz ?? "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="report-time">
+                      <small>Čas</small>
+
+                      <strong>
+                        {report.zacatek ??
+                          "--:--"}{" "}
+                        →{" "}
+                        {report.konec ??
+                          "--:--"}
+                      </strong>
+                    </div>
+
+                    <div className="report-km">
+                      <small>
+                        Kilometry
+                      </small>
+
+                      <strong>
+                        {report.km ?? 0} km
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>Stav</small>
+
+                      <span
+                        className={reportStatusClass(
+                          report.stav
+                        )}
+                      >
+                        {report.stav ??
+                          "Čeká na schválení"}
+                      </span>
+                    </div>
+
+                    <div className="report-actions">
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() =>
+                          deleteReport(
+                            report.id
+                          )
+                        }
+                      >
+                        🗑️ Smazat
+                      </button>
+                    </div>
+
+                    {report.poznamka && (
+                      <div className="report-note">
+                        <small>
+                          Poznámka
+                        </small>
+
+                        <span>
+                          {report.poznamka}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   SPRÁVA VÝKAZŮ
+========================================================= */
+
+function AdminReports() {
+  const [reports, setReports] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [filterStatus, setFilterStatus] =
+    useState("Vše");
+
+  async function loadReports() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("vykazy")
+      .select(
+        "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
+      )
+      .order("datum", {
+        ascending: false,
+      })
+      .order("vytvoreno", {
+        ascending: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -1898,322 +1654,37 @@ function MyReports({ user }) {
 
   useEffect(() => {
     loadReports();
-  }, [user.id]);
-
-  function getProvozovnaName(id) {
-    return (
-      provozovny.find(
-        (p) => Number(p.id) === Number(id)
-      )?.nazev || "-"
-    );
-  }
-
-  async function saveReport(form) {
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const payload = {
-      uzivatel_id: user.id,
-      provozovna_id: Number(form.provozovna_id),
-      datum: form.datum,
-      linka: form.linka.trim(),
-      smer: form.smer.trim(),
-      vuz: form.vuz.trim(),
-      zacatek: form.zacatek,
-      konec: form.konec,
-    };
-
-    let result;
-
-    if (editing) {
-      result = await supabase
-        .from("vykazy")
-        .update(payload)
-        .eq("id", editing.id)
-        .eq("uzivatel_id", user.id);
-    } else {
-      result = await supabase
-        .from("vykazy")
-        .insert(payload);
-    }
-
-    if (result.error) {
-      setError(result.error.message);
-      setSaving(false);
-      return;
-    }
-
-    setSuccess(
-      editing
-        ? "Výkaz byl upraven."
-        : "Výkaz byl přidán."
-    );
-
-    setEditing(null);
-    setShowForm(false);
-
-    await loadReports();
-
-    setSaving(false);
-  }
-
-  async function deleteReport(report) {
-    if (
-      !window.confirm(
-        "Opravdu chceš tento výkaz smazat?"
-      )
-    ) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("vykazy")
-      .delete()
-      .eq("id", report.id)
-      .eq("uzivatel_id", user.id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess("Výkaz byl smazán.");
-
-    await loadReports();
-  }
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Moje výkazy</h1>
-          <p>Výkazy přihlášeného uživatele</p>
-        </div>
-      </div>
-
-      {error && <div className="error-box">{error}</div>}
-      {success && <div className="success-box">{success}</div>}
-
-      <div className="panel">
-        <div className="users-toolbar">
-          <div>
-            <h2>Moje výkazy</h2>
-
-            <p className="muted">
-              Při přidání nejdříve vybereš provozovnu a potom
-              pouze vůz z této provozovny.
-            </p>
-          </div>
-
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setEditing(null);
-              setShowForm(!showForm);
-            }}
-          >
-            {showForm ? "✕ Zavřít" : "➕ Přidat výkaz"}
-          </button>
-        </div>
-
-        {showForm && (
-          <ReportForm
-            currentUserId={user.id}
-            initialData={editing}
-            users={[]}
-            adminMode={false}
-            onSave={saveReport}
-            onCancel={() => {
-              setShowForm(false);
-              setEditing(null);
-            }}
-            saving={saving}
-            provozovny={provozovny}
-          />
-        )}
-
-        {loading && (
-          <div className="empty">
-            Načítání výkazů...
-          </div>
-        )}
-
-        {!loading && reports.length === 0 && (
-          <div className="empty">
-            Zatím žádné výkazy.
-          </div>
-        )}
-
-        {!loading && reports.length > 0 && (
-          <div className="reports-list">
-            {reports.map((report) => (
-              <ReportCard
-                key={report.id}
-                report={report}
-                provozovnaName={getProvozovnaName(
-                  report.provozovna_id
-                )}
-                onEdit={() => {
-                  setEditing(report);
-                  setShowForm(true);
-                }}
-                onDelete={() => deleteReport(report)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   SPRÁVA VÝKAZŮ
-========================================================= */
-
-function AdminReports() {
-  const [reports, setReports] = useState([]);
-  const [users, setUsers] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-
-  const [search, setSearch] = useState("");
-  const [selectedProvozovna, setSelectedProvozovna] =
-    useState("");
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  const { provozovny } = useProvozovny();
-
-  async function loadData() {
-    setLoading(true);
-    setError("");
-
-    const [reportsResult, usersResult] =
-      await Promise.all([
-        supabase
-          .from("vykazy")
-          .select(
-            "id, uzivatel_id, provozovna_id, datum, linka, smer, vuz, zacatek, konec"
-          )
-          .order("datum", { ascending: false })
-          .order("zacatek", { ascending: false }),
-
-        supabase
-          .from("profiles")
-          .select("id, jmeno, role")
-          .order("jmeno", { ascending: true }),
-      ]);
-
-    if (reportsResult.error) {
-      setError(reportsResult.error.message);
-    } else {
-      setReports(reportsResult.data || []);
-    }
-
-    if (usersResult.error) {
-      setError(usersResult.error.message);
-    } else {
-      setUsers(usersResult.data || []);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadData();
   }, []);
 
-  function getUserName(id) {
-    return (
-      users.find((u) => u.id === id)?.jmeno ||
-      "Neznámý uživatel"
-    );
-  }
-
-  function getProvozovnaName(id) {
-    return (
-      provozovny.find(
-        (p) => Number(p.id) === Number(id)
-      )?.nazev || "-"
-    );
-  }
-
-  async function saveReport(form) {
-    setSaving(true);
+  async function changeStatus(
+    id,
+    newStatus
+  ) {
     setError("");
     setSuccess("");
 
-    if (!form.uzivatel_id) {
-      setError("Vyber řidiče.");
-      setSaving(false);
-      return;
-    }
+    const { error } = await supabase
+      .from("vykazy")
+      .update({
+        stav: newStatus,
+      })
+      .eq("id", id);
 
-    if (!form.provozovna_id) {
-      setError("Vyber provozovnu.");
-      setSaving(false);
-      return;
-    }
-
-    if (!form.vuz) {
-      setError("Vyber vůz.");
-      setSaving(false);
-      return;
-    }
-
-    const payload = {
-      uzivatel_id: form.uzivatel_id,
-      provozovna_id: Number(form.provozovna_id),
-      datum: form.datum,
-      linka: form.linka.trim(),
-      smer: form.smer.trim(),
-      vuz: form.vuz.trim(),
-      zacatek: form.zacatek,
-      konec: form.konec,
-    };
-
-    let result;
-
-    if (editing) {
-      result = await supabase
-        .from("vykazy")
-        .update(payload)
-        .eq("id", editing.id);
-    } else {
-      result = await supabase
-        .from("vykazy")
-        .insert(payload);
-    }
-
-    if (result.error) {
-      setError(result.error.message);
-      setSaving(false);
+    if (error) {
+      setError(error.message);
       return;
     }
 
     setSuccess(
-      editing
-        ? "Výkaz byl upraven."
-        : "Výkaz byl přidán."
+      newStatus === "Schváleno"
+        ? "Výkaz byl schválen."
+        : "Výkaz byl zamítnut."
     );
 
-    setShowForm(false);
-    setEditing(null);
-
-    await loadData();
-
-    setSaving(false);
+    await loadReports();
   }
 
-  async function deleteReport(report) {
+  async function deleteReport(id) {
     if (
       !window.confirm(
         "Opravdu chceš tento výkaz smazat?"
@@ -2225,126 +1696,187 @@ function AdminReports() {
     const { error } = await supabase
       .from("vykazy")
       .delete()
-      .eq("id", report.id);
+      .eq("id", id);
 
     if (error) {
       setError(error.message);
       return;
     }
 
-    setSuccess("Výkaz byl smazán.");
+    setSuccess(
+      "Výkaz byl smazán."
+    );
 
-    await loadData();
+    await loadReports();
   }
 
-  const filtered = reports.filter((report) => {
-    if (
-      selectedProvozovna &&
-      Number(report.provozovna_id) !==
-        Number(selectedProvozovna)
-    ) {
-      return false;
+  const filteredReports =
+    reports.filter((report) => {
+      const statusMatch =
+        filterStatus === "Vše" ||
+        report.stav === filterStatus;
+
+      const searchText = [
+        report.uzivatel_id,
+        report.datum,
+        report.linka,
+        report.smer,
+        report.vuz,
+        report.zacatek,
+        report.konec,
+        report.km,
+        report.poznamka,
+        report.stav,
+      ]
+        .filter(
+          (value) =>
+            value !== null &&
+            value !== undefined
+        )
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        statusMatch &&
+        searchText.includes(
+          search.toLowerCase()
+        )
+      );
+    });
+
+  function statusClass(stav) {
+    if (stav === "Schváleno") {
+      return "report-status approved";
     }
 
-    const text = [
-      report.datum,
-      report.linka,
-      report.smer,
-      report.vuz,
-      report.zacatek,
-      report.konec,
-      getUserName(report.uzivatel_id),
-      getProvozovnaName(report.provozovna_id),
-    ]
-      .filter(
-        (x) =>
-          x !== null &&
-          x !== undefined
-      )
-      .join(" ")
-      .toLowerCase();
+    if (stav === "Zamítnuto") {
+      return "report-status rejected";
+    }
 
-    return text.includes(search.toLowerCase());
-  });
+    return "report-status pending";
+  }
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Správa výkazů</h1>
-          <p>Administrace výkazů řidičů</p>
+
+          <p>
+            Kontrola a schvalování výkazů
+            řidičů a dispečerů
+          </p>
         </div>
 
         <div className="profile-badge">
-          {filtered.length} VÝKAZŮ
+          ADMIN / DISPEČER
         </div>
       </div>
 
-      {error && <div className="error-box">{error}</div>}
-      {success && <div className="success-box">{success}</div>}
+      <div className="admin-report-stats">
+        <div className="admin-report-stat">
+          <span>Celkem</span>
 
-      <div className="panel">
-        <div className="provozovna-bar">
-          <ProvozovnaSelect
-            value={selectedProvozovna}
-            onChange={setSelectedProvozovna}
-            provozovny={provozovny}
-            label="Zobrazit výkazy provozovny"
-          />
-
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setSelectedProvozovna("")}
-          >
-            Všechny provozovny
-          </button>
+          <strong>
+            {reports.length}
+          </strong>
         </div>
 
-        <div className="users-toolbar">
-          <div>
-            <h2>Výkazy řidičů</h2>
+        <div className="admin-report-stat">
+          <span>Čeká</span>
 
-            <p className="muted">
-              Přidávání, úprava a mazání výkazů.
-            </p>
+          <strong>
+            {
+              reports.filter(
+                (r) =>
+                  r.stav ===
+                  "Čeká na schválení"
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-report-stat">
+          <span>Schváleno</span>
+
+          <strong>
+            {
+              reports.filter(
+                (r) =>
+                  r.stav ===
+                  "Schváleno"
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-report-stat">
+          <span>Zamítnuto</span>
+
+          <strong>
+            {
+              reports.filter(
+                (r) =>
+                  r.stav ===
+                  "Zamítnuto"
+              ).length
+            }
+          </strong>
+        </div>
+      </div>
+
+      <div className="panel admin-list-panel">
+        <div className="admin-report-toolbar">
+          <input
+            className="search"
+            type="text"
+            placeholder="🔎 Hledat výkaz..."
+            value={search}
+            onChange={(e) =>
+              setSearch(e.target.value)
+            }
+          />
+
+          <select
+            className="status-filter"
+            value={filterStatus}
+            onChange={(e) =>
+              setFilterStatus(
+                e.target.value
+              )
+            }
+          >
+            <option value="Vše">
+              Všechny stavy
+            </option>
+
+            <option value="Čeká na schválení">
+              Čeká na schválení
+            </option>
+
+            <option value="Schváleno">
+              Schváleno
+            </option>
+
+            <option value="Zamítnuto">
+              Zamítnuto
+            </option>
+          </select>
+        </div>
+
+        {error && (
+          <div className="error-box">
+            <strong>Chyba:</strong>
+            <br />
+            {error}
           </div>
-
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setEditing(null);
-              setShowForm(!showForm);
-            }}
-          >
-            {showForm ? "✕ Zavřít" : "➕ Přidat výkaz"}
-          </button>
-        </div>
-
-        {showForm && (
-          <ReportForm
-            initialData={editing}
-            users={users}
-            currentUserId=""
-            adminMode={true}
-            onSave={saveReport}
-            onCancel={() => {
-              setShowForm(false);
-              setEditing(null);
-            }}
-            saving={saving}
-            provozovny={provozovny}
-          />
         )}
 
-        <input
-          className="search"
-          type="text"
-          placeholder="🔎 Hledat výkaz..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
 
         {loading && (
           <div className="empty">
@@ -2352,656 +1884,165 @@ function AdminReports() {
           </div>
         )}
 
-        {!loading && filtered.length === 0 && (
-          <div className="empty">
-            Žádné výkazy.
-          </div>
-        )}
-
-        {!loading && filtered.length > 0 && (
-          <div className="reports-list">
-            {filtered.map((report) => (
-              <ReportCard
-                key={report.id}
-                report={report}
-                userName={getUserName(
-                  report.uzivatel_id
-                )}
-                provozovnaName={getProvozovnaName(
-                  report.provozovna_id
-                )}
-                onEdit={() => {
-                  setEditing(report);
-                  setShowForm(true);
-                }}
-                onDelete={() =>
-                  deleteReport(report)
-                }
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   NOVINKY
-========================================================= */
-
-function News({ user, profile, role }) {
-  const [news, setNews] = useState([]);
-  const [confirmations, setConfirmations] = useState([]);
-  const [profiles, setProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [selectedNews, setSelectedNews] = useState(null);
-
-  const canManage = canManageNews(role);
-  const isDriver = role === ROLE_RIDIC;
-
-  const emptyForm = {
-    nadpis: "",
-    obsah: "",
-    dulezitost: "Běžná",
-  };
-
-  const [form, setForm] = useState(emptyForm);
-
-  async function loadNews() {
-    setLoading(true);
-    setError("");
-
-    const { data, error } = await supabase
-      .from("novinky")
-      .select(`
-        id,
-        nadpis,
-        obsah,
-        dulezitost,
-        autor_id,
-        created_at
-      `)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("NOVINKY ERROR:", error);
-      setError(error.message);
-      setNews([]);
-      setLoading(false);
-      return;
-    }
-
-    setNews(data || []);
-
-    const newsIds = (data || []).map((item) => item.id);
-
-    if (newsIds.length > 0) {
-      const { data: confirmationData, error: confirmationError } =
-        await supabase
-          .from("novinky_potvrzeni")
-          .select("id, novinka_id, uzivatel_id, potvrzeno_at")
-          .in("novinka_id", newsIds);
-
-      if (confirmationError) {
-        console.error(
-          "NOVINKY POTVRZENI ERROR:",
-          confirmationError
-        );
-      }
-
-      setConfirmations(confirmationData || []);
-    } else {
-      setConfirmations([]);
-    }
-
-    if (canManage) {
-      const { data: profileData, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("id, jmeno, role")
-          .order("jmeno", { ascending: true });
-
-      if (profileError) {
-        console.error(
-          "NOVINKY PROFILES ERROR:",
-          profileError
-        );
-      }
-
-      setProfiles(profileData || []);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadNews();
-  }, [canManage]);
-
-  function openCreate() {
-    setEditing(null);
-    setForm(emptyForm);
-    setError("");
-    setSuccess("");
-    setShowForm(true);
-  }
-
-  function openEdit(item) {
-    setEditing(item);
-    setForm({
-      nadpis: item.nadpis || "",
-      obsah: item.obsah || "",
-      dulezitost: item.dulezitost || "Běžná",
-    });
-    setError("");
-    setSuccess("");
-    setShowForm(true);
-  }
-
-  function handleChange(e) {
-    const { name, value } = e.target;
-
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-  }
-
-  async function saveNews(e) {
-    e.preventDefault();
-
-    const nadpis = form.nadpis.trim();
-    const obsah = form.obsah.trim();
-
-    if (!nadpis || !obsah) {
-      setError("Vyplň nadpis a text novinky.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const payload = {
-      nadpis,
-      obsah,
-      dulezitost: form.dulezitost,
-    };
-
-    let result;
-
-    if (editing) {
-      result = await supabase
-        .from("novinky")
-        .update(payload)
-        .eq("id", editing.id);
-    } else {
-      result = await supabase
-        .from("novinky")
-        .insert({
-          ...payload,
-          autor_id: user.id,
-        });
-    }
-
-    if (result.error) {
-      console.error("SAVE NOVINKA ERROR:", result.error);
-      setError(result.error.message);
-      setSaving(false);
-      return;
-    }
-
-    setSuccess(
-      editing
-        ? "Novinka byla upravena."
-        : "Novinka byla zveřejněna."
-    );
-
-    setForm(emptyForm);
-    setEditing(null);
-    setShowForm(false);
-
-    await loadNews();
-    setSaving(false);
-  }
-
-  async function deleteNews(id) {
-    if (
-      !window.confirm(
-        "Opravdu chceš tuto novinku smazat?"
-      )
-    ) {
-      return;
-    }
-
-    setError("");
-
-    const { error } = await supabase
-      .from("novinky")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("DELETE NOVINKA ERROR:", error);
-      setError(error.message);
-      return;
-    }
-
-    if (selectedNews?.id === id) {
-      setSelectedNews(null);
-    }
-
-    await loadNews();
-  }
-
-  async function confirmNews(item) {
-    if (!user?.id) return;
-
-    setError("");
-    setSuccess("");
-
-    const alreadyConfirmed = confirmations.some(
-      (confirmation) =>
-        confirmation.novinka_id === item.id &&
-        confirmation.uzivatel_id === user.id
-    );
-
-    if (alreadyConfirmed) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("novinky_potvrzeni")
-      .insert({
-        novinka_id: item.id,
-        uzivatel_id: user.id,
-      });
-
-    if (error) {
-      if (error.code === "23505") {
-        await loadNews();
-        return;
-      }
-
-      console.error(
-        "CONFIRM NOVINKA ERROR:",
-        error
-      );
-      setError(error.message);
-      return;
-    }
-
-    setSuccess("Novinka byla potvrzena jako přečtená.");
-    await loadNews();
-  }
-
-  function isConfirmed(item) {
-    return confirmations.some(
-      (confirmation) =>
-        confirmation.novinka_id === item.id &&
-        confirmation.uzivatel_id === user?.id
-    );
-  }
-
-  function getAuthorName(authorId) {
-    const author = profiles.find(
-      (profileItem) => profileItem.id === authorId
-    );
-
-    return author?.jmeno || "Uživatel";
-  }
-
-  function getConfirmationCount(item) {
-    return confirmations.filter(
-      (confirmation) =>
-        confirmation.novinka_id === item.id
-    ).length;
-  }
-
-  function getDriverProfiles() {
-    return profiles.filter(
-      (profileItem) =>
-        profileItem.role?.toLowerCase() === ROLE_RIDIC
-    );
-  }
-
-  function formatDate(value) {
-    if (!value) return "";
-
-    return new Date(value).toLocaleString(
-      "cs-CZ",
-      {
-        dateStyle: "short",
-        timeStyle: "short",
-      }
-    );
-  }
-
-  return (
-    <div className="news-page">
-      <div className="topbar">
-        <div>
-          <h1>Novinky</h1>
-          <p>
-            Důležité informace pro řidiče a vedení Czech Mobility
-          </p>
-        </div>
-
-        {canManage && (
-          <button
-            className="primary-button"
-            onClick={openCreate}
-          >
-            + Nová novinka
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="error-box">
-          {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="success-box">
-          {success}
-        </div>
-      )}
-
-      {showForm && canManage && (
-        <div className="panel news-form-panel">
-          <div className="panel-header">
-            <div>
-              <h2>
-                {editing
-                  ? "Upravit novinku"
-                  : "Vytvořit novinku"}
-              </h2>
-              <p>
-                Novinka se po zveřejnění zobrazí všem
-                přihlášeným uživatelům.
-              </p>
+        {!loading &&
+          filteredReports.length === 0 && (
+            <div className="empty">
+              {reports.length === 0
+                ? "Zatím nebyly vytvořeny žádné výkazy."
+                : "Žádné výkazy neodpovídají filtru nebo hledání."}
             </div>
+          )}
 
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setShowForm(false);
-                setEditing(null);
-                setForm(emptyForm);
-              }}
-            >
-              Zavřít
-            </button>
-          </div>
-
-          <form
-            className="news-form"
-            onSubmit={saveNews}
-          >
-            <div className="form-group">
-              <label>Nadpis</label>
-              <input
-                name="nadpis"
-                value={form.nadpis}
-                onChange={handleChange}
-                placeholder="Např. Změna pravidel výprav"
-                maxLength={160}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Důležitost</label>
-              <select
-                name="dulezitost"
-                value={form.dulezitost}
-                onChange={handleChange}
-              >
-                <option value="Běžná">Běžná</option>
-                <option value="Důležitá">Důležitá</option>
-                <option value="Urgentní">Urgentní</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Text novinky</label>
-              <textarea
-                name="obsah"
-                value={form.obsah}
-                onChange={handleChange}
-                placeholder="Napiš text novinky..."
-                rows={8}
-              />
-            </div>
-
-            <div className="news-form-actions">
-              <button
-                type="submit"
-                className="primary-button"
-                disabled={saving}
-              >
-                {saving
-                  ? "Ukládání..."
-                  : editing
-                    ? "Uložit změny"
-                    : "Zveřejnit novinku"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="panel">
-          <div className="loading-inline">
-            Načítání novinek...
-          </div>
-        </div>
-      ) : news.length === 0 ? (
-        <div className="panel empty-state">
-          <div className="empty-icon">📰</div>
-          <h2>Zatím nejsou žádné novinky</h2>
-          <p>
-            Jakmile bude zveřejněna první novinka,
-            zobrazí se zde.
-          </p>
-        </div>
-      ) : (
-        <div className="news-list">
-          {news.map((item) => {
-            const confirmed =
-              isDriver && isConfirmed(item);
-            const confirmationCount =
-              getConfirmationCount(item);
-            const driverCount =
-              getDriverProfiles().length;
-
-            return (
-              <article
-                className={
-                  `news-card ${
-                    confirmed
-                      ? "news-card-confirmed"
-                      : ""
-                  }`
-                }
-                key={item.id}
-              >
-                <div className="news-card-top">
-                  <div>
-                    <span
-                      className={
-                        `news-priority ${
-                          item.dulezitost === "Urgentní"
-                            ? "urgent"
-                            : item.dulezitost === "Důležitá"
-                              ? "important"
-                              : ""
-                        }`
-                      }
-                    >
-                      {item.dulezitost || "Běžná"}
-                    </span>
-
-                    <h2>{item.nadpis}</h2>
-
-                    <div className="news-meta">
-                      {formatDate(item.created_at)}
-                      {canManage &&
-                        item.autor_id && (
-                          <>
-                            {" • "}
-                            Autor:{" "}
-                            {getAuthorName(
-                              item.autor_id
-                            )}
-                          </>
-                        )}
-                    </div>
-                  </div>
-
+        {!loading &&
+          filteredReports.length > 0 && (
+            <div className="admin-reports-list">
+              {filteredReports.map(
+                (report) => (
                   <div
-                    className={
-                      confirmed
-                        ? "news-status confirmed"
-                        : isDriver
-                          ? "news-status pending"
-                          : "news-status confirmed"
-                    }
+                    className="admin-report-card"
+                    key={report.id}
                   >
-                    {isDriver
-                      ? confirmed
-                        ? "✓ Přečteno"
-                        : "● Nepotvrzeno"
-                      : "ℹ Pro řidiče"}
-                  </div>
-                </div>
+                    <div className="admin-report-header">
+                      <div>
+                        <span className="admin-report-date">
+                          {report.datum
+                            ? new Date(
+                                `${report.datum}T00:00:00`
+                              ).toLocaleDateString(
+                                "cs-CZ"
+                              )
+                            : "-"}
+                        </span>
 
-                <div className="news-content">
-                  {item.obsah}
-                </div>
+                        <h3>
+                          Linka{" "}
+                          {report.linka ??
+                            "-"}
 
-                <div className="news-card-actions">
-                  {isDriver && !confirmed && (
-                    <button
-                      className="primary-button"
-                      onClick={() =>
-                        confirmNews(item)
-                      }
-                    >
-                      ✓ Potvrdit přečtení
-                    </button>
-                  )}
+                          {report.smer
+                            ? ` → ${report.smer}`
+                            : ""}
+                        </h3>
+                      </div>
 
-                  {isDriver && confirmed && (
-                    <span className="confirmed-text">
-                      ✓ Tuto novinku jsi potvrdil
-                    </span>
-                  )}
+                      <span
+                        className={statusClass(
+                          report.stav
+                        )}
+                      >
+                        {report.stav ||
+                          "Čeká na schválení"}
+                      </span>
+                    </div>
 
-                  {canManage && (
-                    <>
+                    <div className="admin-report-grid">
+                      <div>
+                        <small>
+                          Uživatel
+                        </small>
+
+                        <strong>
+                          {report.uzivatel_id ??
+                            "-"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>Vůz</small>
+
+                        <strong>
+                          {report.vuz ?? "-"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>Čas</small>
+
+                        <strong>
+                          {report.zacatek ??
+                            "--:--"}{" "}
+                          →{" "}
+                          {report.konec ??
+                            "--:--"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>
+                          Kilometry
+                        </small>
+
+                        <strong>
+                          {report.km ?? 0} km
+                        </strong>
+                      </div>
+                    </div>
+
+                    {report.poznamka && (
+                      <div className="admin-report-note">
+                        <small>
+                          Poznámka
+                        </small>
+
+                        <span>
+                          {report.poznamka}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="admin-report-actions">
                       <button
-                        className="secondary-button"
+                        type="button"
+                        className="approve-button"
                         onClick={() =>
-                          setSelectedNews(
-                            selectedNews?.id === item.id
-                              ? null
-                              : item
+                          changeStatus(
+                            report.id,
+                            "Schváleno"
+                          )
+                        }
+                        disabled={
+                          report.stav ===
+                          "Schváleno"
+                        }
+                      >
+                        ✓ Schválit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="reject-button"
+                        onClick={() =>
+                          changeStatus(
+                            report.id,
+                            "Zamítnuto"
+                          )
+                        }
+                        disabled={
+                          report.stav ===
+                          "Zamítnuto"
+                        }
+                      >
+                        ✕ Zamítnout
+                      </button>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() =>
+                          deleteReport(
+                            report.id
                           )
                         }
                       >
-                        {selectedNews?.id === item.id
-                          ? "Skrýt potvrzení"
-                          : `Potvrzení ${confirmationCount}/${driverCount}`}
+                        🗑️ Smazat
                       </button>
-
-                      <button
-                        className="secondary-button"
-                        onClick={() =>
-                          openEdit(item)
-                        }
-                      >
-                        ✎ Upravit
-                      </button>
-
-                      <button
-                        className="secondary-button danger-button"
-                        onClick={() =>
-                          deleteNews(item.id)
-                        }
-                      >
-                        🗑 Smazat
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {canManage &&
-                  selectedNews?.id === item.id && (
-                    <div className="news-confirmation-panel">
-                      <h3>Potvrzení přečtení</h3>
-
-                      {getDriverProfiles().length ===
-                      0 ? (
-                        <p>
-                          Zatím není evidován žádný řidič.
-                        </p>
-                      ) : (
-                        <div className="news-driver-list">
-                          {getDriverProfiles().map(
-                            (driver) => {
-                              const confirmedByDriver =
-                                confirmations.some(
-                                  (confirmation) =>
-                                    confirmation.novinka_id ===
-                                      item.id &&
-                                    confirmation.uzivatel_id ===
-                                      driver.id
-                                );
-
-                              return (
-                                <div
-                                  className="news-driver-row"
-                                  key={driver.id}
-                                >
-                                  <span>
-                                    {driver.jmeno ||
-                                      "Bez jména"}
-                                  </span>
-
-                                  <strong
-                                    className={
-                                      confirmedByDriver
-                                        ? "driver-confirmed"
-                                        : "driver-not-confirmed"
-                                    }
-                                  >
-                                    {confirmedByDriver
-                                      ? "✓ Potvrzeno"
-                                      : "✕ Nepotvrzeno"}
-                                  </strong>
-                                </div>
-                              );
-                            }
-                          )}
-                        </div>
-                      )}
                     </div>
-                  )}
-              </article>
-            );
-          })}
-        </div>
-      )}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </div>
     </div>
   );
 }
@@ -3011,63 +2052,20 @@ function News({ user, profile, role }) {
 ========================================================= */
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [user, setUser] =
+    useState(null);
 
-  const [dashboardStats, setDashboardStats] = useState({
-    vypravy: 0,
-    aktivniVozy: 0,
-    vozyCelkem: 0,
-    provozovny: 0,
-  });
+  const [profile, setProfile] =
+    useState(null);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
+
   const [profileLoading, setProfileLoading] =
     useState(false);
 
-  const [page, setPage] = useState("dashboard");
-  const [showRegister, setShowRegister] =
-    useState(false);
-
-  async function loadDashboardStats() {
-    const [
-      { count: provozovny, error: provozovnyError },
-      { count: vozyCelkem, error: vozyError },
-      { count: aktivniVozy, error: aktivniVozyError },
-    ] = await Promise.all([
-      supabase
-        .from("provozovny")
-        .select("*", { count: "exact", head: true }),
-
-      supabase
-        .from("vozy")
-        .select("*", { count: "exact", head: true }),
-
-      supabase
-        .from("vozy")
-        .select("*", { count: "exact", head: true })
-        .eq("stav", "PROVOZNÍ"),
-    ]);
-
-    if (provozovnyError) {
-      console.error("PROVOZOVNY ERROR:", provozovnyError);
-    }
-
-    if (vozyError) {
-      console.error("VOZY ERROR:", vozyError);
-    }
-
-    if (aktivniVozyError) {
-      console.error("AKTIVNI VOZY ERROR:", aktivniVozyError);
-    }
-
-    setDashboardStats({
-      vypravy: 0,
-      aktivniVozy: aktivniVozy || 0,
-      vozyCelkem: vozyCelkem || 0,
-      provozovny: provozovny || 0,
-    });
-  }
+  const [page, setPage] =
+    useState("dashboard");
 
   async function loadProfile(authUser) {
     if (!authUser) {
@@ -3077,19 +2075,30 @@ function App() {
 
     setProfileLoading(true);
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, jmeno, role, created_at")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    const { data, error } =
+      await supabase
+        .from("profiles")
+        .select(
+          "id, jmeno, role, created_at"
+        )
+        .eq("id", authUser.id)
+        .maybeSingle();
 
     if (error) {
-      console.error("PROFILE ERROR:", error);
+      console.error(
+        "PROFILE ERROR:",
+        error
+      );
+
       setProfile(null);
-    } else {
-      setProfile(data || null);
+      setProfileLoading(false);
+      return;
     }
 
+    setProfile(data || null);
+    console.log("PROFILE DATA:", data);
+    console.log("PROFILE ERROR:", error);
+    console.log("AUTH USER ID:", authUser.id);
     setProfileLoading(false);
   }
 
@@ -3098,21 +2107,24 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const loggedUser = session?.user || null;
+    } =
+      supabase.auth.onAuthStateChange(
+        async (_event, session) => {
+          const loggedUser =
+            session?.user ?? null;
 
-        setUser(loggedUser);
+          setUser(loggedUser);
 
-        if (loggedUser) {
-          await loadProfile(loggedUser);
-          await loadDashboardStats();
-        } else {
-          setProfile(null);
-          setPage("dashboard");
+          if (loggedUser) {
+            await loadProfile(
+              loggedUser
+            );
+          } else {
+            setProfile(null);
+            setPage("dashboard");
+          }
         }
-      }
-    );
+      );
 
     return () => {
       subscription.unsubscribe();
@@ -3120,20 +2132,27 @@ function App() {
   }, []);
 
   async function checkSession() {
-    const { data, error } =
-      await supabase.auth.getUser();
+    const {
+      data,
+      error,
+    } = await supabase.auth.getUser();
 
     if (error) {
-      console.error(error);
+      console.error(
+        "SESSION ERROR:",
+        error
+      );
     }
 
-    const loggedUser = data?.user || null;
+    const loggedUser =
+      data?.user ?? null;
 
     setUser(loggedUser);
 
     if (loggedUser) {
-      await loadProfile(loggedUser);
-      await loadDashboardStats();
+      await loadProfile(
+        loggedUser
+      );
     }
 
     setLoading(false);
@@ -3160,52 +2179,49 @@ function App() {
   }
 
   if (!user) {
-    if (showRegister) {
-      return (
-        <>
-          <style>{styles}</style>
-
-          <Register
-            onRegistered={() =>
-              setShowRegister(false)
-            }
-          />
-        </>
-      );
-    }
-
     return (
       <>
         <style>{styles}</style>
 
         <Login
-          onLogin={async (loggedUser) => {
+          onLogin={(loggedUser) => {
             setUser(loggedUser);
-            await loadProfile(loggedUser);
-            await loadDashboardStats();
+            loadProfile(
+              loggedUser
+            );
           }}
         />
-
-        <button
-          className="register-link"
-          onClick={() =>
-            setShowRegister(true)
-          }
-        >
-          Nemáš účet? Zaregistrovat se
-        </button>
       </>
     );
   }
 
-  const role = profile?.role?.toLowerCase() || "";
-  const roleName = getRoleName(role);
+  /* =======================================================
+     ROLE
+  ======================================================= */
 
-  const manageVehicles = canManageVehicles(role);
-  const manageReports = canManageReports(role);
-  const manageUsers = canManageUsers(role);
-  const useReports = canUseReports(role);
-  const manageNews = canManageNews(role);
+  const role =
+    profile?.role?.toLowerCase() || "";
+
+  const roleName =
+    getRoleName(role);
+
+  const isAdmin =
+    role === ROLE_ADMIN;
+
+  const isDispecer =
+    role === ROLE_DISPECER;
+
+  const isRidic =
+    role === ROLE_RIDIC;
+
+  const manageVehicles =
+    canManageVehicles(role);
+
+  const manageReports =
+    canManageReports(role);
+
+  const useReports =
+    canUseReports(role);
 
   return (
     <>
@@ -3214,7 +2230,9 @@ function App() {
       <div className="app">
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-logo">CM</div>
+            <div className="brand-logo">
+              CM
+            </div>
 
             <div>
               <div className="brand-title">
@@ -3233,6 +2251,7 @@ function App() {
 
           <nav className="menu">
             <button
+              type="button"
               className={
                 page === "dashboard"
                   ? "active"
@@ -3247,6 +2266,7 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={
                 page === "departures"
                   ? "active"
@@ -3261,6 +2281,7 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={
                 page === "vehicles"
                   ? "active"
@@ -3276,6 +2297,7 @@ function App() {
 
             {useReports && (
               <button
+                type="button"
                 className={
                   page === "reports"
                     ? "active"
@@ -3290,24 +2312,8 @@ function App() {
               </button>
             )}
 
-            <button
-              className={
-                page === "news"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setPage("news")
-              }
-            >
-              <span>📰</span>
-              Novinky
-            </button>
-
             {(manageVehicles ||
-              manageReports ||
-              manageUsers ||
-              manageNews) && (
+              manageReports) && (
               <>
                 <div className="menu-divider" />
 
@@ -3319,13 +2325,14 @@ function App() {
 
             {manageVehicles && (
               <button
+                type="button"
                 className={
-                  page === "adminVehicles"
+                  page === "admin"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage("adminVehicles")
+                  setPage("admin")
                 }
               >
                 <span>⚙</span>
@@ -3335,33 +2342,20 @@ function App() {
 
             {manageReports && (
               <button
+                type="button"
                 className={
                   page === "adminReports"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage("adminReports")
+                  setPage(
+                    "adminReports"
+                  )
                 }
               >
                 <span>📋</span>
                 Správa výkazů
-              </button>
-            )}
-
-            {manageUsers && (
-              <button
-                className={
-                  page === "adminUsers"
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  setPage("adminUsers")
-                }
-              >
-                <span>👥</span>
-                Správa uživatelů
               </button>
             )}
           </nav>
@@ -3379,7 +2373,8 @@ function App() {
 
             <div className="user-info">
               <div className="user-name">
-                {profile?.jmeno || user.email}
+                {profile?.jmeno ||
+                  user.email}
               </div>
 
               <div className="user-role">
@@ -3388,6 +2383,7 @@ function App() {
             </div>
 
             <button
+              type="button"
               className="logout"
               onClick={logout}
             >
@@ -3397,14 +2393,20 @@ function App() {
         </aside>
 
         <main className="content">
+
+          {/* DASHBOARD */}
+
           {page === "dashboard" && (
             <>
               <div className="topbar">
                 <div>
-                  <h1>Dashboard</h1>
+                  <h1>
+                    Dashboard
+                  </h1>
 
                   <p>
-                    Informační systém Czech Mobility
+                    Informační systém
+                    Czech Mobility
                   </p>
                 </div>
 
@@ -3413,32 +2415,54 @@ function App() {
                 </div>
               </div>
 
-            <div className="stats">
-  <div className="stat">
-    <span>Dnešní výpravy</span>
-    <strong>{dashboardStats.vypravy}</strong>
-  </div>
+              <div className="stats">
+                <div className="stat">
+                  <span>
+                    Dnešní výpravy
+                  </span>
 
-  <div className="stat">
-    <span>Aktivní vozy</span>
-    <strong>{dashboardStats.aktivniVozy}</strong>
-  </div>
+                  <strong>
+                    0
+                  </strong>
+                </div>
 
-  <div className="stat">
-    <span>Vozy celkem</span>
-    <strong>{dashboardStats.vozyCelkem}</strong>
-  </div>
+                <div className="stat">
+                  <span>
+                    Aktivní vozy
+                  </span>
 
-  <div className="stat">
-    <span>Provozovny</span>
-    <strong>{dashboardStats.provozovny}</strong>
-  </div>
-</div>
+                  <strong>
+                    14
+                  </strong>
+                </div>
+
+                <div className="stat">
+                  <span>
+                    Vozy celkem
+                  </span>
+
+                  <strong>
+                    42
+                  </strong>
+                </div>
+
+                <div className="stat">
+                  <span>
+                    Provozovny
+                  </span>
+
+                  <strong>
+                    1
+                  </strong>
+                </div>
+              </div>
 
               <div className="panel">
                 <h2>
                   Vítej,{" "}
-                  {profile?.jmeno || user.email} 👋
+                  {profile?.jmeno ||
+                    user.email}{" "}
+                  👋
                 </h2>
 
                 <p>
@@ -3452,44 +2476,47 @@ function App() {
             </>
           )}
 
+          {/* VÝPRAVY */}
+
           {page === "departures" && (
             <div className="panel">
-              <h1>Výpravy</h1>
+              <h1>
+                Výpravy
+              </h1>
+
               <p>
                 Tady budou výpravy vozů.
               </p>
             </div>
           )}
 
-          {page === "news" && (
-            <News
-              user={user}
-              profile={profile}
-              role={role}
-            />
+          {/* VOZY */}
+
+          {page === "vehicles" && (
+            <Vehicles role={role} />
           )}
 
-          {page === "vehicles" && <Vehicles />}
+          {/* MOJE VÝKAZY */}
 
           {page === "reports" &&
             useReports && (
-              <MyReports user={user} />
+              <Reports user={user} />
             )}
 
-          {page === "adminVehicles" &&
+          {/* ADMINISTRACE VOZŮ */}
+
+          {page === "admin" &&
             manageVehicles && (
               <AdminVehicles />
             )}
+
+          {/* SPRÁVA VÝKAZŮ */}
 
           {page === "adminReports" &&
             manageReports && (
               <AdminReports />
             )}
 
-          {page === "adminUsers" &&
-            manageUsers && (
-              <AdminUsers />
-            )}
         </main>
       </div>
     </>
@@ -3497,7 +2524,7 @@ function App() {
 }
 
 /* =========================================================
-   STYLES
+   STYLY
 ========================================================= */
 
 const styles = `
@@ -3521,6 +2548,8 @@ select {
 button {
   user-select: none;
 }
+
+/* LOGIN */
 
 .login-page {
   min-height: 100vh;
@@ -3591,10 +2620,6 @@ button {
   font-weight: 700;
 }
 
-.login-box form button:disabled {
-  opacity: .6;
-}
-
 .login-error {
   color: #dc2626;
   background: #fee2e2;
@@ -3603,26 +2628,7 @@ button {
   margin-top: 15px;
 }
 
-.register-link {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 25px;
-  border: 0;
-  background: transparent;
-  color: #2563eb;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.register-back {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: #2563eb;
-  margin-top: 15px;
-  cursor: pointer;
-}
+/* LOADING */
 
 .loading {
   min-height: 100vh;
@@ -3631,10 +2637,14 @@ button {
   justify-content: center;
 }
 
+/* APP */
+
 .app {
   min-height: 100vh;
   display: flex;
 }
+
+/* SIDEBAR */
 
 .sidebar {
   width: 255px;
@@ -3723,6 +2733,8 @@ button {
   padding: 0 12px 5px;
 }
 
+/* USER */
+
 .user-box {
   margin-top: auto;
   border-top: 1px solid #273245;
@@ -3732,8 +2744,7 @@ button {
   gap: 9px;
 }
 
-.avatar,
-.user-card-avatar {
+.avatar {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -3773,6 +2784,8 @@ button {
   font-size: 10px;
 }
 
+/* CONTENT */
+
 .content {
   margin-left: 255px;
   padding: 35px;
@@ -3805,48 +2818,231 @@ button {
   white-space: nowrap;
 }
 
-.stats,
-.admin-user-stats {
+/* STATS */
+
+.stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 15px;
   margin: 25px 0;
 }
 
-.stat,
-.admin-user-stat {
+.stat {
   background: white;
   padding: 20px;
   border-radius: 15px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
 }
 
-.stat span,
-.admin-user-stat span {
+.stat span {
   color: #718096;
   font-size: 13px;
 }
 
-.stat strong,
-.admin-user-stat strong {
+.stat strong {
   display: block;
   font-size: 30px;
   margin-top: 10px;
 }
+
+/* PANEL */
 
 .panel {
   background: white;
   border-radius: 16px;
   padding: 25px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
+}
+
+/* VOZY */
+
+.vehicles-panel {
+  margin-top: 25px;
+}
+
+.vehicle-row-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background .15s ease, transform .05s ease;
+}
+
+.vehicle-row-button:hover {
+  background: #f8fafc;
+}
+
+.vehicle-row-button:active {
+  transform: translateY(1px);
+}
+
+.vehicle-row-button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .25);
+  outline-offset: -3px;
+}
+
+.vehicle-detail-page {
+  width: 100%;
+}
+
+.vehicle-detail-topbar {
+  align-items: flex-start;
+}
+
+.vehicle-detail-topbar h1 {
+  margin-top: 18px;
+}
+
+.vehicle-detail-topbar p {
+  margin-bottom: 0;
+}
+
+.vehicle-detail-panel {
+  margin-top: 25px;
+}
+
+.vehicle-detail-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
   margin-bottom: 25px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #edf0f5;
 }
 
-.panel h2 {
-  margin-top: 0;
+.vehicle-detail-title h2 {
+  margin: 7px 0 0;
+  font-size: 22px;
 }
 
-.muted {
+.vehicle-detail-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 42px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: #eef2ff;
+  color: #1e3a8a;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.vehicle-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.vehicle-detail-item {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.vehicle-detail-item label {
+  display: block;
+  margin-bottom: 8px;
+  color: #718096;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.vehicle-detail-item strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.vehicle-detail-item input,
+.vehicle-detail-item textarea {
+  width: 100%;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  padding: 10px 11px;
+  background: #fff;
+  font: inherit;
+  outline: none;
+}
+
+.vehicle-detail-item textarea {
+  resize: vertical;
+  min-height: 78px;
+}
+
+.vehicle-detail-item input:focus,
+.vehicle-detail-item textarea:focus {
+  border-color: #2563eb;
+}
+
+.vehicle-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #edf0f5;
+}
+
+.search {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  outline: none;
+  margin-bottom: 20px;
+}
+
+.search:focus {
+  border-color: #2563eb;
+}
+
+.vehicle-header,
+.vehicle-row {
+  display: grid;
+  grid-template-columns: 80px 140px 1fr 120px 80px 120px;
+  gap: 15px;
+  align-items: center;
+}
+
+.vehicle-header {
+  background: #f8fafc;
+  padding: 13px;
+  border-radius: 9px;
+  color: #718096;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vehicle-row {
+  padding: 16px 13px;
+  border-bottom: 1px solid #edf0f5;
+  font-size: 14px;
+}
+
+.status {
+  display: inline-block;
+  padding: 5px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.vehicle-status {
+  white-space: nowrap;
+}
+
+.empty {
+  text-align: center;
+  padding: 30px;
   color: #718096;
 }
 
@@ -3867,111 +3063,15 @@ button {
   margin-bottom: 20px;
 }
 
-.empty {
-  text-align: center;
-  padding: 30px;
-  color: #718096;
+/* FORM */
+
+.admin-form-panel {
+  margin-top: 25px;
 }
 
-.primary-button,
-.secondary-button,
-.delete-button {
-  border: 0;
-  border-radius: 9px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.primary-button {
-  background: #2563eb;
-  color: white;
-}
-
-.primary-button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-.secondary-button {
-  background: #eef2f7;
-  color: #172033;
-}
-
-.delete-button {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.users-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-}
-
-.user-create-box,
-.crud-form {
-  margin-top: 20px;
-  padding: 20px;
-  background: #f8fafc;
-  border: 1px solid #edf0f5;
-  border-radius: 12px;
-}
-
-.user-filter {
-  margin: 20px 0;
-}
-
-.user-filter select {
-  padding: 10px;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  background: white;
-}
-
-.users-list {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid #edf0f5;
-}
-
-.user-card {
-  display: grid;
-  grid-template-columns: auto 2fr 1fr 1fr 170px;
-  gap: 20px;
-  align-items: center;
-  padding: 16px 5px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.user-card-main {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.user-card small {
-  display: block;
-  color: #718096;
-  font-size: 11px;
-  margin-bottom: 4px;
-  overflow-wrap: anywhere;
-}
-
-.pending-avatar {
-  background: #f59e0b;
-}
-
-.pending-label {
-  display: inline-block;
-  padding: 6px 10px;
-  border-radius: 20px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 11px;
-  font-weight: 700;
+.admin-form-panel h2 {
+  margin-top: 0;
+  margin-bottom: 25px;
 }
 
 .form-grid {
@@ -4009,191 +3109,370 @@ button {
   flex-wrap: wrap;
 }
 
-.provozovna-bar {
-  display: flex;
-  align-items: end;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.provozovna-bar > div:first-child {
-  flex: 1;
-}
-
-.provozovna-bar label {
-  display: block;
-  font-size: 13px;
+.primary-button,
+.secondary-button,
+.edit-button,
+.delete-button,
+.approve-button,
+.reject-button {
+  border: 0;
+  border-radius: 9px;
+  padding: 10px 14px;
+  cursor: pointer;
   font-weight: 700;
-  margin-bottom: 7px;
 }
 
-.provozovna-bar select {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  background: white;
+.primary-button {
+  background: #2563eb;
+  color: white;
 }
 
-.search {
-  width: 100%;
-  padding: 13px;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  outline: none;
-  margin: 20px 0;
+.primary-button:disabled,
+.approve-button:disabled,
+.reject-button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
 }
 
-.search:focus {
-  border-color: #2563eb;
+.secondary-button {
+  background: #e5e7eb;
+  color: #374151;
 }
 
-.vehicle-header,
-.vehicle-row {
-  display: grid;
-  grid-template-columns:
-    80px 140px 1fr 120px 80px 150px;
-  gap: 15px;
-  align-items: center;
+.edit-button {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
-.vehicle-header {
-  background: #f8fafc;
-  padding: 13px;
-  border-radius: 9px;
+.delete-button {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.approve-button {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.reject-button {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ADMIN LIST */
+
+.admin-list-panel {
+  margin-top: 25px;
+}
+
+.admin-list-title {
+  margin-bottom: 15px;
+}
+
+.admin-list-title h2 {
+  margin: 0;
+}
+
+.admin-list-title p {
+  margin-top: 5px;
   color: #718096;
-  font-size: 12px;
-  font-weight: 700;
 }
 
-.vehicle-row {
-  padding: 16px 13px;
-  border-bottom: 1px solid #edf0f5;
-  font-size: 14px;
+.admin-vehicle-list {
+  border-top: 1px solid #edf0f5;
 }
 
-.status {
-  display: inline-block;
-  padding: 5px 9px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.vehicle-status {
-  white-space: nowrap;
-}
-
-.admin-vehicles-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.admin-vehicle-card {
+.admin-vehicle-row {
   display: grid;
-  grid-template-columns: 70px 1fr 180px auto;
+  grid-template-columns: 2fr 1fr .7fr 1.5fr auto;
   gap: 20px;
   align-items: center;
-  padding: 18px 5px;
+  padding: 16px 5px;
   border-bottom: 1px solid #edf0f5;
 }
 
-.vehicle-number {
-  width: 55px;
-  height: 55px;
-  border-radius: 12px;
-  background: #eaf0ff;
-  color: #2563eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.vehicle-main {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.vehicle-main small {
-  color: #718096;
-}
-
-.vehicle-actions {
-  display: flex;
-  gap: 7px;
-}
-
-.reports-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.report-card {
-  display: grid;
-  grid-template-columns:
-    130px 130px 100px 100px 150px auto;
-  gap: 18px;
-  align-items: center;
-  padding: 18px 5px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.report-card > div {
-  min-width: 0;
-}
-
-.report-card small {
+.admin-vehicle-row small,
+.report-card small,
+.admin-report-card small {
   display: block;
   color: #718096;
   font-size: 11px;
   margin-bottom: 4px;
 }
 
-.report-card strong {
-  display: block;
-  overflow-wrap: anywhere;
+.vehicle-main {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  min-width: 0;
+}
+
+.vehicle-main > strong {
+  min-width: 55px;
+  font-size: 18px;
+}
+
+.vehicle-main div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.vehicle-main b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vehicle-main span {
+  color: #718096;
+  font-size: 12px;
+}
+
+.admin-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+/* VÝKAZY */
+
+.reports-list {
+  border-top: 1px solid #edf0f5;
+}
+
+.report-card {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.3fr auto;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 5px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.report-main {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.report-date {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.report-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.report-info span {
+  color: #718096;
+  font-size: 12px;
+}
+
+.report-time,
+.report-km {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-status {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.report-status.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.report-status.approved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.report-status.rejected {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .report-actions {
   display: flex;
-  gap: 7px;
+  justify-content: flex-end;
 }
+
+.report-note {
+  grid-column: 1 / -1;
+  background: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+/* ADMIN VÝKAZY */
+
+.admin-report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  margin: 25px 0;
+}
+
+.admin-report-stat {
+  background: white;
+  padding: 18px 20px;
+  border-radius: 15px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.04);
+}
+
+.admin-report-stat span {
+  display: block;
+  color: #718096;
+  font-size: 12px;
+}
+
+.admin-report-stat strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 26px;
+}
+
+.admin-report-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 12px;
+}
+
+.admin-report-toolbar .search {
+  margin-bottom: 20px;
+}
+
+.status-filter {
+  height: 45px;
+  padding: 10px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  background: white;
+}
+
+.admin-reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.admin-report-card {
+  border: 1px solid #edf0f5;
+  border-radius: 14px;
+  padding: 20px;
+  background: #fff;
+}
+
+.admin-report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.admin-report-date {
+  color: #718096;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-report-header h3 {
+  margin: 6px 0 0;
+  font-size: 18px;
+}
+
+.admin-report-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  padding: 18px 0;
+}
+
+.admin-report-grid small {
+  display: block;
+  color: #718096;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+
+.admin-report-grid strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.admin-report-note {
+  background: #f8fafc;
+  border-radius: 9px;
+  padding: 12px;
+  margin-bottom: 15px;
+}
+
+.admin-report-note span {
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.admin-report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* RESPONSIVE */
 
 @media (max-width: 1200px) {
   .report-card {
-    grid-template-columns:
-      120px 120px 80px 90px 130px auto;
+    grid-template-columns: 1fr 1fr;
   }
 
-  .admin-vehicle-card {
-    grid-template-columns:
-      60px 1fr 160px auto;
+  .report-main {
+    grid-column: 1 / -1;
+  }
+
+  .report-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-report-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
 @media (max-width: 1100px) {
   .stats,
-  .admin-user-stats {
+  .admin-report-stats {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .user-card {
-    grid-template-columns:
-      auto 1fr 1fr;
+  .admin-vehicle-row {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .admin-vehicle-card {
-    grid-template-columns:
-      60px 1fr;
+  .admin-actions {
+    grid-column: 1 / -1;
   }
+}
 
-  .report-card {
-    grid-template-columns:
-      1fr 1fr;
-  }
+.vehicle-detail-grid {
+  grid-template-columns: 1fr;
 }
 
 @media (max-width: 800px) {
@@ -4207,287 +3486,25 @@ button {
     padding: 25px;
   }
 
-  .form-grid {
-    grid-template-columns: 1fr;
+  .vehicle-header,
+  .vehicle-row {
+    grid-template-columns: 70px 1fr 1fr;
   }
 
-  .user-card {
-    grid-template-columns:
-      auto 1fr;
-  }
-
-  .vehicle-header {
+  .vehicle-header span:nth-child(n+4),
+  .vehicle-row span:nth-child(n+4) {
     display: none;
   }
 
-  .vehicle-row {
-    grid-template-columns:
-      70px 1fr;
+  .form-grid,
+  .admin-report-toolbar {
+    grid-template-columns: 1fr;
   }
 
-  .vehicle-row > * {
-    margin-bottom: 5px;
-  }
-
-  .provozovna-bar {
-    flex-direction: column;
-    align-items: stretch;
+  .admin-report-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }
-
-
-  /* NOVINKY */
-  .news-page {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .news-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .news-card {
-    background: #ffffff;
-    border: 1px solid #e1e6ef;
-    border-radius: 16px;
-    padding: 22px;
-    box-shadow: 0 4px 16px rgba(23, 32, 51, 0.05);
-  }
-
-  .news-card-confirmed {
-    border-left: 4px solid #22a06b;
-  }
-
-  .news-card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .news-card h2 {
-    margin: 9px 0 6px;
-    font-size: 21px;
-  }
-
-  .news-meta {
-    color: #788397;
-    font-size: 13px;
-  }
-
-  .news-priority {
-    display: inline-flex;
-    align-items: center;
-    padding: 5px 9px;
-    border-radius: 999px;
-    background: #eef2f7;
-    color: #526074;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .news-priority.important {
-    background: #fff1d6;
-    color: #9a6200;
-  }
-
-  .news-priority.urgent {
-    background: #ffe1e1;
-    color: #b42318;
-  }
-
-  .news-status {
-    white-space: nowrap;
-    padding: 7px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .news-status.confirmed {
-    background: #e8f7ef;
-    color: #16794c;
-  }
-
-  .news-status.pending {
-    background: #fff1d6;
-    color: #9a6200;
-  }
-
-  .news-content {
-    margin-top: 18px;
-    padding-top: 18px;
-    border-top: 1px solid #edf0f5;
-    white-space: pre-wrap;
-    line-height: 1.65;
-    color: #303b4f;
-  }
-
-  .news-card-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 9px;
-    margin-top: 20px;
-  }
-
-  .news-form-panel {
-    padding: 22px;
-  }
-
-  .panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
-
-  .news-form {
-    display: grid;
-    gap: 16px;
-  }
-
-  .news-form textarea {
-    width: 100%;
-    resize: vertical;
-    min-height: 170px;
-    padding: 12px 13px;
-    border: 1px solid #d8deea;
-    border-radius: 10px;
-    background: #fff;
-    color: #172033;
-    font: inherit;
-  }
-
-  .news-form textarea:focus,
-  .news-form input:focus,
-  .news-form select:focus {
-    outline: none;
-    border-color: #4b72d8;
-    box-shadow: 0 0 0 3px rgba(75, 114, 216, 0.12);
-  }
-
-  .news-form-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .primary-button,
-  .secondary-button {
-    border: 0;
-    border-radius: 9px;
-    padding: 10px 14px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .primary-button {
-    background: #315fce;
-    color: #fff;
-  }
-
-  .primary-button:hover {
-    background: #274fae;
-  }
-
-  .primary-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .secondary-button {
-    background: #eef2f7;
-    color: #2d3a50;
-  }
-
-  .secondary-button:hover {
-    background: #e2e7ef;
-  }
-
-  .danger-button {
-    color: #b42318;
-  }
-
-  .confirmed-text {
-    color: #16794c;
-    font-weight: 700;
-    padding: 9px 0;
-  }
-
-  .news-confirmation-panel {
-    margin-top: 18px;
-    padding: 16px;
-    background: #f7f9fc;
-    border: 1px solid #e4e8ef;
-    border-radius: 12px;
-  }
-
-  .news-confirmation-panel h3 {
-    margin: 0 0 12px;
-  }
-
-  .news-driver-list {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-  }
-
-  .news-driver-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 15px;
-    padding: 10px 12px;
-    background: #fff;
-    border-radius: 8px;
-    border: 1px solid #e8ebf1;
-  }
-
-  .driver-confirmed {
-    color: #16794c;
-  }
-
-  .driver-not-confirmed {
-    color: #b42318;
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 50px 20px;
-  }
-
-  .empty-icon {
-    font-size: 38px;
-    margin-bottom: 8px;
-  }
-
-  .loading-inline {
-    padding: 30px;
-    text-align: center;
-    color: #788397;
-  }
-
-  .error-box,
-  .success-box {
-    padding: 12px 15px;
-    border-radius: 10px;
-    font-weight: 600;
-  }
-
-  .error-box {
-    background: #ffe8e8;
-    color: #a51d1d;
-    border: 1px solid #f2b8b8;
-  }
-
-  .success-box {
-    background: #e8f7ef;
-    color: #16794c;
-    border: 1px solid #b8e4cd;
-  }
 
 @media (max-width: 600px) {
   .sidebar {
@@ -4501,44 +3518,54 @@ button {
   }
 
   .stats,
-  .admin-user-stats {
+  .admin-report-stats {
     grid-template-columns: 1fr;
   }
 
-  .users-toolbar {
+  .admin-vehicle-row,
+  .report-card,
+  .admin-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-actions {
+    grid-column: auto;
+  }
+
+  .report-main {
+    grid-column: auto;
+  }
+
+  .report-note {
+    grid-column: auto;
+  }
+
+  .admin-report-header {
     flex-direction: column;
+  }
+
+  .vehicle-detail-topbar {
     align-items: stretch;
   }
 
-  .user-card {
-    grid-template-columns:
-      auto 1fr;
+  .vehicle-detail-title {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
-  .admin-vehicle-card {
-    grid-template-columns:
-      55px 1fr;
+  .vehicle-detail-actions {
+    justify-content: stretch;
+    flex-direction: column;
   }
 
-  .vehicle-actions {
-    grid-column: 1 / -1;
-  }
-
-  .report-card {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  .vehicle-header,
+  .vehicle-row {
+    grid-template-columns: 60px 1fr 1fr;
+    gap: 8px;
   }
 
   .panel {
     padding: 18px;
-  }
-
-  .topbar {
-    flex-direction: column;
-  }
-
-  .profile-badge {
-    align-self: flex-start;
   }
 }
 `;
