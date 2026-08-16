@@ -3299,6 +3299,267 @@ function News({ user, profile, role }) {
 
 
 /* =========================================================
+   ŽÁDOST O PŘIDĚLENÍ VOZIDLA
+========================================================= */
+
+function VehicleRequest({ user, profile }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [note, setNote] = useState("");
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadVehicles() {
+    const { data, error: vehiclesError } = await supabase
+      .from("vozy")
+      .select("id, cislo, vyrobce, typ, spz, rok, stav")
+      .order("cislo", { ascending: true });
+
+    if (vehiclesError) {
+      setError(`Vozy se nepodařilo načíst: ${vehiclesError.message}`);
+      setVehicles([]);
+      return;
+    }
+
+    setVehicles(data || []);
+  }
+
+  async function loadMyRequests() {
+    if (!user?.id) {
+      setRequests([]);
+      return;
+    }
+
+    const { data, error: requestsError } = await supabase
+      .from("zadosti_vozidla")
+      .select("id, vuz_id, poznamka, stav, created_at")
+      .eq("uzivatel_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (requestsError) {
+      setError(`Žádosti se nepodařilo načíst: ${requestsError.message}`);
+      setRequests([]);
+      return;
+    }
+
+    setRequests(data || []);
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      setLoading(true);
+      setError("");
+      await Promise.all([loadVehicles(), loadMyRequests()]);
+      if (active) setLoading(false);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  async function submitRequest(e) {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+
+    if (!user?.id) {
+      setError("Nejsi přihlášený uživatel.");
+      return;
+    }
+
+    if (!selectedVehicleId) {
+      setError("Vyber vozidlo.");
+      return;
+    }
+
+    if (!note.trim()) {
+      setError("Napiš důvod nebo poznámku k žádosti.");
+      return;
+    }
+
+    setSaving(true);
+
+    const { error: insertError } = await supabase
+      .from("zadosti_vozidla")
+      .insert({
+        uzivatel_id: user.id,
+        vuz_id: Number(selectedVehicleId),
+        poznamka: note.trim(),
+        stav: "ČEKÁ NA VYŘÍZENÍ",
+      });
+
+    setSaving(false);
+
+    if (insertError) {
+      setError(`Žádost se nepodařilo uložit: ${insertError.message}`);
+      return;
+    }
+
+    setSelectedVehicleId("");
+    setNote("");
+    setSuccess("Žádost byla úspěšně odeslána.");
+    await loadMyRequests();
+  }
+
+  function getVehicle(id) {
+    return vehicles.find((vehicle) => Number(vehicle.id) === Number(id));
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Žádost o přidělení vozidla</h1>
+          <p>Vyber vůz a napiš, proč o něj žádáš.</p>
+        </div>
+        <div className="profile-badge">
+          {profile?.jmeno || user?.email || "Uživatel"}
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="panel">
+        <h2>Nová žádost</h2>
+
+        {loading ? (
+          <div className="empty">Načítám vozy…</div>
+        ) : (
+          <form onSubmit={submitRequest}>
+            <div className="form-grid">
+              <div>
+                <label>Vozidlo</label>
+                <select
+                  value={selectedVehicleId}
+                  onChange={(e) => setSelectedVehicleId(e.target.value)}
+                  required
+                >
+                  <option value="">Vyber vůz</option>
+                  {vehicles.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.cislo} — {vehicle.vyrobce || ""} {vehicle.typ || ""}
+                      {vehicle.spz ? ` — ${vehicle.spz}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label>Stav vozu</label>
+                <input
+                  value={
+                    selectedVehicleId
+                      ? getVehicle(selectedVehicleId)?.stav || "—"
+                      : "—"
+                  }
+                  readOnly
+                />
+              </div>
+            </div>
+
+            {selectedVehicleId && getVehicle(selectedVehicleId) && (
+              <div className="panel" style={{ marginTop: "16px" }}>
+                <h3>
+                  Vůz {getVehicle(selectedVehicleId).cislo}
+                </h3>
+                <p className="muted" style={{ marginBottom: 0 }}>
+                  {getVehicle(selectedVehicleId).vyrobce || "—"}{" "}
+                  {getVehicle(selectedVehicleId).typ || "—"}
+                  {getVehicle(selectedVehicleId).rok
+                    ? ` • ${getVehicle(selectedVehicleId).rok}`
+                    : ""}
+                  {getVehicle(selectedVehicleId).spz
+                    ? ` • ${getVehicle(selectedVehicleId).spz}`
+                    : ""}
+                </p>
+              </div>
+            )}
+
+            <div style={{ marginTop: "16px" }}>
+              <label>Žádost / poznámka</label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Napiš důvod žádosti, termín, účel použití apod."
+                rows={6}
+                required
+              />
+            </div>
+
+            <div className="form-actions" style={{ marginTop: "16px" }}>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={saving}
+              >
+                {saving ? "Odesílám…" : "Odeslat žádost"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div className="panel" style={{ marginTop: "18px" }}>
+        <div className="users-toolbar">
+          <div>
+            <h2>Moje žádosti</h2>
+            <p className="muted">
+              Přehled žádostí, které jsi již odeslal.
+            </p>
+          </div>
+        </div>
+
+        {requests.length === 0 ? (
+          <div className="empty">Zatím nemáš žádnou žádost.</div>
+        ) : (
+          <div className="reports-list">
+            {requests.map((request) => {
+              const vehicle = getVehicle(request.vuz_id);
+
+              return (
+                <article className="report-card" key={request.id}>
+                  <div className="report-header">
+                    <div>
+                      <h3>
+                        Vůz {vehicle?.cislo ?? request.vuz_id}
+                      </h3>
+                      <small>
+                        {request.created_at
+                          ? new Date(request.created_at).toLocaleString("cs-CZ")
+                          : "-"}
+                      </small>
+                    </div>
+                    <strong>{request.stav || "ČEKÁ NA VYŘÍZENÍ"}</strong>
+                  </div>
+                  <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                    {request.poznamka || "Bez poznámky"}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    SPRÁVA ŽÁDOSTÍ O PŘIDĚLENÍ VOZIDLA
 ========================================================= */
 
