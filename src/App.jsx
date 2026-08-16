@@ -3530,7 +3530,7 @@ function VehicleRequest({ user, profile }) {
                   <div>
                     <h2>Dodatek</h2>
                     <p>
-                      Napiš dodatek k přidělení vozidla, např. šel by tuning?
+                      Napiš dodatek k přidělení vozidla
                     </p>
                   </div>
                 </div>
@@ -3543,10 +3543,11 @@ function VehicleRequest({ user, profile }) {
                   className="request-textarea"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Napiš dodatek k přidělení vozidla, např. šel by tuning?"
+                  placeholder="Napiš dodatek k přidělení vozidla"
                   rows={7}
                   required
                 />
+                <div className="request-helper">např. šel by tuning?</div>
                 <div className="request-hint">
                   Čím konkrétněji žádost popíšeš, tím snadněji ji dispečer vyřídí.
                 </div>
@@ -4304,6 +4305,13 @@ function App() {
 ========================================================= */
 
 const styles = `
+.request-helper {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
 * {
   box-sizing: border-box;
 }
