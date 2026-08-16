@@ -1372,6 +1372,44 @@ const vehicleDetailFields = [
   ["ridic_2", "Řidič 2"],
 ];
 
+function formatStkForDisplay(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+
+  // Supabase/date column usually returns YYYY-MM-DD.
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return `${iso[2]}/${iso[1]}`;
+  }
+
+  // Already in MM/YYYY form.
+  const monthYear = raw.match(/^(\d{1,2})\/(\d{4})$/);
+  if (monthYear) {
+    return `${monthYear[1].padStart(2, "0")}/${monthYear[2]}`;
+  }
+
+  return raw;
+}
+
+function stkInputToDate(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+
+  // Accept MM/YYYY and store it safely in a PostgreSQL date column.
+  const monthYear = raw.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
+  if (monthYear) {
+    return `${monthYear[2]}-${monthYear[1]}-01`;
+  }
+
+  // Also accept YYYY-MM-DD if already supplied.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  return raw;
+}
+
 function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const editable = canManageVehicles(role);
   const [editing, setEditing] = useState(false);
@@ -1381,7 +1419,10 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    setForm({ ...vehicle });
+    setForm({
+      ...vehicle,
+      stk: formatStkForDisplay(vehicle.stk),
+    });
     setEditing(false);
     setError("");
     setSuccess("");
@@ -1412,6 +1453,8 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
           value = value === "" || value == null
             ? null
             : Number(value);
+        } else if (field === "stk") {
+          value = stkInputToDate(value);
         } else if (value === "") {
           value = null;
         }
@@ -1433,7 +1476,10 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
       return;
     }
 
-    setForm(data || form);
+    setForm({
+      ...(data || form),
+      stk: formatStkForDisplay((data || form).stk),
+    });
     setEditing(false);
     setSuccess("Údaje vozu byly uloženy.");
     setSaving(false);
@@ -1551,13 +1597,30 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                     ))}
                   </select>
                 ) : (
-                  <input
-                    className="form-input"
-                    type={field === "rok" ? "number" : "text"}
-                    value={form[field] ?? ""}
-                    onChange={(e) => change(field, e.target.value)}
-                    placeholder={label}
-                  />
+                  <>
+                    <input
+                      className="form-input"
+                      type={field === "rok" ? "number" : "text"}
+                      value={form[field] ?? ""}
+                      onChange={(e) => change(field, e.target.value)}
+                      placeholder={
+                        field === "stk"
+                          ? "MM/YYYY"
+                          : label
+                      }
+                    />
+                    {field === "stk" && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: 12,
+                          color: "#64748b",
+                        }}
+                      >
+                        Zadej například 07/2027
+                      </div>
+                    )}
+                  </>
                 )
               ) : (
                 <div style={{ fontWeight: 600 }}>
@@ -1565,6 +1628,8 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                   form[field] === undefined ||
                   form[field] === ""
                     ? "—"
+                    : field === "stk"
+                    ? formatStkForDisplay(form[field])
                     : String(form[field])}
                 </div>
               )}
