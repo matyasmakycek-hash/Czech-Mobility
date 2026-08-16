@@ -29,7 +29,10 @@ function Login({ onLogin }) {
       return;
     }
 
-    if (data?.user) onLogin(data.user);
+    if (data?.user) {
+      onLogin(data.user);
+    }
+
     setLoading(false);
   }
 
@@ -43,6 +46,7 @@ function Login({ onLogin }) {
 
         <form onSubmit={handleLogin}>
           <label>E-mail</label>
+
           <input
             type="email"
             value={email}
@@ -52,6 +56,7 @@ function Login({ onLogin }) {
           />
 
           <label>Heslo</label>
+
           <input
             type="password"
             value={password}
@@ -165,7 +170,9 @@ function Vehicles() {
           <p>Vozový park Czech Mobility</p>
         </div>
 
-        <div className="profile-badge">{vehicles.length} VOZŮ</div>
+        <div className="profile-badge">
+          {vehicles.length} VOZŮ
+        </div>
       </div>
 
       <div className="panel vehicles-panel">
@@ -177,7 +184,11 @@ function Vehicles() {
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        {loading && <div className="empty">Načítání vozů...</div>}
+        {loading && (
+          <div className="empty">
+            Načítání vozů...
+          </div>
+        )}
 
         {error && (
           <div className="error-box">
@@ -201,12 +212,28 @@ function Vehicles() {
             )}
 
             {filteredVehicles.map((vehicle) => (
-              <div className="vehicle-row" key={vehicle.id}>
+              <div
+                className="vehicle-row"
+                key={vehicle.id}
+              >
                 <strong>{vehicle.cislo ?? "-"}</strong>
-                <span>{vehicle.vyrobce ?? "-"}</span>
-                <span>{vehicle.typ ?? "-"}</span>
-                <span>{vehicle.spz ?? "-"}</span>
-                <span>{vehicle.rok ?? "-"}</span>
+
+                <span>
+                  {vehicle.vyrobce ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.typ ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.spz ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.rok ?? "-"}
+                </span>
+
                 <span>
                   <VehicleStatus status={vehicle.stav} />
                 </span>
@@ -275,10 +302,19 @@ function AdminVehicles() {
   }
 
   async function loadProvozovny() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("provozovny")
       .select("id, nazev")
       .order("nazev", { ascending: true });
+
+    if (error) {
+      console.error(
+        "CHYBA PROVOZOVEN:",
+        error.message
+      );
+      setProvozovny([]);
+      return;
+    }
 
     setProvozovny(data || []);
   }
@@ -302,18 +338,26 @@ function AdminVehicles() {
 
     setForm({
       cislo:
-        vehicle.cislo !== null && vehicle.cislo !== undefined
+        vehicle.cislo !== null &&
+        vehicle.cislo !== undefined
           ? String(vehicle.cislo)
           : "",
+
       vyrobce: vehicle.vyrobce ?? "",
       typ: vehicle.typ ?? "",
       spz: vehicle.spz ?? "",
+
       rok:
-        vehicle.rok !== null && vehicle.rok !== undefined
+        vehicle.rok !== null &&
+        vehicle.rok !== undefined
           ? String(vehicle.rok)
           : "",
-      barevne_schema: vehicle.barevne_schema ?? "",
+
+      barevne_schema:
+        vehicle.barevne_schema ?? "",
+
       stav: vehicle.stav ?? "PROVOZNÍ",
+
       provozovna_id:
         vehicle.provozovna_id !== null &&
         vehicle.provozovna_id !== undefined
@@ -345,16 +389,41 @@ function AdminVehicles() {
     setSuccess("");
 
     const vehicleData = {
-      cislo: form.cislo.trim() !== "" ? Number(form.cislo) : null,
-      vyrobce: form.vyrobce.trim() !== "" ? form.vyrobce.trim() : null,
-      typ: form.typ.trim() !== "" ? form.typ.trim() : null,
-      spz: form.spz.trim() !== "" ? form.spz.trim() : null,
-      rok: form.rok.trim() !== "" ? Number(form.rok) : null,
+      cislo:
+        form.cislo.trim() !== ""
+          ? Number(form.cislo)
+          : null,
+
+      vyrobce:
+        form.vyrobce.trim() !== ""
+          ? form.vyrobce.trim()
+          : null,
+
+      typ:
+        form.typ.trim() !== ""
+          ? form.typ.trim()
+          : null,
+
+      spz:
+        form.spz.trim() !== ""
+          ? form.spz.trim()
+          : null,
+
+      rok:
+        form.rok.trim() !== ""
+          ? Number(form.rok)
+          : null,
+
       barevne_schema:
         form.barevne_schema.trim() !== ""
           ? form.barevne_schema.trim()
           : null,
-      stav: form.stav.trim() !== "" ? form.stav.trim() : null,
+
+      stav:
+        form.stav.trim() !== ""
+          ? form.stav.trim()
+          : null,
+
       provozovna_id:
         form.provozovna_id.trim() !== ""
           ? form.provozovna_id
@@ -377,7 +446,11 @@ function AdminVehicles() {
     }
 
     if (result.error) {
-      setError(result.error.message || "Nepodařilo se uložit vůz.");
+      setError(
+        result.error.message ||
+          "Nepodařilo se uložit vůz."
+      );
+
       setSaving(false);
       return;
     }
@@ -401,7 +474,9 @@ function AdminVehicles() {
       `Opravdu chceš smazat vůz ${cislo ?? ""}?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setError("");
     setSuccess("");
@@ -412,7 +487,10 @@ function AdminVehicles() {
       .eq("id", id);
 
     if (error) {
-      setError(error.message || "Nepodařilo se smazat vůz.");
+      setError(
+        error.message ||
+          "Nepodařilo se smazat vůz."
+      );
       return;
     }
 
@@ -431,10 +509,14 @@ function AdminVehicles() {
       <div className="topbar">
         <div>
           <h1>Administrace vozů</h1>
-          <p>Přidávání, úprava a mazání vozů</p>
+          <p>
+            Přidávání, úprava a mazání vozů
+          </p>
         </div>
 
-        <div className="profile-badge">ADMIN</div>
+        <div className="profile-badge">
+          ADMIN
+        </div>
       </div>
 
       <div className="panel admin-form-panel">
@@ -452,12 +534,20 @@ function AdminVehicles() {
           </div>
         )}
 
-        {success && <div className="success-box">{success}</div>}
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
 
-        <form onSubmit={saveVehicle} className="vehicle-form">
+        <form
+          onSubmit={saveVehicle}
+          className="vehicle-form"
+        >
           <div className="form-grid">
             <div>
               <label>Číslo vozu</label>
+
               <input
                 name="cislo"
                 type="number"
@@ -470,6 +560,7 @@ function AdminVehicles() {
 
             <div>
               <label>Výrobce</label>
+
               <input
                 name="vyrobce"
                 type="text"
@@ -482,6 +573,7 @@ function AdminVehicles() {
 
             <div>
               <label>Typ</label>
+
               <input
                 name="typ"
                 type="text"
@@ -494,6 +586,7 @@ function AdminVehicles() {
 
             <div>
               <label>SPZ</label>
+
               <input
                 name="spz"
                 type="text"
@@ -505,6 +598,7 @@ function AdminVehicles() {
 
             <div>
               <label>Rok výroby</label>
+
               <input
                 name="rok"
                 type="number"
@@ -518,6 +612,7 @@ function AdminVehicles() {
 
             <div>
               <label>Barevné schéma</label>
+
               <input
                 name="barevne_schema"
                 type="text"
@@ -529,47 +624,72 @@ function AdminVehicles() {
 
             <div>
               <label>Stav</label>
+
               <select
                 name="stav"
                 value={form.stav}
                 onChange={handleChange}
               >
-                <option value="PROVOZNÍ">PROVOZNÍ</option>
+                <option value="PROVOZNÍ">
+                  PROVOZNÍ
+                </option>
+
                 <option value="V DÍLNĚ / V OPRAVĚ">
                   V DÍLNĚ / V OPRAVĚ
                 </option>
+
                 <option value="DOČASNĚ ODSTAVEN">
                   DOČASNĚ ODSTAVEN
                 </option>
+
                 <option value="DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN">
                   DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN
                 </option>
-                <option value="SEŠROTOVÁN">SEŠROTOVÁN</option>
+
+                <option value="SEŠROTOVÁN">
+                  SEŠROTOVÁN
+                </option>
+
                 <option value="PRODÁN / PŘEDÁN JINÉMU DOPRAVCI">
                   PRODÁN / PŘEDÁN JINÉMU DOPRAVCI
                 </option>
+
                 <option value="DOSUD NEZAŘAZEN DO PROVOZU">
                   DOSUD NEZAŘAZEN DO PROVOZU
                 </option>
-                <option value="SLUŽEBNÍ">SLUŽEBNÍ</option>
-                <option value="RETRO">RETRO</option>
+
+                <option value="SLUŽEBNÍ">
+                  SLUŽEBNÍ
+                </option>
+
+                <option value="RETRO">
+                  RETRO
+                </option>
               </select>
             </div>
 
             <div>
               <label>Provozovna</label>
+
               <select
                 name="provozovna_id"
                 value={form.provozovna_id}
                 onChange={handleChange}
               >
-                <option value="">Vyber provozovnu</option>
+                <option value="">
+                  Vyber provozovnu
+                </option>
 
-                {provozovny.map((provozovna) => (
-                  <option key={provozovna.id} value={provozovna.id}>
-                    {provozovna.nazev}
-                  </option>
-                ))}
+                {provozovny.map(
+                  (provozovna) => (
+                    <option
+                      key={provozovna.id}
+                      value={provozovna.id}
+                    >
+                      {provozovna.nazev}
+                    </option>
+                  )
+                )}
               </select>
             </div>
           </div>
@@ -605,67 +725,98 @@ function AdminVehicles() {
         <div className="admin-list-title">
           <div>
             <h2>Vozový park</h2>
-            <p>Celkem {vehicles.length} vozů</p>
+            <p>
+              Celkem {vehicles.length} vozů
+            </p>
           </div>
         </div>
 
-        {loading && <div className="empty">Načítání vozů...</div>}
-
-        {!loading && vehicles.length === 0 && (
-          <div className="empty">Zatím zde nejsou žádné vozy.</div>
-        )}
-
-        {!loading && vehicles.length > 0 && (
-          <div className="admin-vehicle-list">
-            {vehicles.map((vehicle) => (
-              <div className="admin-vehicle-row" key={vehicle.id}>
-                <div className="vehicle-main">
-                  <strong>{vehicle.cislo ?? "-"}</strong>
-
-                  <div>
-                    <b>{vehicle.vyrobce ?? "-"}</b>
-                    <span>{vehicle.typ ?? "-"}</span>
-                  </div>
-                </div>
-
-                <div>
-                  <small>SPZ</small>
-                  <strong>{vehicle.spz ?? "-"}</strong>
-                </div>
-
-                <div>
-                  <small>Rok</small>
-                  <strong>{vehicle.rok ?? "-"}</strong>
-                </div>
-
-                <div>
-                  <small>Stav</small>
-                  <VehicleStatus status={vehicle.stav} />
-                </div>
-
-                <div className="admin-actions">
-                  <button
-                    type="button"
-                    className="edit-button"
-                    onClick={() => startEdit(vehicle)}
-                  >
-                    ✏️ Upravit
-                  </button>
-
-                  <button
-                    type="button"
-                    className="delete-button"
-                    onClick={() =>
-                      deleteVehicle(vehicle.id, vehicle.cislo)
-                    }
-                  >
-                    🗑️ Smazat
-                  </button>
-                </div>
-              </div>
-            ))}
+        {loading && (
+          <div className="empty">
+            Načítání vozů...
           </div>
         )}
+
+        {!loading &&
+          vehicles.length === 0 && (
+            <div className="empty">
+              Zatím zde nejsou žádné vozy.
+            </div>
+          )}
+
+        {!loading &&
+          vehicles.length > 0 && (
+            <div className="admin-vehicle-list">
+              {vehicles.map((vehicle) => (
+                <div
+                  className="admin-vehicle-row"
+                  key={vehicle.id}
+                >
+                  <div className="vehicle-main">
+                    <strong>
+                      {vehicle.cislo ?? "-"}
+                    </strong>
+
+                    <div>
+                      <b>
+                        {vehicle.vyrobce ?? "-"}
+                      </b>
+
+                      <span>
+                        {vehicle.typ ?? "-"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <small>SPZ</small>
+                    <strong>
+                      {vehicle.spz ?? "-"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <small>Rok</small>
+                    <strong>
+                      {vehicle.rok ?? "-"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <small>Stav</small>
+                    <VehicleStatus
+                      status={vehicle.stav}
+                    />
+                  </div>
+
+                  <div className="admin-actions">
+                    <button
+                      type="button"
+                      className="edit-button"
+                      onClick={() =>
+                        startEdit(vehicle)
+                      }
+                    >
+                      ✏️ Upravit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() =>
+                        deleteVehicle(
+                          vehicle.id,
+                          vehicle.cislo
+                        )
+                      }
+                    >
+                      🗑️ Smazat
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -677,7 +828,9 @@ function AdminVehicles() {
 
 function Reports({ user }) {
   const emptyForm = {
-    datum: new Date().toISOString().slice(0, 10),
+    datum: new Date()
+      .toISOString()
+      .slice(0, 10),
     linka: "",
     smer: "",
     vuz: "",
@@ -689,13 +842,20 @@ function Reports({ user }) {
 
   const [reports, setReports] = useState([]);
   const [vehicles, setVehicles] = useState([]);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] =
+    useState(emptyForm);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
 
   async function loadReports() {
     setLoading(true);
@@ -706,8 +866,12 @@ function Reports({ user }) {
         "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
       )
       .eq("uzivatel_id", user.id)
-      .order("datum", { ascending: false })
-      .order("vytvoreno", { ascending: false });
+      .order("datum", {
+        ascending: false,
+      })
+      .order("vytvoreno", {
+        ascending: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -722,8 +886,12 @@ function Reports({ user }) {
   async function loadVehicles() {
     const { data } = await supabase
       .from("vozy")
-      .select("id, cislo, vyrobce, typ")
-      .order("cislo", { ascending: true });
+      .select(
+        "id, cislo, vyrobce, typ"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
 
     setVehicles(data || []);
   }
@@ -752,13 +920,20 @@ function Reports({ user }) {
     const reportData = {
       uzivatel_id: user.id,
       datum: form.datum || null,
-      linka: form.linka.trim() || null,
-      smer: form.smer.trim() || null,
-      vuz: form.vuz.trim() || null,
+      linka:
+        form.linka.trim() || null,
+      smer:
+        form.smer.trim() || null,
+      vuz:
+        form.vuz.trim() || null,
       zacatek: form.zacatek || null,
       konec: form.konec || null,
-      km: form.km.trim() !== "" ? Number(form.km) : null,
-      poznamka: form.poznamka.trim() || null,
+      km:
+        form.km.trim() !== ""
+          ? Number(form.km)
+          : null,
+      poznamka:
+        form.poznamka.trim() || null,
       stav: "Čeká na schválení",
     };
 
@@ -772,11 +947,15 @@ function Reports({ user }) {
       return;
     }
 
-    setSuccess("Výkaz byl úspěšně odeslán.");
+    setSuccess(
+      "Výkaz byl úspěšně odeslán."
+    );
 
     setForm({
       ...emptyForm,
-      datum: new Date().toISOString().slice(0, 10),
+      datum: new Date()
+        .toISOString()
+        .slice(0, 10),
     });
 
     await loadReports();
@@ -785,7 +964,11 @@ function Reports({ user }) {
   }
 
   async function deleteReport(id) {
-    if (!window.confirm("Opravdu chceš tento výkaz smazat?")) {
+    if (
+      !window.confirm(
+        "Opravdu chceš tento výkaz smazat?"
+      )
+    ) {
       return;
     }
 
@@ -801,12 +984,19 @@ function Reports({ user }) {
     }
 
     setSuccess("Výkaz byl smazán.");
+
     await loadReports();
   }
 
   function reportStatusClass(stav) {
-    if (stav === "Schváleno") return "report-status approved";
-    if (stav === "Zamítnuto") return "report-status rejected";
+    if (stav === "Schváleno") {
+      return "report-status approved";
+    }
+
+    if (stav === "Zamítnuto") {
+      return "report-status rejected";
+    }
+
     return "report-status pending";
   }
 
@@ -815,22 +1005,39 @@ function Reports({ user }) {
       <div className="topbar">
         <div>
           <h1>Moje výkazy</h1>
-          <p>Evidence odjetých výkonů</p>
+          <p>
+            Evidence odjetých výkonů
+          </p>
         </div>
 
-        <div className="profile-badge">{reports.length} VÝKAZŮ</div>
+        <div className="profile-badge">
+          {reports.length} VÝKAZŮ
+        </div>
       </div>
 
       <div className="panel admin-form-panel">
         <h2>➕ Nový výkaz</h2>
 
-        {error && <div className="error-box">{error}</div>}
-        {success && <div className="success-box">{success}</div>}
+        {error && (
+          <div className="error-box">
+            {error}
+          </div>
+        )}
 
-        <form onSubmit={saveReport} className="vehicle-form">
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
+
+        <form
+          onSubmit={saveReport}
+          className="vehicle-form"
+        >
           <div className="form-grid">
             <div>
               <label>Datum</label>
+
               <input
                 name="datum"
                 type="date"
@@ -842,6 +1049,7 @@ function Reports({ user }) {
 
             <div>
               <label>Linka</label>
+
               <input
                 name="linka"
                 value={form.linka}
@@ -853,6 +1061,7 @@ function Reports({ user }) {
 
             <div>
               <label>Směr</label>
+
               <input
                 name="smer"
                 value={form.smer}
@@ -863,16 +1072,24 @@ function Reports({ user }) {
 
             <div>
               <label>Vůz</label>
+
               <select
                 name="vuz"
                 value={form.vuz}
                 onChange={handleChange}
               >
-                <option value="">Vyber vůz</option>
+                <option value="">
+                  Vyber vůz
+                </option>
 
                 {vehicles.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.cislo}>
-                    {vehicle.cislo} – {vehicle.vyrobce} {vehicle.typ}
+                  <option
+                    key={vehicle.id}
+                    value={vehicle.cislo}
+                  >
+                    {vehicle.cislo} –{" "}
+                    {vehicle.vyrobce}{" "}
+                    {vehicle.typ}
                   </option>
                 ))}
               </select>
@@ -880,6 +1097,7 @@ function Reports({ user }) {
 
             <div>
               <label>Začátek</label>
+
               <input
                 name="zacatek"
                 type="time"
@@ -890,6 +1108,7 @@ function Reports({ user }) {
 
             <div>
               <label>Konec</label>
+
               <input
                 name="konec"
                 type="time"
@@ -900,6 +1119,7 @@ function Reports({ user }) {
 
             <div>
               <label>Počet km</label>
+
               <input
                 name="km"
                 type="number"
@@ -912,6 +1132,7 @@ function Reports({ user }) {
 
             <div>
               <label>Poznámka</label>
+
               <input
                 name="poznamka"
                 value={form.poznamka}
@@ -926,7 +1147,9 @@ function Reports({ user }) {
               className="primary-button"
               disabled={saving}
             >
-              {saving ? "Odesílání..." : "📋 Odeslat výkaz"}
+              {saving
+                ? "Odesílání..."
+                : "📋 Odeslat výkaz"}
             </button>
           </div>
         </form>
@@ -935,72 +1158,120 @@ function Reports({ user }) {
       <div className="panel admin-list-panel">
         <h2>Moje výkazy</h2>
 
-        {loading && <div className="empty">Načítání výkazů...</div>}
-
-        {!loading && reports.length === 0 && (
-          <div className="empty">Zatím nemáš žádné výkazy.</div>
-        )}
-
-        {!loading && reports.length > 0 && (
-          <div className="reports-list">
-            {reports.map((report) => (
-              <div className="report-card" key={report.id}>
-                <div className="report-main">
-                  <div className="report-date">
-                    {report.datum
-                      ? new Date(
-                          `${report.datum}T00:00:00`
-                        ).toLocaleDateString("cs-CZ")
-                      : "-"}
-                  </div>
-
-                  <div className="report-info">
-                    <strong>Linka {report.linka ?? "-"}</strong>
-                    <span>Směr: {report.smer ?? "-"}</span>
-                    <span>Vůz: {report.vuz ?? "-"}</span>
-                  </div>
-                </div>
-
-                <div className="report-time">
-                  <small>Čas</small>
-                  <strong>
-                    {report.zacatek ?? "--:--"} →{" "}
-                    {report.konec ?? "--:--"}
-                  </strong>
-                </div>
-
-                <div className="report-km">
-                  <small>Kilometry</small>
-                  <strong>{report.km ?? 0} km</strong>
-                </div>
-
-                <div>
-                  <small>Stav</small>
-                  <span className={reportStatusClass(report.stav)}>
-                    {report.stav ?? "Čeká na schválení"}
-                  </span>
-                </div>
-
-                <div className="report-actions">
-                  <button
-                    type="button"
-                    className="delete-button"
-                    onClick={() => deleteReport(report.id)}
-                  >
-                    🗑️ Smazat
-                  </button>
-                </div>
-
-                {report.poznamka && (
-                  <div className="report-note">
-                    <small>Poznámka</small>
-                    <span>{report.poznamka}</span>
-                  </div>
-                )}
-              </div>
-            ))}
+        {loading && (
+          <div className="empty">
+            Načítání výkazů...
           </div>
         )}
+
+        {!loading &&
+          reports.length === 0 && (
+            <div className="empty">
+              Zatím nemáš žádné výkazy.
+            </div>
+          )}
+
+        {!loading &&
+          reports.length > 0 && (
+            <div className="reports-list">
+              {reports.map((report) => (
+                <div
+                  className="report-card"
+                  key={report.id}
+                >
+                  <div className="report-main">
+                    <div className="report-date">
+                      {report.datum
+                        ? new Date(
+                            `${report.datum}T00:00:00`
+                          ).toLocaleDateString(
+                            "cs-CZ"
+                          )
+                        : "-"}
+                    </div>
+
+                    <div className="report-info">
+                      <strong>
+                        Linka{" "}
+                        {report.linka ?? "-"}
+                      </strong>
+
+                      <span>
+                        Směr:{" "}
+                        {report.smer ?? "-"}
+                      </span>
+
+                      <span>
+                        Vůz:{" "}
+                        {report.vuz ?? "-"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="report-time">
+                    <small>Čas</small>
+
+                    <strong>
+                      {report.zacatek ??
+                        "--:--"}{" "}
+                      →{" "}
+                      {report.konec ??
+                        "--:--"}
+                    </strong>
+                  </div>
+
+                  <div className="report-km">
+                    <small>
+                      Kilometry
+                    </small>
+
+                    <strong>
+                      {report.km ?? 0} km
+                    </strong>
+                  </div>
+
+                  <div>
+                    <small>Stav</small>
+
+                    <span
+                      className={reportStatusClass(
+                        report.stav
+                      )}
+                    >
+                      {report.stav ??
+                        "Čeká na schválení"}
+                    </span>
+                  </div>
+
+                  <div className="report-actions">
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() =>
+                        deleteReport(
+                          report.id
+                        )
+                      }
+                    >
+                      🗑️ Smazat
+                    </button>
+                  </div>
+
+                  {report.poznamka && (
+                    <div className="report-note">
+                      <small>
+                        Poznámka
+                      </small>
+
+                      <span>
+                        {report.poznamka}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -1011,14 +1282,23 @@ function Reports({ user }) {
 ========================================================= */
 
 function AdminReports() {
-  const [reports, setReports] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [reports, setReports] =
+    useState([]);
 
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("Vše");
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [filterStatus, setFilterStatus] =
+    useState("Vše");
 
   async function loadReports() {
     setLoading(true);
@@ -1029,8 +1309,12 @@ function AdminReports() {
       .select(
         "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
       )
-      .order("datum", { ascending: false })
-      .order("vytvoreno", { ascending: false });
+      .order("datum", {
+        ascending: false,
+      })
+      .order("vytvoreno", {
+        ascending: false,
+      });
 
     if (error) {
       setError(error.message);
@@ -1042,22 +1326,14 @@ function AdminReports() {
     setLoading(false);
   }
 
-  async function loadUsers() {
-    /*
-      Pokud máš tabulku uživatelů/profilů,
-      můžeš zde později načíst jména řidičů.
-      
-      Prozatím používáme uzivatel_id přímo z výkazu.
-    */
-    setUsers([]);
-  }
-
   useEffect(() => {
     loadReports();
-    loadUsers();
   }, []);
 
-  async function changeStatus(id, newStatus) {
+  async function changeStatus(
+    id,
+    newStatus
+  ) {
     setError("");
     setSuccess("");
 
@@ -1083,7 +1359,11 @@ function AdminReports() {
   }
 
   async function deleteReport(id) {
-    if (!window.confirm("Opravdu chceš tento výkaz smazat?")) {
+    if (
+      !window.confirm(
+        "Opravdu chceš tento výkaz smazat?"
+      )
+    ) {
       return;
     }
 
@@ -1101,34 +1381,43 @@ function AdminReports() {
     }
 
     setSuccess("Výkaz byl smazán.");
+
     await loadReports();
   }
 
-  const filteredReports = reports.filter((report) => {
-    const statusMatch =
-      filterStatus === "Vše" || report.stav === filterStatus;
+  const filteredReports =
+    reports.filter((report) => {
+      const statusMatch =
+        filterStatus === "Vše" ||
+        report.stav === filterStatus;
 
-    const searchText = [
-      report.uzivatel_id,
-      report.datum,
-      report.linka,
-      report.smer,
-      report.vuz,
-      report.zacatek,
-      report.konec,
-      report.km,
-      report.poznamka,
-      report.stav,
-    ]
-      .filter((value) => value !== null && value !== undefined)
-      .join(" ")
-      .toLowerCase();
+      const searchText = [
+        report.uzivatel_id,
+        report.datum,
+        report.linka,
+        report.smer,
+        report.vuz,
+        report.zacatek,
+        report.konec,
+        report.km,
+        report.poznamka,
+        report.stav,
+      ]
+        .filter(
+          (value) =>
+            value !== null &&
+            value !== undefined
+        )
+        .join(" ")
+        .toLowerCase();
 
-    return (
-      statusMatch &&
-      searchText.includes(search.toLowerCase())
-    );
-  });
+      return (
+        statusMatch &&
+        searchText.includes(
+          search.toLowerCase()
+        )
+      );
+    });
 
   function statusClass(stav) {
     if (stav === "Schváleno") {
@@ -1147,24 +1436,36 @@ function AdminReports() {
       <div className="topbar">
         <div>
           <h1>Správa výkazů</h1>
-          <p>Kontrola a schvalování výkazů řidičů</p>
+
+          <p>
+            Kontrola a schvalování výkazů
+            řidičů
+          </p>
         </div>
 
-        <div className="profile-badge">ADMIN</div>
+        <div className="profile-badge">
+          ADMIN
+        </div>
       </div>
 
       <div className="admin-report-stats">
         <div className="admin-report-stat">
           <span>Celkem</span>
-          <strong>{reports.length}</strong>
+
+          <strong>
+            {reports.length}
+          </strong>
         </div>
 
         <div className="admin-report-stat">
           <span>Čeká</span>
+
           <strong>
             {
               reports.filter(
-                (r) => r.stav === "Čeká na schválení"
+                (r) =>
+                  r.stav ===
+                  "Čeká na schválení"
               ).length
             }
           </strong>
@@ -1172,10 +1473,13 @@ function AdminReports() {
 
         <div className="admin-report-stat">
           <span>Schváleno</span>
+
           <strong>
             {
               reports.filter(
-                (r) => r.stav === "Schváleno"
+                (r) =>
+                  r.stav ===
+                  "Schváleno"
               ).length
             }
           </strong>
@@ -1183,10 +1487,13 @@ function AdminReports() {
 
         <div className="admin-report-stat">
           <span>Zamítnuto</span>
+
           <strong>
             {
               reports.filter(
-                (r) => r.stav === "Zamítnuto"
+                (r) =>
+                  r.stav ===
+                  "Zamítnuto"
               ).length
             }
           </strong>
@@ -1200,20 +1507,35 @@ function AdminReports() {
             type="text"
             placeholder="🔎 Hledat výkaz..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) =>
+              setSearch(e.target.value)
+            }
           />
 
           <select
             className="status-filter"
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            onChange={(e) =>
+              setFilterStatus(
+                e.target.value
+              )
+            }
           >
-            <option value="Vše">Všechny stavy</option>
+            <option value="Vše">
+              Všechny stavy
+            </option>
+
             <option value="Čeká na schválení">
               Čeká na schválení
             </option>
-            <option value="Schváleno">Schváleno</option>
-            <option value="Zamítnuto">Zamítnuto</option>
+
+            <option value="Schváleno">
+              Schváleno
+            </option>
+
+            <option value="Zamítnuto">
+              Zamítnuto
+            </option>
           </select>
         </div>
 
@@ -1226,117 +1548,175 @@ function AdminReports() {
         )}
 
         {success && (
-          <div className="success-box">{success}</div>
+          <div className="success-box">
+            {success}
+          </div>
         )}
 
         {loading && (
-          <div className="empty">Načítání výkazů...</div>
-        )}
-
-        {!loading && filteredReports.length === 0 && (
           <div className="empty">
-            {reports.length === 0
-              ? "Zatím nebyly vytvořeny žádné výkazy."
-              : "Žádné výkazy neodpovídají filtru nebo hledání."}
+            Načítání výkazů...
           </div>
         )}
 
-        {!loading && filteredReports.length > 0 && (
-          <div className="admin-reports-list">
-            {filteredReports.map((report) => (
-              <div className="admin-report-card" key={report.id}>
-                <div className="admin-report-header">
-                  <div>
-                    <span className="admin-report-date">
-                      {report.datum
-                        ? new Date(
-                            `${report.datum}T00:00:00`
-                          ).toLocaleDateString("cs-CZ")
-                        : "-"}
-                    </span>
+        {!loading &&
+          filteredReports.length === 0 && (
+            <div className="empty">
+              {reports.length === 0
+                ? "Zatím nebyly vytvořeny žádné výkazy."
+                : "Žádné výkazy neodpovídají filtru nebo hledání."}
+            </div>
+          )}
 
-                    <h3>
-                      Linka {report.linka ?? "-"}
-                      {report.smer
-                        ? ` → ${report.smer}`
-                        : ""}
-                    </h3>
-                  </div>
-
-                  <span className={statusClass(report.stav)}>
-                    {report.stav || "Čeká na schválení"}
-                  </span>
-                </div>
-
-                <div className="admin-report-grid">
-                  <div>
-                    <small>Řidič / ID uživatele</small>
-                    <strong>
-                      {report.uzivatel_id ?? "-"}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <small>Vůz</small>
-                    <strong>{report.vuz ?? "-"}</strong>
-                  </div>
-
-                  <div>
-                    <small>Čas</small>
-                    <strong>
-                      {report.zacatek ?? "--:--"} →{" "}
-                      {report.konec ?? "--:--"}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <small>Kilometry</small>
-                    <strong>{report.km ?? 0} km</strong>
-                  </div>
-                </div>
-
-                {report.poznamka && (
-                  <div className="admin-report-note">
-                    <small>Poznámka</small>
-                    <span>{report.poznamka}</span>
-                  </div>
-                )}
-
-                <div className="admin-report-actions">
-                  <button
-                    type="button"
-                    className="approve-button"
-                    onClick={() =>
-                      changeStatus(report.id, "Schváleno")
-                    }
-                    disabled={report.stav === "Schváleno"}
+        {!loading &&
+          filteredReports.length > 0 && (
+            <div className="admin-reports-list">
+              {filteredReports.map(
+                (report) => (
+                  <div
+                    className="admin-report-card"
+                    key={report.id}
                   >
-                    ✓ Schválit
-                  </button>
+                    <div className="admin-report-header">
+                      <div>
+                        <span className="admin-report-date">
+                          {report.datum
+                            ? new Date(
+                                `${report.datum}T00:00:00`
+                              ).toLocaleDateString(
+                                "cs-CZ"
+                              )
+                            : "-"}
+                        </span>
 
-                  <button
-                    type="button"
-                    className="reject-button"
-                    onClick={() =>
-                      changeStatus(report.id, "Zamítnuto")
-                    }
-                    disabled={report.stav === "Zamítnuto"}
-                  >
-                    ✕ Zamítnout
-                  </button>
+                        <h3>
+                          Linka{" "}
+                          {report.linka ??
+                            "-"}
 
-                  <button
-                    type="button"
-                    className="delete-button"
-                    onClick={() => deleteReport(report.id)}
-                  >
-                    🗑️ Smazat
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                          {report.smer
+                            ? ` → ${report.smer}`
+                            : ""}
+                        </h3>
+                      </div>
+
+                      <span
+                        className={statusClass(
+                          report.stav
+                        )}
+                      >
+                        {report.stav ||
+                          "Čeká na schválení"}
+                      </span>
+                    </div>
+
+                    <div className="admin-report-grid">
+                      <div>
+                        <small>
+                          Řidič / ID uživatele
+                        </small>
+
+                        <strong>
+                          {report.uzivatel_id ??
+                            "-"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>Vůz</small>
+
+                        <strong>
+                          {report.vuz ?? "-"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>Čas</small>
+
+                        <strong>
+                          {report.zacatek ??
+                            "--:--"}{" "}
+                          →{" "}
+                          {report.konec ??
+                            "--:--"}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <small>
+                          Kilometry
+                        </small>
+
+                        <strong>
+                          {report.km ?? 0} km
+                        </strong>
+                      </div>
+                    </div>
+
+                    {report.poznamka && (
+                      <div className="admin-report-note">
+                        <small>
+                          Poznámka
+                        </small>
+
+                        <span>
+                          {report.poznamka}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="admin-report-actions">
+                      <button
+                        type="button"
+                        className="approve-button"
+                        onClick={() =>
+                          changeStatus(
+                            report.id,
+                            "Schváleno"
+                          )
+                        }
+                        disabled={
+                          report.stav ===
+                          "Schváleno"
+                        }
+                      >
+                        ✓ Schválit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="reject-button"
+                        onClick={() =>
+                          changeStatus(
+                            report.id,
+                            "Zamítnuto"
+                          )
+                        }
+                        disabled={
+                          report.stav ===
+                          "Zamítnuto"
+                        }
+                      >
+                        ✕ Zamítnout
+                      </button>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() =>
+                          deleteReport(
+                            report.id
+                          )
+                        }
+                      >
+                        🗑️ Smazat
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -1347,22 +1727,32 @@ function AdminReports() {
 ========================================================= */
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState("dashboard");
+  const [user, setUser] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [page, setPage] =
+    useState("dashboard");
 
   useEffect(() => {
     checkSession();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } =
+      supabase.auth.onAuthStateChange(
+        (_event, session) => {
+          setUser(
+            session?.user ?? null
+          );
 
-      if (!session?.user) {
-        setPage("dashboard");
-      }
-    });
+          if (!session?.user) {
+            setPage("dashboard");
+          }
+        }
+      );
 
     return () => {
       subscription.unsubscribe();
@@ -1370,10 +1760,16 @@ function App() {
   }, []);
 
   async function checkSession() {
-    const { data, error } = await supabase.auth.getUser();
+    const {
+      data,
+      error,
+    } = await supabase.auth.getUser();
 
     if (error) {
-      console.error("SESSION ERROR:", error);
+      console.error(
+        "SESSION ERROR:",
+        error
+      );
     }
 
     setUser(data?.user ?? null);
@@ -1382,6 +1778,7 @@ function App() {
 
   async function logout() {
     await supabase.auth.signOut();
+
     setUser(null);
     setPage("dashboard");
   }
@@ -1390,7 +1787,10 @@ function App() {
     return (
       <>
         <style>{styles}</style>
-        <div className="loading">Načítání...</div>
+
+        <div className="loading">
+          Načítání...
+        </div>
       </>
     );
   }
@@ -1410,7 +1810,8 @@ function App() {
   }
 
   const isAdmin =
-    user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL.toLowerCase();
 
   return (
     <>
@@ -1419,7 +1820,9 @@ function App() {
       <div className="app">
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-logo">CM</div>
+            <div className="brand-logo">
+              CM
+            </div>
 
             <div>
               <div className="brand-title">
@@ -1432,15 +1835,21 @@ function App() {
             </div>
           </div>
 
-          <div className="section-title">Navigace</div>
+          <div className="section-title">
+            Navigace
+          </div>
 
           <nav className="menu">
             <button
               type="button"
               className={
-                page === "dashboard" ? "active" : ""
+                page === "dashboard"
+                  ? "active"
+                  : ""
               }
-              onClick={() => setPage("dashboard")}
+              onClick={() =>
+                setPage("dashboard")
+              }
             >
               <span>⌂</span>
               Dashboard
@@ -1449,9 +1858,13 @@ function App() {
             <button
               type="button"
               className={
-                page === "departures" ? "active" : ""
+                page === "departures"
+                  ? "active"
+                  : ""
               }
-              onClick={() => setPage("departures")}
+              onClick={() =>
+                setPage("departures")
+              }
             >
               <span>◈</span>
               Výpravy
@@ -1460,9 +1873,13 @@ function App() {
             <button
               type="button"
               className={
-                page === "vehicles" ? "active" : ""
+                page === "vehicles"
+                  ? "active"
+                  : ""
               }
-              onClick={() => setPage("vehicles")}
+              onClick={() =>
+                setPage("vehicles")
+              }
             >
               <span>▣</span>
               Vozy
@@ -1471,9 +1888,13 @@ function App() {
             <button
               type="button"
               className={
-                page === "reports" ? "active" : ""
+                page === "reports"
+                  ? "active"
+                  : ""
               }
-              onClick={() => setPage("reports")}
+              onClick={() =>
+                setPage("reports")
+              }
             >
               <span>▤</span>
               Moje výkazy
@@ -1490,9 +1911,13 @@ function App() {
                 <button
                   type="button"
                   className={
-                    page === "admin" ? "active" : ""
+                    page === "admin"
+                      ? "active"
+                      : ""
                   }
-                  onClick={() => setPage("admin")}
+                  onClick={() =>
+                    setPage("admin")
+                  }
                 >
                   <span>⚙</span>
                   Administrace vozů
@@ -1501,12 +1926,15 @@ function App() {
                 <button
                   type="button"
                   className={
-                    page === "adminReports"
+                    page ===
+                    "adminReports"
                       ? "active"
                       : ""
                   }
                   onClick={() =>
-                    setPage("adminReports")
+                    setPage(
+                      "adminReports"
+                    )
                   }
                 >
                   <span>📋</span>
@@ -1525,7 +1953,9 @@ function App() {
 
             <div className="user-info">
               <div className="user-name">
-                {isAdmin ? "Maty" : user.email}
+                {isAdmin
+                  ? "Maty"
+                  : user.email}
               </div>
 
               <div className="user-role">
@@ -1550,35 +1980,53 @@ function App() {
             <>
               <div className="topbar">
                 <div>
-                  <h1>Dashboard</h1>
+                  <h1>
+                    Dashboard
+                  </h1>
+
                   <p>
-                    Informační systém Czech Mobility
+                    Informační systém
+                    Czech Mobility
                   </p>
                 </div>
 
                 <div className="profile-badge">
-                  {isAdmin ? "ADMIN" : "ŘIDIČ"}
+                  {isAdmin
+                    ? "ADMIN"
+                    : "ŘIDIČ"}
                 </div>
               </div>
 
               <div className="stats">
                 <div className="stat">
-                  <span>Dnešní výpravy</span>
+                  <span>
+                    Dnešní výpravy
+                  </span>
+
                   <strong>0</strong>
                 </div>
 
                 <div className="stat">
-                  <span>Aktivní vozy</span>
+                  <span>
+                    Aktivní vozy
+                  </span>
+
                   <strong>14</strong>
                 </div>
 
                 <div className="stat">
-                  <span>Vozy celkem</span>
+                  <span>
+                    Vozy celkem
+                  </span>
+
                   <strong>42</strong>
                 </div>
 
                 <div className="stat">
-                  <span>Provozovny</span>
+                  <span>
+                    Provozovny
+                  </span>
+
                   <strong>1</strong>
                 </div>
               </div>
@@ -1586,7 +2034,10 @@ function App() {
               <div className="panel">
                 <h2>
                   Vítej,{" "}
-                  {isAdmin ? "Maty" : user.email} 👋
+                  {isAdmin
+                    ? "Maty"
+                    : user.email}{" "}
+                  👋
                 </h2>
 
                 <p>
@@ -1605,23 +2056,30 @@ function App() {
           {page === "departures" && (
             <div className="panel">
               <h1>Výpravy</h1>
-              <p>Tady budou výpravy vozů.</p>
+
+              <p>
+                Tady budou výpravy vozů.
+              </p>
             </div>
           )}
 
-          {page === "vehicles" && <Vehicles />}
+          {page === "vehicles" && (
+            <Vehicles />
+          )}
 
           {page === "reports" && (
             <Reports user={user} />
           )}
 
-          {page === "admin" && isAdmin && (
-            <AdminVehicles />
-          )}
+          {page === "admin" &&
+            isAdmin && (
+              <AdminVehicles />
+            )}
 
-          {page === "adminReports" && isAdmin && (
-            <AdminReports />
-          )}
+          {page === "adminReports" &&
+            isAdmin && (
+              <AdminReports />
+            )}
         </main>
       </div>
     </>
