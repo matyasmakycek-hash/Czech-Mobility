@@ -1035,9 +1035,7 @@ function AdminVehicles() {
 
     const { data, error } = await supabase
       .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-      )
+      .select("*")
       .order("cislo", { ascending: true });
 
     if (error) {
@@ -1417,6 +1415,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [history, setHistory] = useState([]);
 
   useEffect(() => {
     setForm({
@@ -1427,6 +1426,15 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
     setError("");
     setSuccess("");
   }, [vehicle]);
+
+  useEffect(() => {
+    supabase.from("vehicle_history")
+      .select("id, typ, popis, created_at")
+      .eq("vuz_id", vehicle.id)
+      .order("created_at", { ascending: false })
+      .limit(30)
+      .then(({ data }) => setHistory(data || []));
+  }, [vehicle.id]);
 
   function change(name, value) {
     setForm((old) => ({
@@ -1634,6 +1642,18 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="vehicle-extra-panel">
+          <h2>Historie vozu</h2>
+          {history.length === 0 ? <div className="empty">Zatím bez historie.</div> : (
+            <div className="simple-list">{history.map((item) => (
+              <div className="simple-list-item" key={item.id}>
+                <div><strong>{item.typ}</strong><div>{item.popis}</div></div>
+                <small>{item.created_at ? new Date(item.created_at).toLocaleString("cs-CZ") : "-"}</small>
+              </div>
+            ))}</div>
+          )}
         </div>
 
         <div
@@ -3444,6 +3464,15 @@ function VehicleRequest({ user, profile }) {
       return;
     }
 
+    const duplicate = requests.find((r) =>
+      Number(r.vuz_id) === Number(selectedVehicleId) &&
+      ["ČEKÁ NA VYŘÍZENÍ", "SCHVÁLENO"].includes(r.stav)
+    );
+    if (duplicate) {
+      setError("Na tento vůz už máš aktivní žádost nebo je ti už přidělen.");
+      return;
+    }
+
     setSaving(true);
 
     const { error: insertError } = await supabase
@@ -3767,7 +3796,7 @@ function AdminVehicleRequests() {
 
       const { data: vehicleRow, error: vehicleLoadError } = await supabase
         .from("vozy")
-        .select("id, cislo, ridic_1, ridic_2")
+        .select("id, cislo, ridic_1, ridic_2, ridic_1_pridelen_at, ridic_2_pridelen_at")
         .eq("id", request.vuz_id)
         .single();
 
@@ -3789,9 +3818,9 @@ function AdminVehicleRequests() {
         let vehiclePayload = null;
 
         if (!driver1) {
-          vehiclePayload = { ridic_1: driverName };
+          vehiclePayload = { ridic_1: driverName, ridic_1_pridelen_at: new Date().toISOString() };
         } else if (!driver2) {
-          vehiclePayload = { ridic_2: driverName };
+          vehiclePayload = { ridic_2: driverName, ridic_2_pridelen_at: new Date().toISOString() };
         } else {
           setError(
             `Vůz ${vehicleRow.cislo ?? ""} už má přidělené dva řidiče (${driver1} a ${driver2}).`
@@ -3822,7 +3851,7 @@ function AdminVehicleRequests() {
     ) {
       const { data: vehicleRow, error: vehicleLoadError } = await supabase
         .from("vozy")
-        .select("id, cislo, ridic_1, ridic_2")
+        .select("id, cislo, ridic_1, ridic_2, ridic_1_pridelen_at, ridic_2_pridelen_at")
         .eq("id", request.vuz_id)
         .single();
 
@@ -3843,10 +3872,12 @@ function AdminVehicleRequests() {
         // Pokud byl žadatel Řidič 1, posuneme případného Řidiče 2 nahoru.
         vehiclePayload = {
           ridic_1: driver2 || null,
+          ridic_1_pridelen_at: driver2 ? vehicleRow.ridic_2_pridelen_at : null,
           ridic_2: null,
+          ridic_2_pridelen_at: null,
         };
       } else if (driver2.toLowerCase() === normalizedName) {
-        vehiclePayload = { ridic_2: null };
+        vehiclePayload = { ridic_2: null, ridic_2_pridelen_at: null };
       }
 
       if (vehiclePayload) {
@@ -3873,6 +3904,27 @@ function AdminVehicleRequests() {
       setSavingId(null);
       return;
     }
+
+    await Promise.all([
+      supabase.from("notifications").insert({
+        uzivatel_id: request.uzivatel_id,
+        typ: "PRIDELENI_VOZU",
+        zprava: `Žádost o vůz ${vehicles[request.vuz_id]?.cislo ?? request.vuz_id} byla změněna na ${stav}.`,
+      }),
+      supabase.from("vehicle_history").insert({
+        vuz_id: request.vuz_id,
+        uzivatel_id: request.uzivatel_id,
+        typ: stav === "SCHVÁLENO" ? "RIDIC_PRIDELEN" : "ZMENA_ZADOSTI",
+        popis: `${driverName || "Řidič"}: stav žádosti ${stav}.`,
+      }),
+      supabase.from("audit_log").insert({
+        uzivatel_id: null,
+        akce: "ZMENA_STAVU_ZADOSTI",
+        entita: "zadosti_vozidla",
+        entita_id: String(id),
+        detail: `${driverName || request.uzivatel_id} → ${stav}`,
+      }),
+    ]);
 
     setSuccess(
       stav === "SCHVÁLENO"
@@ -4279,6 +4331,42 @@ function Members({ user }) {
    APP
 ========================================================= */
 
+
+/* =========================================================
+   NOVÉ MODULY: NOTIFIKACE, ODEVZDÁNÍ, ZÁVADY, VÝPRAVY, AUDIT
+========================================================= */
+function Notifications({ user }) {
+  const [items,setItems]=useState([]); const [error,setError]=useState("");
+  async function load(){ const {data,error}=await supabase.from("notifications").select("*").eq("uzivatel_id",user.id).order("created_at",{ascending:false}); if(error)setError(error.message); else setItems(data||[]); }
+  useEffect(()=>{load();},[user.id]);
+  async function markAll(){ await supabase.from("notifications").update({precteno:true}).eq("uzivatel_id",user.id).eq("precteno",false); load(); }
+  return <div><div className="topbar"><div><h1>Notifikace</h1><p>Změny žádostí a důležité události</p></div><button className="secondary-button" onClick={markAll}>Označit vše jako přečtené</button></div>{error&&<div className="error-box">{error}</div>}<div className="panel simple-list">{items.length===0?<div className="empty">Žádné notifikace.</div>:items.map(n=><div className={`simple-list-item ${n.precteno?"":"unread"}`} key={n.id}><div><strong>{n.typ}</strong><div>{n.zprava}</div></div><small>{new Date(n.created_at).toLocaleString("cs-CZ")}</small></div>)}</div></div>;
+}
+
+function VehicleReleaseRequests({ user, profile, adminMode=false }) {
+  const [rows,setRows]=useState([]),[vehicles,setVehicles]=useState([]),[error,setError]=useState(""),[success,setSuccess]=useState("");
+  async function load(){ setError(""); const rq=await supabase.from("vehicle_release_requests").select("*").order("created_at",{ascending:false}); const vz=await supabase.from("vozy").select("id,cislo,ridic_1,ridic_2,ridic_1_pridelen_at,ridic_2_pridelen_at"); if(rq.error)setError(rq.error.message); setRows(adminMode?(rq.data||[]):((rq.data||[]).filter(x=>x.uzivatel_id===user.id))); setVehicles(vz.data||[]); }
+  useEffect(()=>{load();},[user.id,adminMode]);
+  const myName=(profile?.jmeno||"").trim();
+  function eligible(v){ const d=v.ridic_1===myName?v.ridic_1_pridelen_at:v.ridic_2===myName?v.ridic_2_pridelen_at:null; return d && new Date() >= new Date(new Date(d).setMonth(new Date(d).getMonth()+3)); }
+  async function requestRelease(v){ if(!eligible(v)){setError("O odevzdání lze požádat až po 3 měsících od přidělení.");return;} const active=rows.some(r=>r.vuz_id===v.id&&r.uzivatel_id===user.id&&r.stav==="ČEKÁ NA VYŘÍZENÍ"); if(active){setError("Žádost o odevzdání už čeká na vyřízení.");return;} const {error}=await supabase.from("vehicle_release_requests").insert({uzivatel_id:user.id,vuz_id:v.id,stav:"ČEKÁ NA VYŘÍZENÍ"}); if(error)setError(error.message); else {setSuccess("Žádost o odevzdání byla odeslána.");load();} }
+  async function decide(r,stav){ const v=vehicles.find(x=>x.id===r.vuz_id); if(stav==="SCHVÁLENO"&&v){ const name=v.ridic_1===myName&&r.uzivatel_id===user.id?myName:null; const {data:p}=await supabase.from("profiles").select("jmeno").eq("id",r.uzivatel_id).maybeSingle(); const n=(p?.jmeno||name||"").trim(); let payload={}; if(v.ridic_1===n) payload={ridic_1:v.ridic_2||null,ridic_1_pridelen_at:v.ridic_2? v.ridic_2_pridelen_at:null,ridic_2:null,ridic_2_pridelen_at:null}; else if(v.ridic_2===n) payload={ridic_2:null,ridic_2_pridelen_at:null}; if(Object.keys(payload).length) await supabase.from("vozy").update(payload).eq("id",v.id); await supabase.from("vehicle_history").insert({vuz_id:v.id,uzivatel_id:r.uzivatel_id,typ:"RIDIC_ODEBRAN",popis:`${n} odevzdal vůz.`}); } await supabase.from("vehicle_release_requests").update({stav,vyrizeno_at:new Date().toISOString()}).eq("id",r.id); await supabase.from("notifications").insert({uzivatel_id:r.uzivatel_id,typ:"ODEVZDANI_VOZU",zprava:`Žádost o odevzdání vozu byla změněna na ${stav}.`}); load(); }
+  const assigned=vehicles.filter(v=>v.ridic_1===myName||v.ridic_2===myName);
+  return <div><div className="topbar"><div><h1>Odevzdání vozu</h1><p>Žádost je možná po 3 měsících od přidělení</p></div></div>{error&&<div className="error-box">{error}</div>}{success&&<div className="success-box">{success}</div>}{!adminMode&&<div className="panel"><h2>Přidělené vozy</h2>{assigned.length===0?<div className="empty">Nemáš přidělený vůz.</div>:assigned.map(v=><div className="simple-list-item" key={v.id}><strong>Vůz {v.cislo}</strong><button className="primary-button" disabled={!eligible(v)} onClick={()=>requestRelease(v)}>{eligible(v)?"Požádat o odevzdání":"Ještě neuplynuly 3 měsíce"}</button></div>)}</div>}<div className="panel"><h2>{adminMode?"Žádosti k vyřízení":"Moje žádosti"}</h2>{rows.length===0?<div className="empty">Žádné žádosti.</div>:rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>Vůz {vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id}</strong><div>{r.stav}</div></div>{adminMode&&<select value={r.stav} onChange={e=>decide(r,e.target.value)}><option>ČEKÁ NA VYŘÍZENÍ</option><option>SCHVÁLENO</option><option>ZAMÍTNUTO</option></select>}</div>)}</div></div>;
+}
+
+function VehicleFaults({ user, role }) {
+ const manage=canManageVehicles(role); const [rows,setRows]=useState([]),[vehicles,setVehicles]=useState([]),[form,setForm]=useState({vuz_id:"",nazev:"",popis:"",zavaznost:"BĚŽNÁ"}),[error,setError]=useState("");
+ async function load(){const [a,b]=await Promise.all([supabase.from("vehicle_faults").select("*").order("created_at",{ascending:false}),supabase.from("vozy").select("id,cislo").order("cislo")]); if(a.error)setError(a.error.message); setRows(a.data||[]);setVehicles(b.data||[])} useEffect(()=>{load()},[]);
+ async function add(e){e.preventDefault();const {error}=await supabase.from("vehicle_faults").insert({...form,vuz_id:Number(form.vuz_id),uzivatel_id:user.id});if(error)setError(error.message);else{await supabase.from("vehicle_history").insert({vuz_id:Number(form.vuz_id),uzivatel_id:user.id,typ:"ZAVADA",popis:`Nahlášena závada: ${form.nazev}`});setForm({vuz_id:"",nazev:"",popis:"",zavaznost:"BĚŽNÁ"});load()}}
+ async function status(r,stav){await supabase.from("vehicle_faults").update({stav,vyreseno_at:stav==="OPRAVENO"?new Date().toISOString():null}).eq("id",r.id);load()}
+ return <div><div className="topbar"><div><h1>Závady vozů</h1><p>Evidence a řešení závad</p></div></div>{error&&<div className="error-box">{error}</div>}<div className="panel"><h2>Nahlásit závadu</h2><form onSubmit={add} className="form-grid"><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vyber vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>Vůz {v.cislo}</option>)}</select><input placeholder="Název závady" value={form.nazev} onChange={e=>setForm({...form,nazev:e.target.value})} required/><select value={form.zavaznost} onChange={e=>setForm({...form,zavaznost:e.target.value})}><option>BĚŽNÁ</option><option>VÁŽNÁ</option><option>KRITICKÁ</option></select><input placeholder="Popis" value={form.popis} onChange={e=>setForm({...form,popis:e.target.value})}/><button className="primary-button">Nahlásit</button></form></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>Vůz {vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id} · {r.nazev}</strong><div>{r.zavaznost} · {r.popis||"Bez popisu"}</div></div>{manage?<select value={r.stav} onChange={e=>status(r,e.target.value)}><option>NOVÁ</option><option>ŘEŠÍ SE</option><option>OPRAVENO</option></select>:<strong>{r.stav}</strong>}</div>)}</div></div>
+}
+
+function Departures({ role }) { const manage=canManageVehicles(role); const [rows,setRows]=useState([]),[vehicles,setVehicles]=useState([]),[drivers,setDrivers]=useState([]),[form,setForm]=useState({datum:new Date().toISOString().slice(0,10),linka:"",poradi:"",vuz_id:"",ridic_id:"",zacatek:"",konec:"",poznamka:""}); async function load(){const [a,b,c]=await Promise.all([supabase.from("vypravy").select("*").order("datum",{ascending:false}),supabase.from("vozy").select("id,cislo,ridic_1,ridic_2"),supabase.from("profiles").select("id,jmeno").eq("role","ridic")]);setRows(a.data||[]);setVehicles(b.data||[]);setDrivers(c.data||[])} useEffect(()=>{load()},[]); async function add(e){e.preventDefault();await supabase.from("vypravy").insert({...form,vuz_id:Number(form.vuz_id),ridic_id:form.ridic_id||null});load()} return <div><div className="topbar"><div><h1>Výpravy</h1><p>Tabulka výprav vozů a řidičů</p></div></div>{manage&&<div className="panel"><form className="form-grid" onSubmit={add}><input type="date" value={form.datum} onChange={e=>setForm({...form,datum:e.target.value})} required/><input placeholder="Linka" value={form.linka} onChange={e=>setForm({...form,linka:e.target.value})} required/><input placeholder="Pořadí" value={form.poradi} onChange={e=>setForm({...form,poradi:e.target.value})}/><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.cislo}</option>)}</select><select value={form.ridic_id} onChange={e=>setForm({...form,ridic_id:e.target.value})}><option value="">Řidič</option>{drivers.map(d=><option key={d.id} value={d.id}>{d.jmeno}</option>)}</select><input type="time" value={form.zacatek} onChange={e=>setForm({...form,zacatek:e.target.value})}/><input type="time" value={form.konec} onChange={e=>setForm({...form,konec:e.target.value})}/><input placeholder="Poznámka" value={form.poznamka} onChange={e=>setForm({...form,poznamka:e.target.value})}/><button className="primary-button">Přidat výpravu</button></form></div>}<div className="panel table-scroll"><table className="data-table"><thead><tr><th>Datum</th><th>Linka</th><th>Pořadí</th><th>Vůz</th><th>Řidič</th><th>Začátek</th><th>Konec</th><th>Poznámka</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.datum}</td><td>{r.linka}</td><td>{r.poradi||"-"}</td><td>{vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id}</td><td>{drivers.find(d=>d.id===r.ridic_id)?.jmeno||"-"}</td><td>{r.zacatek||"-"}</td><td>{r.konec||"-"}</td><td>{r.poznamka||"-"}</td></tr>)}</tbody></table></div></div> }
+
+function AuditLog(){const [rows,setRows]=useState([]);useEffect(()=>{supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(200).then(({data})=>setRows(data||[]))},[]);return <div><div className="topbar"><div><h1>Audit log</h1><p>Historie administrativních změn</p></div></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>{r.akce}</strong><div>{r.entita} {r.entita_id||""} · {r.detail||""}</div></div><small>{new Date(r.created_at).toLocaleString("cs-CZ")}</small></div>)}</div></div>}
+
 function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -4288,6 +4376,9 @@ function App() {
     aktivniVozy: 0,
     vozyCelkem: 0,
     provozovny: 0,
+    zavady: 0,
+    cekajiciZadosti: 0,
+    stkBrzy: 0,
   });
 
   const [loading, setLoading] = useState(true);
@@ -4299,43 +4390,18 @@ function App() {
     useState(false);
 
   async function loadDashboardStats() {
-    const [
-      { count: provozovny, error: provozovnyError },
-      { count: vozyCelkem, error: vozyError },
-      { count: aktivniVozy, error: aktivniVozyError },
-    ] = await Promise.all([
-      supabase
-        .from("provozovny")
-        .select("*", { count: "exact", head: true }),
-
-      supabase
-        .from("vozy")
-        .select("*", { count: "exact", head: true }),
-
-      supabase
-        .from("vozy")
-        .select("*", { count: "exact", head: true })
-        .eq("stav", "PROVOZNÍ"),
+    const today = new Date().toISOString().slice(0,10);
+    const limit = new Date(); limit.setDate(limit.getDate()+30);
+    const [p,v,a,vy,z,q,stk] = await Promise.all([
+      supabase.from("provozovny").select("*",{count:"exact",head:true}),
+      supabase.from("vozy").select("*",{count:"exact",head:true}),
+      supabase.from("vozy").select("*",{count:"exact",head:true}).eq("stav","PROVOZNÍ"),
+      supabase.from("vypravy").select("*",{count:"exact",head:true}).eq("datum",today),
+      supabase.from("vehicle_faults").select("*",{count:"exact",head:true}).neq("stav","OPRAVENO"),
+      supabase.from("zadosti_vozidla").select("*",{count:"exact",head:true}).eq("stav","ČEKÁ NA VYŘÍZENÍ"),
+      supabase.from("vozy").select("*",{count:"exact",head:true}).gte("stk",today).lte("stk",limit.toISOString().slice(0,10)),
     ]);
-
-    if (provozovnyError) {
-      console.error("PROVOZOVNY ERROR:", provozovnyError);
-    }
-
-    if (vozyError) {
-      console.error("VOZY ERROR:", vozyError);
-    }
-
-    if (aktivniVozyError) {
-      console.error("AKTIVNI VOZY ERROR:", aktivniVozyError);
-    }
-
-    setDashboardStats({
-      vypravy: 0,
-      aktivniVozy: aktivniVozy || 0,
-      vozyCelkem: vozyCelkem || 0,
-      provozovny: provozovny || 0,
-    });
+    setDashboardStats({vypravy:vy.count||0,aktivniVozy:a.count||0,vozyCelkem:v.count||0,provozovny:p.count||0,zavady:z.count||0,cekajiciZadosti:q.count||0,stkBrzy:stk.count||0});
   }
 
   async function loadProfile(authUser) {
@@ -4587,6 +4653,10 @@ function App() {
               Žádost o přidělení vozidla
             </button>
 
+            <button className={page === "notifications" ? "active" : ""} onClick={() => setPage("notifications")}><span>🔔</span>Notifikace</button>
+            <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
+            <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
+
             {(manageVehicles ||
               manageReports ||
               manageUsers ||
@@ -4632,6 +4702,8 @@ function App() {
                 Žádosti o přidělení vozidla
               </button>
             )}
+            {manageVehicles && <button className={page === "adminReleaseRequests" ? "active" : ""} onClick={() => setPage("adminReleaseRequests")}><span>↩</span>Žádosti o odevzdání</button>}
+            {manageVehicles && <button className={page === "audit" ? "active" : ""} onClick={() => setPage("audit")}><span>🕘</span>Audit log</button>}
             {manageReports && (
               <button
                 className={
@@ -4728,10 +4800,10 @@ function App() {
     <strong>{dashboardStats.vozyCelkem}</strong>
   </div>
 
-  <div className="stat">
-    <span>Provozovny</span>
-    <strong>{dashboardStats.provozovny}</strong>
-  </div>
+  <div className="stat"><span>Provozovny</span><strong>{dashboardStats.provozovny}</strong></div>
+  <div className="stat"><span>Aktivní závady</span><strong>{dashboardStats.zavady}</strong></div>
+  <div className="stat"><span>Čekající žádosti</span><strong>{dashboardStats.cekajiciZadosti}</strong></div>
+  <div className="stat"><span>STK do 30 dní</span><strong>{dashboardStats.stkBrzy}</strong></div>
 </div>
 
               <div className="panel">
@@ -4751,14 +4823,7 @@ function App() {
             </>
           )}
 
-          {page === "departures" && (
-            <div className="panel">
-              <h1>Výpravy</h1>
-              <p>
-                Tady budou výpravy vozů.
-              </p>
-            </div>
-          )}
+          {page === "departures" && <Departures role={role} />}
 
           {page === "news" && (
             <News
@@ -4778,6 +4843,12 @@ function App() {
               profile={profile}
             />
           )}
+
+          {page === "notifications" && <Notifications user={user} />}
+          {page === "releaseRequests" && <VehicleReleaseRequests user={user} profile={profile} />}
+          {page === "faults" && <VehicleFaults user={user} role={role} />}
+          {page === "adminReleaseRequests" && manageVehicles && <VehicleReleaseRequests user={user} profile={profile} adminMode />}
+          {page === "audit" && manageVehicles && <AuditLog />}
 
           {page === "reports" &&
             useReports && (
@@ -6542,6 +6613,8 @@ button {
     align-self: flex-start;
   }
 }
+
+.vehicle-extra-panel{margin-top:22px;padding-top:18px;border-top:1px solid #e5e7eb}.simple-list{display:flex;flex-direction:column;gap:10px}.simple-list-item{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px;border:1px solid #e5e7eb;border-radius:12px;min-width:0}.simple-list-item>div{min-width:0}.simple-list-item.unread{border-left:4px solid #172033;background:#f8fafc}.table-scroll{overflow-x:auto}.data-table{width:100%;border-collapse:collapse;min-width:850px}.data-table th,.data-table td{text-align:left;padding:12px;border-bottom:1px solid #e5e7eb;white-space:nowrap}@media(max-width:700px){.simple-list-item{align-items:flex-start;flex-direction:column}.simple-list-item button,.simple-list-item select{width:100%}}
 `;
 
 export default App;
