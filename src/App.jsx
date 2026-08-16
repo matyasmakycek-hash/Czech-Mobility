@@ -1612,16 +1612,22 @@ function Vehicles({ role }) {
     setLoading(true);
     setError("");
 
+    // Záměrně načítáme jen sloupce, které v původní databázi
+    // prokazatelně existují. Detailní položky, které si doplníš
+    // později do `vozy`, se zobrazí jako —.
     const { data, error } = await supabase
       .from("vozy")
-      .select("*")
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
       .order("cislo", { ascending: true });
 
     if (error) {
-      setError(error.message);
+      console.error("VOZY ERROR:", error);
+      setError(error.message || "Nepodařilo se načíst vozy.");
       setVehicles([]);
     } else {
-      setVehicles(data || []);
+      setVehicles(Array.isArray(data) ? data : []);
     }
 
     setLoading(false);
@@ -1652,14 +1658,17 @@ function Vehicles({ role }) {
     );
   }
 
+  const query = search.trim().toLowerCase();
+
   const filtered = vehicles.filter((vehicle) => {
     if (
       selectedProvozovna &&
-      Number(vehicle.provozovna_id) !==
-        Number(selectedProvozovna)
+      Number(vehicle.provozovna_id) !== Number(selectedProvozovna)
     ) {
       return false;
     }
+
+    if (!query) return true;
 
     const text = [
       vehicle.cislo,
@@ -1670,15 +1679,11 @@ function Vehicles({ role }) {
       vehicle.barevne_schema,
       vehicle.stav,
     ]
-      .filter(
-        (x) =>
-          x !== null &&
-          x !== undefined
-      )
+      .filter((value) => value !== null && value !== undefined)
       .join(" ")
       .toLowerCase();
 
-    return text.includes(search.toLowerCase());
+    return text.includes(query);
   });
 
   return (
@@ -1724,7 +1729,21 @@ function Vehicles({ role }) {
           <div className="empty">Načítání vozů...</div>
         )}
 
-        {error && <div className="error-box">{error}</div>}
+        {!loading && error && (
+          <div className="error-box">
+            <strong>Chyba při načítání vozů:</strong>
+            <br />
+            {error}
+            <br /><br />
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={loadVehicles}
+            >
+              Zkusit znovu
+            </button>
+          </div>
+        )}
 
         {!loading && !error && filtered.length > 0 && (
           <>
@@ -1738,39 +1757,29 @@ function Vehicles({ role }) {
             </div>
 
             {filtered.map((vehicle) => (
-              <button
+              <div
                 key={vehicle.id}
-                type="button"
                 className="vehicle-row vehicle-row-clickable"
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedVehicleId(vehicle.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedVehicleId(vehicle.id);
+                  }
+                }}
                 title={`Otevřít detail vozu ${vehicle.cislo ?? "-"}`}
               >
-                <strong>
-                  {vehicle.cislo ?? "-"}
-                </strong>
-
+                <strong>{vehicle.cislo ?? "-"}</strong>
+                <span>{vehicle.vyrobce ?? "-"}</span>
+                <span>{vehicle.typ ?? "-"}</span>
+                <span>{vehicle.spz ?? "-"}</span>
+                <span>{vehicle.rok ?? "-"}</span>
                 <span>
-                  {vehicle.vyrobce ?? "-"}
+                  <VehicleStatus status={vehicle.stav} />
                 </span>
-
-                <span>
-                  {vehicle.typ ?? "-"}
-                </span>
-
-                <span>
-                  {vehicle.spz ?? "-"}
-                </span>
-
-                <span>
-                  {vehicle.rok ?? "-"}
-                </span>
-
-                <span>
-                  <VehicleStatus
-                    status={vehicle.stav}
-                  />
-                </span>
-              </button>
+              </div>
             ))}
           </>
         )}
@@ -3288,225 +3297,163 @@ function News({ user, profile, role }) {
   );
 }
 
+
 /* =========================================================
-   ŽÁDOST O PŘIDĚLENÍ VOZIDLA
+   SPRÁVA ŽÁDOSTÍ O PŘIDĚLENÍ VOZIDLA
 ========================================================= */
 
-function VehicleAssignmentRequest({ user }) {
-  const [vehicles, setVehicles] = useState([]);
+function AdminVehicleRequests() {
   const [requests, setRequests] = useState([]);
-  const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  const [note, setNote] = useState("");
+  const [profiles, setProfiles] = useState({});
+  const [vehicles, setVehicles] = useState({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  async function loadVehicles() {
-    const { data, error } = await supabase
-      .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id"
-      )
-      .order("cislo", { ascending: true });
+  async function loadRequests() {
+    setLoading(true);
+    setError("");
 
-    if (error) {
-      setError(`Nepodařilo se načíst vozy: ${error.message}`);
-      setVehicles([]);
+    const { data, error: requestsError } = await supabase
+      .from("zadosti_vozidla")
+      .select("id, uzivatel_id, vuz_id, poznamka, stav, created_at")
+      .order("created_at", { ascending: false });
+
+    if (requestsError) {
+      setError(requestsError.message);
+      setRequests([]);
+      setLoading(false);
       return;
     }
 
-    setVehicles(data || []);
-  }
+    const rows = data || [];
+    setRequests(rows);
 
-  async function loadRequests() {
-    if (!user?.id) return;
+    const userIds = [...new Set(rows.map((r) => r.uzivatel_id).filter(Boolean))];
+    const vehicleIds = [...new Set(rows.map((r) => r.vuz_id).filter(Boolean))];
 
-    const { data, error } = await supabase
-      .from("zadosti_vozidla")
-      .select("id, uzivatel_id, vuz_id, poznamka, stav, created_at")
-      .eq("uzivatel_id", user.id)
-      .order("created_at", { ascending: false });
+    const [{ data: userRows }, { data: vehicleRows }] = await Promise.all([
+      userIds.length
+        ? supabase.from("profiles").select("id, jmeno").in("id", userIds)
+        : Promise.resolve({ data: [] }),
+      vehicleIds.length
+        ? supabase.from("vozy").select("id, cislo, vyrobce, typ, spz").in("id", vehicleIds)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-    if (!error) setRequests(data || []);
+    setProfiles(
+      Object.fromEntries((userRows || []).map((u) => [u.id, u]))
+    );
+    setVehicles(
+      Object.fromEntries((vehicleRows || []).map((v) => [v.id, v]))
+    );
+    setLoading(false);
   }
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError("");
-      await Promise.all([loadVehicles(), loadRequests()]);
-      setLoading(false);
-    }
-    load();
-  }, [user?.id]);
+    loadRequests();
+  }, []);
 
-  const selectedVehicle = vehicles.find(
-    (vehicle) => String(vehicle.id) === String(selectedVehicleId)
-  );
-
-  async function submitRequest(e) {
-    e.preventDefault();
+  async function changeStatus(id, stav) {
+    setSavingId(id);
     setError("");
     setSuccess("");
 
-    if (!selectedVehicleId) {
-      setError("Vyber vozidlo.");
-      return;
-    }
-
-    if (!note.trim()) {
-      setError("Napiš prosím text žádosti.");
-      return;
-    }
-
-    setSaving(true);
-
-    const { error: insertError } = await supabase
+    const { error: updateError } = await supabase
       .from("zadosti_vozidla")
-      .insert({
-        uzivatel_id: user.id,
-        vuz_id: Number(selectedVehicleId),
-        poznamka: note.trim(),
-        stav: "ČEKÁ NA VYŘÍZENÍ",
-      });
+      .update({ stav })
+      .eq("id", id);
 
-    setSaving(false);
+    setSavingId(null);
 
-    if (insertError) {
-      setError(
-        `Žádost se nepodařilo uložit: ${insertError.message}`
-      );
+    if (updateError) {
+      setError(updateError.message);
       return;
     }
 
-    setSuccess(
-      `Žádost o přidělení vozu ${selectedVehicle?.cislo ?? "-"} byla odeslána.`
-    );
-    setSelectedVehicleId("");
-    setNote("");
+    setSuccess("Stav žádosti byl změněn.");
     await loadRequests();
-  }
-
-  function getVehicle(vehicleId) {
-    return vehicles.find(
-      (vehicle) => String(vehicle.id) === String(vehicleId)
-    );
   }
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>Žádost o přidělení vozidla</h1>
-          <p>Vyber vozidlo z vozového parku a napiš k němu žádost.</p>
+          <h1>Žádosti o přidělení vozidla</h1>
+          <p>Vyřízení žádostí o konkrétní vůz</p>
+        </div>
+        <div className="profile-badge">
+          {requests.length} ŽÁDOSTÍ
         </div>
       </div>
 
-      <div className="panel">
-        <h2>Nová žádost</h2>
+      {error && <div className="error-box"><strong>Chyba:</strong><br />{error}</div>}
+      {success && <div className="success-box">{success}</div>}
 
-        {error && (
-          <div className="error-box">
-            <strong>Chyba:</strong><br />
-            {error}
-          </div>
-        )}
+      {loading ? (
+        <div className="empty">Načítání žádostí...</div>
+      ) : requests.length === 0 ? (
+        <div className="empty">Zatím nebyla vytvořena žádná žádost.</div>
+      ) : (
+        <div className="admin-reports-list">
+          {requests.map((request) => {
+            const user = profiles[request.uzivatel_id];
+            const vehicle = vehicles[request.vuz_id];
 
-        {success && <div className="success-box">{success}</div>}
-
-        {loading ? (
-          <div className="empty">Načítání vozů...</div>
-        ) : (
-          <form onSubmit={submitRequest}>
-            <div className="form-grid">
-              <div>
-                <label>Vozidlo</label>
-                <select
-                  value={selectedVehicleId}
-                  onChange={(e) => setSelectedVehicleId(e.target.value)}
-                  required
-                >
-                  <option value="">Vyber vozidlo</option>
-                  {vehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.cislo ?? "-"} — {vehicle.vyrobce ?? ""} {vehicle.typ ?? ""}
-                      {vehicle.spz ? ` — ${vehicle.spz}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {selectedVehicle && (
-              <div className="request-vehicle-preview">
-                <strong>Vůz {selectedVehicle.cislo}</strong>
-                <span>{selectedVehicle.vyrobce ?? "-"} {selectedVehicle.typ ?? ""}</span>
-                <span>SPZ: {selectedVehicle.spz ?? "—"}</span>
-                <span>Stav: {selectedVehicle.stav ?? "—"}</span>
-              </div>
-            )}
-
-            <div>
-              <label>Text žádosti</label>
-              <textarea
-                className="request-textarea"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Napiš důvod žádosti, termín, účel použití nebo další informace..."
-                rows={6}
-                required
-              />
-            </div>
-
-            <div className="form-actions">
-              <button
-                className="primary-button"
-                type="submit"
-                disabled={saving || vehicles.length === 0}
-              >
-                {saving ? "Odesílám..." : "📨 Odeslat žádost"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      <div className="panel">
-        <h2>Moje žádosti</h2>
-        {requests.length === 0 ? (
-          <div className="empty">Zatím nemáš žádnou žádost.</div>
-        ) : (
-          <div className="request-list">
-            {requests.map((request) => {
-              const vehicle = getVehicle(request.vuz_id);
-              return (
-                <div className="request-card" key={request.id}>
-                  <div className="request-card-header">
-                    <div>
-                      <h3>Vůz {vehicle?.cislo ?? request.vuz_id}</h3>
-                      <div className="muted">
-                        {vehicle?.vyrobce ?? ""} {vehicle?.typ ?? ""}
-                      </div>
-                    </div>
-                    <span className="status">
-                      {request.stav || "Čeká na vyřízení"}
+            return (
+              <article className="admin-report-card" key={request.id}>
+                <div className="admin-report-header">
+                  <div>
+                    <span className="admin-report-date">
+                      {request.created_at
+                        ? new Date(request.created_at).toLocaleString("cs-CZ")
+                        : "-"}
                     </span>
+                    <h3>
+                      Vůz {vehicle?.cislo ?? "-"}
+                    </h3>
                   </div>
-                  <div className="request-card-note">
-                    {request.poznamka || "Bez poznámky."}
+
+                  <select
+                    className="status-select"
+                    value={request.stav || "ČEKÁ NA VYŘÍZENÍ"}
+                    onChange={(e) => changeStatus(request.id, e.target.value)}
+                    disabled={savingId === request.id}
+                  >
+                    <option value="ČEKÁ NA VYŘÍZENÍ">ČEKÁ NA VYŘÍZENÍ</option>
+                    <option value="SCHVÁLENO">SCHVÁLENO</option>
+                    <option value="ZAMÍTNUTO">ZAMÍTNUTO</option>
+                    <option value="VYŘÍZENO">VYŘÍZENO</option>
+                  </select>
+                </div>
+
+                <div className="admin-report-grid">
+                  <div>
+                    <small>Žadatel</small>
+                    <strong>{user?.jmeno || request.uzivatel_id || "-"}</strong>
                   </div>
-                  <div className="muted">
-                    {request.created_at
-                      ? new Date(request.created_at).toLocaleString("cs-CZ")
-                      : "—"}
+                  <div>
+                    <small>Vozidlo</small>
+                    <strong>
+                      {vehicle
+                        ? `${vehicle.vyrobce || ""} ${vehicle.typ || ""}${vehicle.spz ? ` • ${vehicle.spz}` : ""}`.trim()
+                        : request.vuz_id || "-"}
+                    </strong>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+
+                <div className="panel" style={{ marginTop: "12px" }}>
+                  <small>Poznámka žadatele</small>
+                  <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                    {request.poznamka || "Bez poznámky"}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -3779,20 +3726,6 @@ function App() {
               Vozy
             </button>
 
-            <button
-              className={
-                page === "vehicleRequest"
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setPage("vehicleRequest")
-              }
-            >
-              <span>📝</span>
-              Žádost o přidělení vozidla
-            </button>
-
             {useReports && (
               <button
                 className={
@@ -3852,6 +3785,22 @@ function App() {
               </button>
             )}
 
+
+            {manageVehicles && (
+              <button
+                className={
+                  page === "adminVehicleRequests"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage("adminVehicleRequests")
+                }
+              >
+                <span>📝</span>
+                Žádosti o přidělení vozidla
+              </button>
+            )}
             {manageReports && (
               <button
                 className={
@@ -3990,10 +3939,6 @@ function App() {
 
           {page === "vehicles" && <Vehicles role={role} />}
 
-          {page === "vehicleRequest" && (
-            <VehicleAssignmentRequest user={user} />
-          )}
-
           {page === "reports" &&
             useReports && (
               <MyReports user={user} />
@@ -4002,6 +3947,11 @@ function App() {
           {page === "adminVehicles" &&
             manageVehicles && (
               <AdminVehicles />
+            )}
+
+          {page === "adminVehicleRequests" &&
+            manageVehicles && (
+              <AdminVehicleRequests />
             )}
 
           {page === "adminReports" &&
@@ -4572,6 +4522,20 @@ button {
 }
 
 .vehicle-header,
+
+.vehicle-row-clickable {
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease;
+}
+
+.vehicle-row-clickable:hover {
+  background: #f8fafc;
+}
+
+.vehicle-row-clickable:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
 .vehicle-row {
   display: grid;
   grid-template-columns:
@@ -5063,53 +5027,6 @@ button {
   .profile-badge {
     align-self: flex-start;
   }
-}
-
-
-/* ŽÁDOST O PŘIDĚLENÍ VOZIDLA */
-.request-vehicle-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 12px 0 20px;
-  padding: 14px 16px;
-  border: 1px solid #dbe3ee;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-.request-textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 140px;
-  padding: 12px 14px;
-  border: 1px solid #cfd7e3;
-  border-radius: 10px;
-  background: #fff;
-  color: #172033;
-  outline: none;
-  font: inherit;
-}
-.request-list { display: grid; gap: 12px; }
-.request-card {
-  border: 1px solid #e0e6ef;
-  border-radius: 12px;
-  padding: 16px;
-  background: #fff;
-}
-.request-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-.request-card-header h3 { margin: 0 0 4px; }
-.request-card-note {
-  padding: 12px;
-  margin-bottom: 10px;
-  border-radius: 8px;
-  background: #f7f9fc;
-  white-space: pre-wrap;
 }
 `;
 
