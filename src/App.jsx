@@ -3744,16 +3744,16 @@ function App() {
 
             <button
               className={
-                page === "news"
+                page === "vehicleRequest"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage("news")
+                setPage("vehicleRequest")
               }
             >
-              <span>📰</span>
-              Novinky
+              <span>📝</span>
+              Žádost o přidělení vozidla
             </button>
 
             {(manageVehicles ||
@@ -3938,6 +3938,13 @@ function App() {
           )}
 
           {page === "vehicles" && <Vehicles role={role} />}
+
+          {page === "vehicleRequest" && (
+            <VehicleRequest
+              user={user}
+              profile={profile}
+            />
+          )}
 
           {page === "reports" &&
             useReports && (
