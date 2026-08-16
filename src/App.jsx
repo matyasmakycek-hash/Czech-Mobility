@@ -809,17 +809,16 @@ function AdminUsers() {
 ========================================================= */
 
 const vehicleStatusColors = {
-  PROVOZNÍ: "#caffca",
+  "PROVOZNÍ": "#caffca",
   "V DÍLNĚ / V OPRAVĚ": "#ffca97",
   "DOČASNĚ ODSTAVEN": "#eaeaea",
-  "DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN": "#cacaca",
+  "DEFINITIVNĚ ODSTAVEN": "#cacaca",
   "DLOUHODOBĚ ODSTAVEN": "#cacaca",
-  SEŠROTOVÁN: "#ffcaca",
+  "SEŠROTOVÁN": "#ffcaca",
   "PRODÁN / PŘEDÁN JINÉMU DOPRAVCI": "#ffcaff",
-  "PRODÁN / PŘEDÁN JINEMU DOPRAVCI": "#ffcaff",
   "DOSUD NEZAŘAZEN DO PROVOZU": "#cacaff",
-  SLUŽEBNÍ: "#ffffca",
-  RETRO: "#caffff",
+  "SLUŽEBNÍ": "#ffffca",
+  "RETRO": "#caffff",
 };
 
 function VehicleStatus({ status }) {
