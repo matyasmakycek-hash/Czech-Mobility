@@ -23,7 +23,7 @@ function Login({ onLogin }) {
       return;
     }
 
-    onLogin(data.user);
+    await onLogin(data.user);
     setLoading(false);
   }
 
@@ -69,6 +69,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState("dashboard");
 
   useEffect(() => {
     loadUser();
@@ -76,9 +77,10 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-
-      if (!session?.user) {
+      if (session?.user) {
+        loadUser(session.user);
+      } else {
+        setUser(null);
         setProfile(null);
       }
     });
@@ -86,23 +88,30 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function loadUser() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  async function loadUser(currentUser = null) {
+    const loggedUser =
+      currentUser || (await supabase.auth.getUser()).data.user;
 
-    if (user) {
-      setUser(user);
-
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      setProfile(profileData);
+    if (!loggedUser) {
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+      return;
     }
 
+    setUser(loggedUser);
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, jmeno, role")
+      .eq("id", loggedUser.id)
+      .maybeSingle();
+
+    console.log("Přihlášený uživatel:", loggedUser.id);
+    console.log("Profil:", data);
+    console.log("Chyba profilu:", error);
+
+    setProfile(data);
     setLoading(false);
   }
 
@@ -110,10 +119,16 @@ function App() {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setPage("dashboard");
   }
 
   if (loading) {
-    return <div className="loading">Načítání...</div>;
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="loading">Načítání...</div>
+      </>
+    );
   }
 
   if (!user) {
@@ -125,6 +140,8 @@ function App() {
     );
   }
 
+  const isAdmin = profile?.role === "admin";
+
   return (
     <>
       <style>{styles}</style>
@@ -133,6 +150,7 @@ function App() {
         <aside className="sidebar">
           <div className="brand">
             <div className="brand-logo">CM</div>
+
             <div>
               <div className="brand-title">Czech Mobility</div>
               <div className="brand-subtitle">VDP systém</div>
@@ -142,19 +160,49 @@ function App() {
           <div className="section-title">Navigace</div>
 
           <nav className="menu">
-            <button>⌂ Dashboard</button>
-            <button>◈ Výpravy</button>
-            <button>▣ Vozy</button>
-            <button>▤ Moje výkazy</button>
+            <button
+              className={page === "dashboard" ? "active" : ""}
+              onClick={() => setPage("dashboard")}
+            >
+              ⌂ Dashboard
+            </button>
 
-            {profile?.role === "admin" && (
-              <button>⚙ Administrace</button>
+            <button
+              className={page === "departures" ? "active" : ""}
+              onClick={() => setPage("departures")}
+            >
+              ◈ Výpravy
+            </button>
+
+            <button
+              className={page === "vehicles" ? "active" : ""}
+              onClick={() => setPage("vehicles")}
+            >
+              ▣ Vozy
+            </button>
+
+            <button
+              className={page === "reports" ? "active" : ""}
+              onClick={() => setPage("reports")}
+            >
+              ▤ Moje výkazy
+            </button>
+
+            {isAdmin && (
+              <button
+                className={page === "admin" ? "active" : ""}
+                onClick={() => setPage("admin")}
+              >
+                ⚙ Administrace
+              </button>
             )}
           </nav>
 
           <div className="user-box">
             <div className="avatar">
-              {(profile?.jmeno || user.email)?.charAt(0).toUpperCase()}
+              {(profile?.jmeno || user.email || "U")
+                .charAt(0)
+                .toUpperCase()}
             </div>
 
             <div className="user-info">
@@ -163,7 +211,7 @@ function App() {
               </div>
 
               <div className="user-role">
-                {profile?.role === "admin"
+                {isAdmin
                   ? "Administrátor"
                   : profile?.role === "dispecer"
                   ? "Dispečer"
@@ -178,22 +226,103 @@ function App() {
         </aside>
 
         <main className="content">
-          <h1>Dashboard</h1>
+          {page === "dashboard" && (
+            <>
+              <h1>Dashboard</h1>
 
-          <div className="welcome">
-            <h2>Vítej, {profile?.jmeno || user.email} 👋</h2>
+              <div className="stats">
+                <div className="stat">
+                  <span>Dnešní výpravy</span>
+                  <strong>0</strong>
+                </div>
 
-            <p>
-              Jsi přihlášen jako{" "}
-              <strong>
-                {profile?.role === "admin"
-                  ? "administrátor"
-                  : profile?.role === "dispecer"
-                  ? "dispečer"
-                  : "řidič"}
-              </strong>.
-            </p>
-          </div>
+                <div className="stat">
+                  <span>Aktivní vozy</span>
+                  <strong>14</strong>
+                </div>
+
+                <div className="stat">
+                  <span>Vozy celkem</span>
+                  <strong>42</strong>
+                </div>
+
+                <div className="stat">
+                  <span>Provozovny</span>
+                  <strong>1</strong>
+                </div>
+              </div>
+
+              <div className="panel">
+                <h2>
+                  Vítej, {profile?.jmeno || user.email} 👋
+                </h2>
+
+                <p>
+                  Jsi přihlášen jako{" "}
+                  <strong>
+                    {isAdmin
+                      ? "administrátor"
+                      : profile?.role === "dispecer"
+                      ? "dispečer"
+                      : "řidič"}
+                  </strong>.
+                </p>
+              </div>
+            </>
+          )}
+
+          {page === "departures" && (
+            <div className="panel">
+              <h1>Výpravy</h1>
+              <p>Zde budou výpravy vozů.</p>
+            </div>
+          )}
+
+          {page === "vehicles" && (
+            <div className="panel">
+              <h1>Vozy</h1>
+              <p>Zde budou vozy Czech Mobility.</p>
+            </div>
+          )}
+
+          {page === "reports" && (
+            <div className="panel">
+              <h1>Moje výkazy</h1>
+              <p>Zde budou tvoje výkazy.</p>
+            </div>
+          )}
+
+          {page === "admin" && isAdmin && (
+            <div className="panel">
+              <h1>Administrace</h1>
+
+              <p>
+                Vítej v administraci Czech Mobility.
+              </p>
+
+              <div className="admin-grid">
+                <div className="admin-card">
+                  <strong>Uživatelé</strong>
+                  <span>Správa uživatelů a rolí</span>
+                </div>
+
+                <div className="admin-card">
+                  <strong>Vozy</strong>
+                  <span>Správa vozového parku</span>
+                </div>
+
+                <div className="admin-card">
+                  <strong>Provozovny</strong>
+                  <span>Správa provozoven</span>
+                </div>
+
+                <div className="admin-card">
+                  <strong>Výpravy</strong>
+                  <span>Správa výprav</span>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </>
@@ -374,10 +503,16 @@ input {
   border-radius: 10px;
   text-align: left;
   cursor: pointer;
+  font-size: 14px;
 }
 
 .menu button:hover {
   background: #1a2537;
+  color: white;
+}
+
+.menu button.active {
+  background: #2563eb;
   color: white;
 }
 
@@ -395,6 +530,7 @@ input {
   height: 38px;
   border-radius: 50%;
   background: #2563eb;
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -411,6 +547,7 @@ input {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-role {
@@ -439,11 +576,75 @@ input {
   margin-top: 0;
 }
 
-.welcome {
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  margin: 25px 0;
+}
+
+.stat {
+  background: white;
+  padding: 20px;
+  border-radius: 15px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.04);
+}
+
+.stat span {
+  display: block;
+  color: #718096;
+  font-size: 13px;
+}
+
+.stat strong {
+  display: block;
+  font-size: 30px;
+  margin-top: 10px;
+}
+
+.panel {
   background: white;
   border-radius: 16px;
   padding: 25px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.admin-card {
+  border: 1px solid #e3e8f0;
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.admin-card strong {
+  display: block;
+  margin-bottom: 7px;
+}
+
+.admin-card span {
+  color: #718096;
+  font-size: 13px;
+}
+
+@media (max-width: 800px) {
+  .sidebar {
+    width: 210px;
+  }
+
+  .content {
+    margin-left: 210px;
+    width: calc(100% - 210px);
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 `;
 
