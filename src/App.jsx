@@ -265,14 +265,7 @@ function App() {
             </div>
           )}
 
-          {page === "vehicles" && (
-            <div className="panel">
-              <h1>Vozy</h1>
-              <p>
-                Zde budou všechny vozy načtené ze Supabase.
-              </p>
-            </div>
-          )}
+          {page === "vehicles" && <Vehicles />}
 
           {page === "reports" && (
             <div className="panel">
