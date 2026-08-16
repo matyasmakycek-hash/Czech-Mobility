@@ -1806,6 +1806,414 @@ function AdminReports() {
 }
 
 /* =========================================================
+   SPRÁVA UŽIVATELŮ
+   POUZE ADMINISTRÁTOR
+========================================================= */
+
+function AdminUsers({ currentUser }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+
+  const [search, setSearch] = useState("");
+  const [filterRole, setFilterRole] = useState("Vše");
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadUsers() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        "id, jmeno, role, created_at"
+      )
+      .order("jmeno", {
+        ascending: true,
+      });
+
+    if (error) {
+      console.error(
+        "USERS ERROR:",
+        error
+      );
+
+      setError(error.message);
+      setUsers([]);
+    } else {
+      setUsers(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function changeRole(
+    userId,
+    newRole
+  ) {
+    if (userId === currentUser.id) {
+      setError(
+        "Nemůžeš změnit roli svého vlastního účtu."
+      );
+      return;
+    }
+
+    setSavingId(userId);
+    setError("");
+    setSuccess("");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        role: newRole,
+      })
+      .eq("id", userId);
+
+    if (error) {
+      setError(error.message);
+      setSavingId(null);
+      return;
+    }
+
+    setSuccess(
+      "Role uživatele byla úspěšně změněna."
+    );
+
+    await loadUsers();
+
+    setSavingId(null);
+  }
+
+  async function deleteProfile(
+    userId,
+    userName
+  ) {
+    if (userId === currentUser.id) {
+      setError(
+        "Nemůžeš smazat svůj vlastní účet."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Opravdu chceš odstranit profil uživatele ${
+        userName || "bez jména"
+      }?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", userId);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setSuccess(
+      "Profil uživatele byl odstraněn."
+    );
+
+    await loadUsers();
+  }
+
+  const filteredUsers = users.filter(
+    (user) => {
+      const roleMatch =
+        filterRole === "Vše" ||
+        user.role === filterRole;
+
+      const searchText = [
+        user.id,
+        user.jmeno,
+        user.role,
+        user.created_at,
+      ]
+        .filter(
+          (value) =>
+            value !== null &&
+            value !== undefined
+        )
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        roleMatch &&
+        searchText.includes(
+          search.toLowerCase()
+        )
+      );
+    }
+  );
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Správa uživatelů</h1>
+
+          <p>
+            Správa účtů a uživatelských rolí
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          POUZE ADMIN
+        </div>
+      </div>
+
+      <div className="admin-user-stats">
+        <div className="admin-user-stat">
+          <span>Celkem uživatelů</span>
+
+          <strong>
+            {users.length}
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>Administrátoři</span>
+
+          <strong>
+            {
+              users.filter(
+                (user) =>
+                  user.role === ROLE_ADMIN
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>Dispečeři</span>
+
+          <strong>
+            {
+              users.filter(
+                (user) =>
+                  user.role === ROLE_DISPECER
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>Řidiči</span>
+
+          <strong>
+            {
+              users.filter(
+                (user) =>
+                  user.role === ROLE_RIDIC
+              ).length
+            }
+          </strong>
+        </div>
+      </div>
+
+      <div className="panel admin-list-panel">
+        <div className="admin-report-toolbar">
+          <input
+            className="search"
+            type="text"
+            placeholder="🔎 Hledat uživatele..."
+            value={search}
+            onChange={(e) =>
+              setSearch(e.target.value)
+            }
+          />
+
+          <select
+            className="status-filter"
+            value={filterRole}
+            onChange={(e) =>
+              setFilterRole(
+                e.target.value
+              )
+            }
+          >
+            <option value="Vše">
+              Všechny role
+            </option>
+
+            <option value="admin">
+              Administrátoři
+            </option>
+
+            <option value="dispecer">
+              Dispečeři
+            </option>
+
+            <option value="ridic">
+              Řidiči
+            </option>
+          </select>
+        </div>
+
+        {error && (
+          <div className="error-box">
+            <strong>Chyba:</strong>
+            <br />
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="success-box">
+            {success}
+          </div>
+        )}
+
+        {loading && (
+          <div className="empty">
+            Načítání uživatelů...
+          </div>
+        )}
+
+        {!loading &&
+          filteredUsers.length === 0 && (
+            <div className="empty">
+              {users.length === 0
+                ? "Tabulka profiles neobsahuje žádné uživatele."
+                : "Žádní uživatelé neodpovídají hledání."}
+            </div>
+          )}
+
+        {!loading &&
+          filteredUsers.length > 0 && (
+            <div className="admin-users-list">
+              {filteredUsers.map(
+                (profile) => (
+                  <div
+                    className="admin-user-row"
+                    key={profile.id}
+                  >
+                    <div className="admin-user-main">
+                      <div className="admin-user-avatar">
+                        {(
+                          profile.jmeno ||
+                          "U"
+                        )
+                          .charAt(0)
+                          .toUpperCase()}
+                      </div>
+
+                      <div>
+                        <strong>
+                          {profile.jmeno ||
+                            "Bez jména"}
+                        </strong>
+
+                        <small>
+                          ID: {profile.id}
+                        </small>
+                      </div>
+                    </div>
+
+                    <div className="admin-user-role">
+                      <small>
+                        Aktuální role
+                      </small>
+
+                      <span
+                        className={`role-badge role-${profile.role}`}
+                      >
+                        {getRoleName(
+                          profile.role
+                        )}
+                      </span>
+                    </div>
+
+                    <div>
+                      <small>
+                        Vytvořeno
+                      </small>
+
+                      <strong>
+                        {profile.created_at
+                          ? new Date(
+                              profile.created_at
+                            ).toLocaleDateString(
+                              "cs-CZ"
+                            )
+                          : "-"}
+                      </strong>
+                    </div>
+
+                    <div className="admin-user-actions">
+                      <select
+                        value={
+                          profile.role ||
+                          ROLE_RIDIC
+                        }
+                        disabled={
+                          savingId ===
+                            profile.id ||
+                          profile.id ===
+                            currentUser.id
+                        }
+                        onChange={(e) =>
+                          changeRole(
+                            profile.id,
+                            e.target.value
+                          )
+                        }
+                      >
+                        <option value="ridic">
+                          Řidič
+                        </option>
+
+                        <option value="dispecer">
+                          Dispečer
+                        </option>
+
+                        <option value="admin">
+                          Administrátor
+                        </option>
+                      </select>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        disabled={
+                          profile.id ===
+                          currentUser.id
+                        }
+                        onClick={() =>
+                          deleteProfile(
+                            profile.id,
+                            profile.jmeno
+                          )
+                        }
+                      >
+                        🗑️ Odstranit
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    APP
 ========================================================= */
 
@@ -1842,6 +2250,10 @@ function App() {
         .eq("id", authUser.id)
         .maybeSingle();
 
+    console.log("AUTH USER:", authUser);
+    console.log("PROFILE DATA:", data);
+    console.log("PROFILE ERROR:", error);
+
     if (error) {
       console.error(
         "PROFILE ERROR:",
@@ -1854,9 +2266,6 @@ function App() {
     }
 
     setProfile(data || null);
-    console.log("PROFILE DATA:", data);
-    console.log("PROFILE ERROR:", error);
-    console.log("AUTH USER ID:", authUser.id);
     setProfileLoading(false);
   }
 
@@ -1944,6 +2353,7 @@ function App() {
         <Login
           onLogin={(loggedUser) => {
             setUser(loggedUser);
+
             loadProfile(
               loggedUser
             );
@@ -2071,7 +2481,8 @@ function App() {
             )}
 
             {(manageVehicles ||
-              manageReports) && (
+              manageReports ||
+              isAdmin) && (
               <>
                 <div className="menu-divider" />
 
@@ -2114,6 +2525,25 @@ function App() {
               >
                 <span>📋</span>
                 Správa výkazů
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                className={
+                  page === "adminUsers"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage(
+                    "adminUsers"
+                  )
+                }
+              >
+                <span>👥</span>
+                Správa uživatelů
               </button>
             )}
           </nav>
@@ -2273,6 +2703,15 @@ function App() {
           {page === "adminReports" &&
             manageReports && (
               <AdminReports />
+            )}
+
+          {/* SPRÁVA UŽIVATELŮ */}
+
+          {page === "adminUsers" &&
+            isAdmin && (
+              <AdminUsers
+                currentUser={user}
+              />
             )}
 
         </main>
@@ -2578,21 +3017,27 @@ button {
 
 /* STATS */
 
-.stats {
+.stats,
+.admin-report-stats,
+.admin-user-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 15px;
   margin: 25px 0;
 }
 
-.stat {
+.stat,
+.admin-report-stat,
+.admin-user-stat {
   background: white;
   padding: 20px;
   border-radius: 15px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
 }
 
-.stat span {
+.stat span,
+.admin-report-stat span,
+.admin-user-stat span {
   color: #718096;
   font-size: 13px;
 }
@@ -2601,6 +3046,13 @@ button {
   display: block;
   font-size: 30px;
   margin-top: 10px;
+}
+
+.admin-report-stat strong,
+.admin-user-stat strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 26px;
 }
 
 /* PANEL */
@@ -2755,7 +3207,9 @@ button {
 
 .primary-button:disabled,
 .approve-button:disabled,
-.reject-button:disabled {
+.reject-button:disabled,
+.admin-user-actions select:disabled,
+.delete-button:disabled {
   opacity: .5;
   cursor: not-allowed;
 }
@@ -2819,7 +3273,8 @@ button {
 
 .admin-vehicle-row small,
 .report-card small,
-.admin-report-card small {
+.admin-report-card small,
+.admin-user-row small {
   display: block;
   color: #718096;
   font-size: 11px;
@@ -2948,32 +3403,6 @@ button {
 
 /* ADMIN VÝKAZY */
 
-.admin-report-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-  margin: 25px 0;
-}
-
-.admin-report-stat {
-  background: white;
-  padding: 18px 20px;
-  border-radius: 15px;
-  box-shadow: 0 3px 14px rgba(0,0,0,.04);
-}
-
-.admin-report-stat span {
-  display: block;
-  color: #718096;
-  font-size: 12px;
-}
-
-.admin-report-stat strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 26px;
-}
-
 .admin-report-toolbar {
   display: grid;
   grid-template-columns: 1fr 220px;
@@ -3062,6 +3491,109 @@ button {
   flex-wrap: wrap;
 }
 
+/* SPRÁVA UŽIVATELŮ */
+
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-user-row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1.5fr;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 5px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.admin-user-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-user-main > div:last-child {
+  min-width: 0;
+}
+
+.admin-user-main strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.admin-user-role {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.role-badge {
+  display: inline-block;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.role-admin {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.role-dispecer {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.role-ridic {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-user-actions select {
+  min-width: 145px;
+  padding: 10px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  background: white;
+  outline: none;
+}
+
+.admin-user-actions select:focus {
+  border-color: #2563eb;
+}
+
 /* RESPONSIVE */
 
 @media (max-width: 1200px) {
@@ -3080,11 +3612,20 @@ button {
   .admin-report-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .admin-user-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-user-actions {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 1100px) {
   .stats,
-  .admin-report-stats {
+  .admin-report-stats,
+  .admin-user-stats {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -3140,13 +3681,15 @@ button {
   }
 
   .stats,
-  .admin-report-stats {
+  .admin-report-stats,
+  .admin-user-stats {
     grid-template-columns: 1fr;
   }
 
   .admin-vehicle-row,
   .report-card,
-  .admin-report-grid {
+  .admin-report-grid,
+  .admin-user-row {
     grid-template-columns: 1fr;
   }
 
@@ -3174,6 +3717,10 @@ button {
 
   .panel {
     padding: 18px;
+  }
+
+  .admin-user-actions {
+    grid-column: auto;
   }
 }
 `;
