@@ -2405,6 +2405,46 @@ function App() {
   const [showRegister, setShowRegister] =
     useState(false);
 
+  async function loadDashboardStats() {
+    const [
+      { count: provozovny, error: provozovnyError },
+      { count: vozyCelkem, error: vozyError },
+      { count: aktivniVozy, error: aktivniVozyError },
+    ] = await Promise.all([
+      supabase
+        .from("provozovny")
+        .select("*", { count: "exact", head: true }),
+
+      supabase
+        .from("vozy")
+        .select("*", { count: "exact", head: true }),
+
+      supabase
+        .from("vozy")
+        .select("*", { count: "exact", head: true })
+        .eq("stav", "PROVOZNÍ"),
+    ]);
+
+    if (provozovnyError) {
+      console.error("PROVOZOVNY ERROR:", provozovnyError);
+    }
+
+    if (vozyError) {
+      console.error("VOZY ERROR:", vozyError);
+    }
+
+    if (aktivniVozyError) {
+      console.error("AKTIVNI VOZY ERROR:", aktivniVozyError);
+    }
+
+    setDashboardStats({
+      vypravy: 0,
+      aktivniVozy: aktivniVozy || 0,
+      vozyCelkem: vozyCelkem || 0,
+      provozovny: provozovny || 0,
+    });
+  }
+
   async function loadProfile(authUser) {
     if (!authUser) {
       setProfile(null);
@@ -2442,6 +2482,7 @@ function App() {
 
         if (loggedUser) {
           await loadProfile(loggedUser);
+          await loadDashboardStats();
         } else {
           setProfile(null);
           setPage("dashboard");
@@ -2468,6 +2509,7 @@ function App() {
 
     if (loggedUser) {
       await loadProfile(loggedUser);
+      await loadDashboardStats();
     }
 
     setLoading(false);
@@ -2516,6 +2558,7 @@ function App() {
           onLogin={async (loggedUser) => {
             setUser(loggedUser);
             await loadProfile(loggedUser);
+            await loadDashboardStats();
           }}
         />
 
