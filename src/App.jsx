@@ -5533,7 +5533,26 @@ button {
 }
 
 .vehicle-status {
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.vehicle-row > * {
+  min-width: 0;
+}
+
+.vehicle-row > span:last-child {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .admin-vehicles-list {
@@ -5679,6 +5698,21 @@ button {
 
   .vehicle-row > * {
     margin-bottom: 5px;
+    min-width: 0;
+  }
+
+  .vehicle-row > span:last-child {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .vehicle-status {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 5px 7px;
   }
 
   .provozovna-bar {
