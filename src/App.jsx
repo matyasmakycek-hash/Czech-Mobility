@@ -5601,20 +5601,29 @@ button {
 
   .vehicle-row {
     grid-template-columns:
-      70px minmax(0, 1fr);
+      70px 1fr;
   }
 
   .vehicle-row > * {
-    min-width: 0;
     margin-bottom: 5px;
+    min-width: 0;
   }
 
+  /* Na mobilu se dlouhy stav musi vejit do druheho sloupce. */
   .vehicle-row .vehicle-status {
+    display: inline-block;
     max-width: 100%;
+    box-sizing: border-box;
     white-space: normal;
-    overflow-wrap: anywhere;
-    text-align: center;
+    overflow-wrap: break-word;
+    word-break: normal;
     line-height: 1.25;
+    text-align: center;
+  }
+
+  .vehicle-row > span {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .provozovna-bar {
