@@ -1,12 +1,11 @@
-```jsx
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
 const ADMIN_EMAIL = "matyas.makycek@gmail.com";
 
-/* =========================
+/* =========================================================
    LOGIN
-========================= */
+========================================================= */
 
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -16,21 +15,26 @@ function Login({ onLogin }) {
 
   async function handleLogin(e) {
     e.preventDefault();
+
     setError("");
     setLoading(true);
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
 
     if (error) {
+      console.error("LOGIN ERROR:", error);
       setError("Nesprávný e-mail nebo heslo.");
       setLoading(false);
       return;
     }
 
-    onLogin(data.user);
+    if (data?.user) {
+      onLogin(data.user);
+    }
+
     setLoading(false);
   }
 
@@ -44,6 +48,7 @@ function Login({ onLogin }) {
 
         <form onSubmit={handleLogin}>
           <label>E-mail</label>
+
           <input
             type="email"
             value={email}
@@ -53,6 +58,7 @@ function Login({ onLogin }) {
           />
 
           <label>Heslo</label>
+
           <input
             type="password"
             value={password}
@@ -61,9 +67,16 @@ function Login({ onLogin }) {
             required
           />
 
-          {error && <div className="login-error">{error}</div>}
+          {error && (
+            <div className="login-error">
+              {error}
+            </div>
+          )}
 
-          <button type="submit" disabled={loading}>
+          <button
+            type="submit"
+            disabled={loading}
+          >
             {loading ? "Přihlašování..." : "Přihlásit se"}
           </button>
         </form>
@@ -72,9 +85,9 @@ function Login({ onLogin }) {
   );
 }
 
-/* =========================
+/* =========================================================
    VOZY
-========================= */
+========================================================= */
 
 function Vehicles() {
   const [vehicles, setVehicles] = useState([]);
@@ -88,11 +101,17 @@ function Vehicles() {
 
     const { data, error } = await supabase
       .from("vozy")
-      .select("*")
-      .order("cislo", { ascending: true });
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
+
+    console.log("VOZY DATA:", data);
+    console.log("VOZY ERROR:", error);
 
     if (error) {
-      console.error(error);
       setError(error.message);
       setVehicles([]);
     } else {
@@ -106,18 +125,28 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filteredVehicles = vehicles.filter((vehicle) =>
-    `
-      ${vehicle.cislo || ""}
-      ${vehicle.vyrobce || ""}
-      ${vehicle.typ || ""}
-      ${vehicle.spz || ""}
-      ${vehicle.rok || ""}
-      ${vehicle.stav || ""}
-    `
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const searchText = [
+      vehicle.cislo,
+      vehicle.vyrobce,
+      vehicle.typ,
+      vehicle.spz,
+      vehicle.rok,
+      vehicle.barevne_schema,
+      vehicle.stav,
+    ]
+      .filter(
+        (value) =>
+          value !== null &&
+          value !== undefined
+      )
+      .join(" ")
+      .toLowerCase();
+
+    return searchText.includes(
+      search.toLowerCase()
+    );
+  });
 
   return (
     <div>
@@ -138,7 +167,9 @@ function Vehicles() {
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) =>
+            setSearch(e.target.value)
+          }
         />
 
         {loading && (
@@ -149,37 +180,57 @@ function Vehicles() {
 
         {error && (
           <div className="error-box">
-            <strong>Chyba při načítání vozů:</strong>
+            <strong>
+              Chyba při načítání vozů:
+            </strong>
+
             <br />
+
             {error}
           </div>
         )}
 
         {!loading && !error && (
           <>
-            <div className="vehicle-header">
-              <span>Číslo</span>
-              <span>Výrobce</span>
-              <span>Typ</span>
-              <span>SPZ</span>
-              <span>Rok</span>
-              <span>Stav</span>
-            </div>
+            {filteredVehicles.length > 0 && (
+              <div className="vehicle-header">
+                <span>Číslo</span>
+                <span>Výrobce</span>
+                <span>Typ</span>
+                <span>SPZ</span>
+                <span>Rok</span>
+                <span>Stav</span>
+              </div>
+            )}
 
             {filteredVehicles.map((vehicle) => (
               <div
                 className="vehicle-row"
                 key={vehicle.id}
               >
-                <strong>{vehicle.cislo || "-"}</strong>
-                <span>{vehicle.vyrobce || "-"}</span>
-                <span>{vehicle.typ || "-"}</span>
-                <span>{vehicle.spz || "-"}</span>
-                <span>{vehicle.rok || "-"}</span>
+                <strong>
+                  {vehicle.cislo ?? "-"}
+                </strong>
+
+                <span>
+                  {vehicle.vyrobce ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.typ ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.spz ?? "-"}
+                </span>
+
+                <span>
+                  {vehicle.rok ?? "-"}
+                </span>
 
                 <span>
                   <span className="status">
-                    {vehicle.stav || "-"}
+                    {vehicle.stav ?? "-"}
                   </span>
                 </span>
               </div>
@@ -199,9 +250,9 @@ function Vehicles() {
   );
 }
 
-/* =========================
+/* =========================================================
    ADMINISTRACE VOZŮ
-========================= */
+========================================================= */
 
 function AdminVehicles() {
   const emptyForm = {
@@ -218,10 +269,16 @@ function AdminVehicles() {
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  /* -------------------------------------------------------
+     NAČTENÍ VOZŮ
+  ------------------------------------------------------- */
 
   async function loadVehicles() {
     setLoading(true);
@@ -229,8 +286,15 @@ function AdminVehicles() {
 
     const { data, error } = await supabase
       .from("vozy")
-      .select("*")
-      .order("cislo", { ascending: true });
+      .select(
+        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
+      )
+      .order("cislo", {
+        ascending: true,
+      });
+
+    console.log("ADMIN VOZY:", data);
+    console.log("ADMIN ERROR:", error);
 
     if (error) {
       setError(error.message);
@@ -246,29 +310,63 @@ function AdminVehicles() {
     loadVehicles();
   }, []);
 
+  /* -------------------------------------------------------
+     ZMĚNA FORMULÁŘE
+  ------------------------------------------------------- */
+
   function handleChange(e) {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
   }
+
+  /* -------------------------------------------------------
+     ZAČÍT EDITACI
+  ------------------------------------------------------- */
 
   function startEdit(vehicle) {
     setEditingId(vehicle.id);
 
     setForm({
-      cislo: vehicle.cislo ?? "",
-      vyrobce: vehicle.vyrobce ?? "",
-      typ: vehicle.typ ?? "",
-      spz: vehicle.spz ?? "",
-      rok: vehicle.rok ?? "",
-      barevne_schema: vehicle.barevne_schema ?? "",
-      stav: vehicle.stav ?? "Aktivní",
-      provozovna_id: vehicle.provozovna_id ?? "",
+      cislo:
+        vehicle.cislo !== null &&
+        vehicle.cislo !== undefined
+          ? String(vehicle.cislo)
+          : "",
+
+      vyrobce:
+        vehicle.vyrobce ?? "",
+
+      typ:
+        vehicle.typ ?? "",
+
+      spz:
+        vehicle.spz ?? "",
+
+      rok:
+        vehicle.rok !== null &&
+        vehicle.rok !== undefined
+          ? String(vehicle.rok)
+          : "",
+
+      barevne_schema:
+        vehicle.barevne_schema ?? "",
+
+      stav:
+        vehicle.stav ?? "Aktivní",
+
+      provozovna_id:
+        vehicle.provozovna_id !== null &&
+        vehicle.provozovna_id !== undefined
+          ? String(vehicle.provozovna_id)
+          : "",
     });
 
-    setSuccess("");
     setError("");
+    setSuccess("");
 
     window.scrollTo({
       top: 0,
@@ -276,12 +374,20 @@ function AdminVehicles() {
     });
   }
 
+  /* -------------------------------------------------------
+     ZRUŠIT EDITACI
+  ------------------------------------------------------- */
+
   function cancelEdit() {
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm });
     setError("");
     setSuccess("");
   }
+
+  /* -------------------------------------------------------
+     ULOŽENÍ VOZU
+  ------------------------------------------------------- */
 
   async function saveVehicle(e) {
     e.preventDefault();
@@ -290,55 +396,130 @@ function AdminVehicles() {
     setError("");
     setSuccess("");
 
+    /*
+      cislo převádíme na číslo.
+      Pokud máš v Supabase cislo jako text,
+      změň tuto část na:
+      cislo: form.cislo || null
+    */
+
     const vehicleData = {
-      cislo: form.cislo || null,
-      vyrobce: form.vyrobce || null,
-      typ: form.typ || null,
-      spz: form.spz || null,
-      rok: form.rok ? Number(form.rok) : null,
-      barevne_schema: form.barevne_schema || null,
-      stav: form.stav || null,
-      provozovna_id: form.provozovna_id || null,
+      cislo:
+        form.cislo.trim() !== ""
+          ? Number(form.cislo)
+          : null,
+
+      vyrobce:
+        form.vyrobce.trim() !== ""
+          ? form.vyrobce.trim()
+          : null,
+
+      typ:
+        form.typ.trim() !== ""
+          ? form.typ.trim()
+          : null,
+
+      spz:
+        form.spz.trim() !== ""
+          ? form.spz.trim()
+          : null,
+
+      rok:
+        form.rok.trim() !== ""
+          ? Number(form.rok)
+          : null,
+
+      barevne_schema:
+        form.barevne_schema.trim() !== ""
+          ? form.barevne_schema.trim()
+          : null,
+
+      stav:
+        form.stav.trim() !== ""
+          ? form.stav.trim()
+          : null,
+
+      provozovna_id:
+        form.provozovna_id.trim() !== ""
+          ? form.provozovna_id.trim()
+          : null,
     };
+
+    console.log(
+      "ODESÍLANÁ DATA:",
+      vehicleData
+    );
 
     let result;
 
-    if (editingId) {
+    if (editingId !== null) {
       result = await supabase
         .from("vozy")
         .update(vehicleData)
-        .eq("id", editingId);
+        .eq("id", editingId)
+        .select();
     } else {
       result = await supabase
         .from("vozy")
-        .insert([vehicleData]);
+        .insert([vehicleData])
+        .select();
     }
+
+    console.log(
+      "SUPABASE RESULT:",
+      result
+    );
 
     if (result.error) {
-      console.error(result.error);
-      setError(result.error.message);
-    } else {
-      setSuccess(
-        editingId
-          ? "Vůz byl úspěšně upraven."
-          : "Vůz byl úspěšně přidán."
+      console.error(
+        "CHYBA ULOŽENÍ:",
+        result.error
       );
 
-      setForm(emptyForm);
-      setEditingId(null);
+      setError(
+        result.error.message ||
+          "Nepodařilo se uložit vůz."
+      );
 
-      await loadVehicles();
+      setSaving(false);
+      return;
     }
+
+    if (editingId !== null) {
+      setSuccess(
+        "Vůz byl úspěšně upraven."
+      );
+    } else {
+      setSuccess(
+        "Vůz byl úspěšně přidán."
+      );
+    }
+
+    setForm({ ...emptyForm });
+    setEditingId(null);
+
+    await loadVehicles();
 
     setSaving(false);
   }
 
-  async function deleteVehicle(id, cislo) {
+  /* -------------------------------------------------------
+     SMAZÁNÍ VOZU
+  ------------------------------------------------------- */
+
+  async function deleteVehicle(
+    id,
+    cislo
+  ) {
     const confirmed = window.confirm(
-      `Opravdu chceš smazat vůz ${cislo || ""}?`
+      `Opravdu chceš smazat vůz ${
+        cislo ?? ""
+      }?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setError("");
     setSuccess("");
@@ -348,22 +529,45 @@ function AdminVehicles() {
       .delete()
       .eq("id", id);
 
+    console.log(
+      "DELETE ERROR:",
+      error
+    );
+
     if (error) {
       console.error(error);
-      setError(error.message);
+
+      setError(
+        error.message ||
+          "Nepodařilo se smazat vůz."
+      );
+
       return;
     }
 
-    setSuccess("Vůz byl smazán.");
+    setSuccess(
+      "Vůz byl úspěšně smazán."
+    );
+
+    if (editingId === id) {
+      cancelEdit();
+    }
 
     await loadVehicles();
   }
+
+  /* -------------------------------------------------------
+     RENDER
+  ------------------------------------------------------- */
 
   return (
     <div>
       <div className="topbar">
         <div>
-          <h1>Administrace vozů</h1>
+          <h1>
+            Administrace vozů
+          </h1>
+
           <p>
             Přidávání, úprava a mazání vozů
           </p>
@@ -374,15 +578,19 @@ function AdminVehicles() {
         </div>
       </div>
 
+      {/* FORMULÁŘ */}
+
       <div className="panel admin-form-panel">
         <h2>
-          {editingId
+          {editingId !== null
             ? "✏️ Upravit vůz"
             : "➕ Přidat nový vůz"}
         </h2>
 
         {error && (
           <div className="error-box">
+            <strong>Chyba:</strong>
+            <br />
             {error}
           </div>
         )}
@@ -394,15 +602,18 @@ function AdminVehicles() {
         )}
 
         <form
-          className="vehicle-form"
           onSubmit={saveVehicle}
+          className="vehicle-form"
         >
           <div className="form-grid">
-
             <div>
-              <label>Číslo vozu</label>
+              <label>
+                Číslo vozu
+              </label>
+
               <input
                 name="cislo"
+                type="number"
                 value={form.cislo}
                 onChange={handleChange}
                 placeholder="Např. 101"
@@ -411,9 +622,13 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Výrobce</label>
+              <label>
+                Výrobce
+              </label>
+
               <input
                 name="vyrobce"
+                type="text"
                 value={form.vyrobce}
                 onChange={handleChange}
                 placeholder="Např. Škoda"
@@ -422,9 +637,13 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Typ</label>
+              <label>
+                Typ
+              </label>
+
               <input
                 name="typ"
+                type="text"
                 value={form.typ}
                 onChange={handleChange}
                 placeholder="Např. 12T"
@@ -433,9 +652,13 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>SPZ</label>
+              <label>
+                SPZ
+              </label>
+
               <input
                 name="spz"
+                type="text"
                 value={form.spz}
                 onChange={handleChange}
                 placeholder="1AA 1234"
@@ -443,10 +666,15 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Rok výroby</label>
+              <label>
+                Rok výroby
+              </label>
+
               <input
                 name="rok"
                 type="number"
+                min="1900"
+                max="2100"
                 value={form.rok}
                 onChange={handleChange}
                 placeholder="2026"
@@ -454,9 +682,13 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Barevné schéma</label>
+              <label>
+                Barevné schéma
+              </label>
+
               <input
                 name="barevne_schema"
+                type="text"
                 value={form.barevne_schema}
                 onChange={handleChange}
                 placeholder="Např. modro-bílé"
@@ -464,7 +696,9 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Stav</label>
+              <label>
+                Stav
+              </label>
 
               <select
                 name="stav"
@@ -490,35 +724,39 @@ function AdminVehicles() {
             </div>
 
             <div>
-              <label>Provozovna ID</label>
+              <label>
+                Provozovna ID
+              </label>
+
               <input
                 name="provozovna_id"
+                type="text"
                 value={form.provozovna_id}
                 onChange={handleChange}
                 placeholder="ID provozovny"
               />
             </div>
-
           </div>
 
           <div className="form-buttons">
             <button
-              className="primary-button"
               type="submit"
+              className="primary-button"
               disabled={saving}
             >
               {saving
                 ? "Ukládání..."
-                : editingId
+                : editingId !== null
                 ? "💾 Uložit změny"
                 : "➕ Přidat vůz"}
             </button>
 
-            {editingId && (
+            {editingId !== null && (
               <button
                 type="button"
                 className="secondary-button"
                 onClick={cancelEdit}
+                disabled={saving}
               >
                 Zrušit úpravu
               </button>
@@ -527,103 +765,124 @@ function AdminVehicles() {
         </form>
       </div>
 
+      {/* SEZNAM VOZŮ */}
+
       <div className="panel admin-list-panel">
         <div className="admin-list-title">
           <div>
-            <h2>Vozový park</h2>
+            <h2>
+              Vozový park
+            </h2>
+
             <p>
               Celkem {vehicles.length} vozů
             </p>
           </div>
         </div>
 
-        {loading ? (
+        {loading && (
           <div className="empty">
-            Načítání...
-          </div>
-        ) : vehicles.length === 0 ? (
-          <div className="empty">
-            Zatím zde nejsou žádné vozy.
-          </div>
-        ) : (
-          <div className="admin-vehicle-list">
-            {vehicles.map((vehicle) => (
-              <div
-                className="admin-vehicle-row"
-                key={vehicle.id}
-              >
-                <div className="vehicle-main">
-                  <strong>
-                    {vehicle.cislo || "-"}
-                  </strong>
-
-                  <div>
-                    <b>
-                      {vehicle.vyrobce || "-"}
-                    </b>
-
-                    <span>
-                      {vehicle.typ || "-"}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <small>SPZ</small>
-                  <strong>
-                    {vehicle.spz || "-"}
-                  </strong>
-                </div>
-
-                <div>
-                  <small>Rok</small>
-                  <strong>
-                    {vehicle.rok || "-"}
-                  </strong>
-                </div>
-
-                <div>
-                  <small>Stav</small>
-
-                  <span className="status">
-                    {vehicle.stav || "-"}
-                  </span>
-                </div>
-
-                <div className="admin-actions">
-                  <button
-                    className="edit-button"
-                    onClick={() =>
-                      startEdit(vehicle)
-                    }
-                  >
-                    ✏️ Upravit
-                  </button>
-
-                  <button
-                    className="delete-button"
-                    onClick={() =>
-                      deleteVehicle(
-                        vehicle.id,
-                        vehicle.cislo
-                      )
-                    }
-                  >
-                    🗑️ Smazat
-                  </button>
-                </div>
-              </div>
-            ))}
+            Načítání vozů...
           </div>
         )}
+
+        {!loading &&
+          vehicles.length === 0 && (
+            <div className="empty">
+              Zatím zde nejsou žádné vozy.
+            </div>
+          )}
+
+        {!loading &&
+          vehicles.length > 0 && (
+            <div className="admin-vehicle-list">
+              {vehicles.map((vehicle) => (
+                <div
+                  className="admin-vehicle-row"
+                  key={vehicle.id}
+                >
+                  <div className="vehicle-main">
+                    <strong>
+                      {vehicle.cislo ?? "-"}
+                    </strong>
+
+                    <div>
+                      <b>
+                        {vehicle.vyrobce ?? "-"}
+                      </b>
+
+                      <span>
+                        {vehicle.typ ?? "-"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <small>
+                      SPZ
+                    </small>
+
+                    <strong>
+                      {vehicle.spz ?? "-"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <small>
+                      Rok
+                    </small>
+
+                    <strong>
+                      {vehicle.rok ?? "-"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <small>
+                      Stav
+                    </small>
+
+                    <span className="status">
+                      {vehicle.stav ?? "-"}
+                    </span>
+                  </div>
+
+                  <div className="admin-actions">
+                    <button
+                      type="button"
+                      className="edit-button"
+                      onClick={() =>
+                        startEdit(vehicle)
+                      }
+                    >
+                      ✏️ Upravit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() =>
+                        deleteVehicle(
+                          vehicle.id,
+                          vehicle.cislo
+                        )
+                      }
+                    >
+                      🗑️ Smazat
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
       </div>
     </div>
   );
 }
 
-/* =========================
+/* =========================================================
    APP
-========================= */
+========================================================= */
 
 function App() {
   const [user, setUser] = useState(null);
@@ -637,7 +896,9 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setUser(session?.user ?? null);
+        setUser(
+          session?.user ?? null
+        );
 
         if (!session?.user) {
           setPage("dashboard");
@@ -645,20 +906,31 @@ function App() {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function checkSession() {
     const {
-      data: { user },
+      data,
+      error,
     } = await supabase.auth.getUser();
 
-    setUser(user ?? null);
+    if (error) {
+      console.error(
+        "SESSION ERROR:",
+        error
+      );
+    }
+
+    setUser(data?.user ?? null);
     setLoading(false);
   }
 
   async function logout() {
     await supabase.auth.signOut();
+
     setUser(null);
     setPage("dashboard");
   }
@@ -667,6 +939,7 @@ function App() {
     return (
       <>
         <style>{styles}</style>
+
         <div className="loading">
           Načítání...
         </div>
@@ -680,9 +953,9 @@ function App() {
         <style>{styles}</style>
 
         <Login
-          onLogin={(loggedUser) =>
-            setUser(loggedUser)
-          }
+          onLogin={(loggedUser) => {
+            setUser(loggedUser);
+          }}
         />
       </>
     );
@@ -698,7 +971,6 @@ function App() {
 
       <div className="app">
         <aside className="sidebar">
-
           <div className="brand">
             <div className="brand-logo">
               CM
@@ -720,8 +992,8 @@ function App() {
           </div>
 
           <nav className="menu">
-
             <button
+              type="button"
               className={
                 page === "dashboard"
                   ? "active"
@@ -736,6 +1008,7 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={
                 page === "departures"
                   ? "active"
@@ -750,6 +1023,7 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={
                 page === "vehicles"
                   ? "active"
@@ -764,6 +1038,7 @@ function App() {
             </button>
 
             <button
+              type="button"
               className={
                 page === "reports"
                   ? "active"
@@ -779,6 +1054,7 @@ function App() {
 
             {isAdmin && (
               <button
+                type="button"
                 className={
                   page === "admin"
                     ? "active"
@@ -792,11 +1068,9 @@ function App() {
                 Administrace
               </button>
             )}
-
           </nav>
 
           <div className="user-box">
-
             <div className="avatar">
               {(user.email || "U")
                 .charAt(0)
@@ -804,7 +1078,6 @@ function App() {
             </div>
 
             <div className="user-info">
-
               <div className="user-name">
                 {isAdmin
                   ? "Maty"
@@ -816,26 +1089,22 @@ function App() {
                   ? "Administrátor"
                   : "Řidič"}
               </div>
-
             </div>
 
             <button
+              type="button"
               className="logout"
               onClick={logout}
             >
               Odhlásit
             </button>
-
           </div>
-
         </aside>
 
         <main className="content">
-
           {page === "dashboard" && (
             <>
               <div className="topbar">
-
                 <div>
                   <h1>
                     Dashboard
@@ -852,22 +1121,24 @@ function App() {
                     ? "ADMIN"
                     : "ŘIDIČ"}
                 </div>
-
               </div>
 
               <div className="stats">
-
                 <div className="stat">
                   <span>
                     Dnešní výpravy
                   </span>
-                  <strong>0</strong>
+
+                  <strong>
+                    0
+                  </strong>
                 </div>
 
                 <div className="stat">
                   <span>
                     Aktivní vozy
                   </span>
+
                   <strong>
                     14
                   </strong>
@@ -877,6 +1148,7 @@ function App() {
                   <span>
                     Vozy celkem
                   </span>
+
                   <strong>
                     42
                   </strong>
@@ -886,13 +1158,14 @@ function App() {
                   <span>
                     Provozovny
                   </span>
-                  <strong>1</strong>
-                </div>
 
+                  <strong>
+                    1
+                  </strong>
+                </div>
               </div>
 
               <div className="panel">
-
                 <h2>
                   Vítej,{" "}
                   {isAdmin
@@ -907,9 +1180,9 @@ function App() {
                     {isAdmin
                       ? "administrátor"
                       : "řidič"}
-                  </strong>.
+                  </strong>
+                  .
                 </p>
-
               </div>
             </>
           )}
@@ -947,16 +1220,15 @@ function App() {
             isAdmin && (
               <AdminVehicles />
             )}
-
         </main>
       </div>
     </>
   );
 }
 
-/* =========================
+/* =========================================================
    STYLY
-========================= */
+========================================================= */
 
 const styles = `
 * {
@@ -976,15 +1248,23 @@ select {
   font-family: inherit;
 }
 
+button {
+  user-select: none;
+}
+
+/* LOGIN */
+
 .login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px;
 }
 
 .login-box {
   width: 390px;
+  max-width: 100%;
   background: white;
   padding: 35px;
   border-radius: 18px;
@@ -1024,6 +1304,11 @@ select {
   padding: 12px;
   border: 1px solid #d9dee7;
   border-radius: 9px;
+  outline: none;
+}
+
+.login-box input:focus {
+  border-color: #2563eb;
 }
 
 .login-box form button {
@@ -1038,6 +1323,11 @@ select {
   font-weight: 700;
 }
 
+.login-box form button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
 .login-error {
   color: #dc2626;
   background: #fee2e2;
@@ -1046,6 +1336,8 @@ select {
   margin-top: 15px;
 }
 
+/* LOADING */
+
 .loading {
   min-height: 100vh;
   display: flex;
@@ -1053,10 +1345,14 @@ select {
   justify-content: center;
 }
 
+/* APP */
+
 .app {
   min-height: 100vh;
   display: flex;
 }
+
+/* SIDEBAR */
 
 .sidebar {
   width: 255px;
@@ -1068,6 +1364,7 @@ select {
   bottom: 0;
   display: flex;
   flex-direction: column;
+  z-index: 10;
 }
 
 .brand {
@@ -1130,6 +1427,8 @@ select {
   color: white;
 }
 
+/* USER */
+
 .user-box {
   margin-top: auto;
   border-top: 1px solid #273245;
@@ -1148,6 +1447,7 @@ select {
   align-items: center;
   justify-content: center;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .user-info {
@@ -1178,16 +1478,20 @@ select {
   font-size: 10px;
 }
 
+/* CONTENT */
+
 .content {
   margin-left: 255px;
   padding: 35px;
   width: calc(100% - 255px);
+  min-width: 0;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 20px;
 }
 
 .topbar h1 {
@@ -1205,7 +1509,10 @@ select {
   border-radius: 8px;
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
 }
+
+/* STATS */
 
 .stats {
   display: grid;
@@ -1232,12 +1539,16 @@ select {
   margin-top: 10px;
 }
 
+/* PANEL */
+
 .panel {
   background: white;
   border-radius: 16px;
   padding: 25px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
 }
+
+/* VOZY */
 
 .vehicles-panel {
   margin-top: 25px;
@@ -1301,6 +1612,7 @@ select {
   background: #fee2e2;
   color: #b91c1c;
   margin-bottom: 20px;
+  overflow-wrap: anywhere;
 }
 
 .success-box {
@@ -1310,6 +1622,8 @@ select {
   color: #15803d;
   margin-bottom: 20px;
 }
+
+/* ADMIN FORM */
 
 .admin-form-panel {
   margin-top: 25px;
@@ -1352,6 +1666,7 @@ select {
   display: flex;
   gap: 10px;
   margin-top: 25px;
+  flex-wrap: wrap;
 }
 
 .primary-button,
@@ -1370,10 +1685,25 @@ select {
   color: white;
 }
 
+.primary-button:hover {
+  background: #1d4ed8;
+}
+
+.primary-button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
 .secondary-button {
   background: #e5e7eb;
   color: #374151;
 }
+
+.secondary-button:hover {
+  background: #d1d5db;
+}
+
+/* ADMIN LIST */
 
 .admin-list-panel {
   margin-top: 25px;
@@ -1398,7 +1728,7 @@ select {
 
 .admin-vehicle-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 0.7fr 1fr auto;
+  grid-template-columns: 2fr 1fr .7fr 1fr auto;
   gap: 20px;
   align-items: center;
   padding: 16px 5px;
@@ -1416,6 +1746,7 @@ select {
   display: flex;
   gap: 15px;
   align-items: center;
+  min-width: 0;
 }
 
 .vehicle-main > strong {
@@ -1427,6 +1758,12 @@ select {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
+}
+
+.vehicle-main b {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vehicle-main span {
@@ -1437,6 +1774,7 @@ select {
 .admin-actions {
   display: flex;
   gap: 7px;
+  flex-wrap: wrap;
 }
 
 .edit-button {
@@ -1444,12 +1782,26 @@ select {
   color: #1d4ed8;
 }
 
+.edit-button:hover {
+  background: #bfdbfe;
+}
+
 .delete-button {
   background: #fee2e2;
   color: #b91c1c;
 }
 
-@media (max-width: 1000px) {
+.delete-button:hover {
+  background: #fecaca;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 1100px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .admin-vehicle-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -1467,10 +1819,7 @@ select {
   .content {
     margin-left: 210px;
     width: calc(100% - 210px);
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
+    padding: 25px;
   }
 
   .vehicle-header,
@@ -1506,8 +1855,21 @@ select {
   .admin-vehicle-row {
     grid-template-columns: 1fr;
   }
+
+  .admin-actions {
+    grid-column: auto;
+  }
+
+  .vehicle-header,
+  .vehicle-row {
+    grid-template-columns: 60px 1fr 1fr;
+    gap: 8px;
+  }
+
+  .panel {
+    padding: 18px;
+  }
 }
 `;
 
 export default App;
-```
