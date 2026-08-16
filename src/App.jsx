@@ -3754,10 +3754,11 @@ function AdminVehicleRequests() {
 
     // Při schválení žádosti automaticky přidělíme žadatele k vozu.
     // Pokud už je Řidič 1 obsazený, použije se Řidič 2.
-    if (stav === "SCHVÁLENO") {
-      const applicant = profiles[request.uzivatel_id];
-      const driverName = applicant?.jmeno?.trim();
+    const applicant = profiles[request.uzivatel_id];
+    const driverName = applicant?.jmeno?.trim();
 
+    // Při schválení žádosti automaticky přidělíme žadatele k vozu.
+    if (stav === "SCHVÁLENO") {
       if (!driverName) {
         setError("U žadatele není vyplněné jméno, proto ho nelze přidělit k vozu.");
         setSavingId(null);
@@ -3812,6 +3813,56 @@ function AdminVehicleRequests() {
       }
     }
 
+    // Když byla žádost schválená a následně ji změníme na jiný stav
+    // (např. ZAMÍTNUTO), odebereme tohoto žadatele z vozu.
+    if (
+      request.stav === "SCHVÁLENO" &&
+      stav !== "SCHVÁLENO" &&
+      driverName
+    ) {
+      const { data: vehicleRow, error: vehicleLoadError } = await supabase
+        .from("vozy")
+        .select("id, cislo, ridic_1, ridic_2")
+        .eq("id", request.vuz_id)
+        .single();
+
+      if (vehicleLoadError || !vehicleRow) {
+        setError(
+          vehicleLoadError?.message || "Vůz se nepodařilo načíst."
+        );
+        setSavingId(null);
+        return;
+      }
+
+      const driver1 = (vehicleRow.ridic_1 || "").trim();
+      const driver2 = (vehicleRow.ridic_2 || "").trim();
+      const normalizedName = driverName.toLowerCase();
+      let vehiclePayload = null;
+
+      if (driver1.toLowerCase() === normalizedName) {
+        // Pokud byl žadatel Řidič 1, posuneme případného Řidiče 2 nahoru.
+        vehiclePayload = {
+          ridic_1: driver2 || null,
+          ridic_2: null,
+        };
+      } else if (driver2.toLowerCase() === normalizedName) {
+        vehiclePayload = { ridic_2: null };
+      }
+
+      if (vehiclePayload) {
+        const { error: vehicleUpdateError } = await supabase
+          .from("vozy")
+          .update(vehiclePayload)
+          .eq("id", request.vuz_id);
+
+        if (vehicleUpdateError) {
+          setError(vehicleUpdateError.message);
+          setSavingId(null);
+          return;
+        }
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("zadosti_vozidla")
       .update({ stav })
@@ -3826,6 +3877,8 @@ function AdminVehicleRequests() {
     setSuccess(
       stav === "SCHVÁLENO"
         ? "Žádost byla schválena a řidič byl přidělen k vozu."
+        : request.stav === "SCHVÁLENO"
+        ? "Žádost byla změněna a řidič byl z vozu odebrán."
         : "Stav žádosti byl změněn."
     );
 
