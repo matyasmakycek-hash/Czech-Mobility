@@ -3412,152 +3412,214 @@ function VehicleRequest({ user, profile }) {
     return vehicles.find((vehicle) => Number(vehicle.id) === Number(id));
   }
 
+  const selectedVehicle = selectedVehicleId
+    ? getVehicle(selectedVehicleId)
+    : null;
+
   return (
-    <div>
-      <div className="topbar">
+    <div className="request-page">
+      <div className="request-hero">
         <div>
+          <div className="request-eyebrow">VOZOVÝ PARK</div>
           <h1>Žádost o přidělení vozidla</h1>
-          <p>Vyber vůz a napiš, proč o něj žádáš.</p>
+          <p>
+            Vyber konkrétní vůz a stručně napiš, k čemu ho potřebuješ.
+          </p>
         </div>
-        <div className="profile-badge">
-          {profile?.jmeno || user?.email || "Uživatel"}
+
+        <div className="request-user">
+          <span className="request-user-dot" />
+          <div>
+            <strong>{profile?.jmeno || user?.email || "Uživatel"}</strong>
+            <small>Nová žádost o přidělení</small>
+          </div>
         </div>
       </div>
 
       {error && (
-        <div className="error-box">
-          <strong>Chyba:</strong>
-          <br />
-          {error}
+        <div className="request-alert request-alert-error">
+          <span className="request-alert-icon">!</span>
+          <div>
+            <strong>Žádost se nepodařilo dokončit</strong>
+            <div>{error}</div>
+          </div>
         </div>
       )}
 
-      {success && <div className="success-box">{success}</div>}
-
-      <div className="panel">
-        <h2>Nová žádost</h2>
-
-        {loading ? (
-          <div className="empty">Načítám vozy…</div>
-        ) : (
-          <form onSubmit={submitRequest}>
-            <div className="form-grid">
-              <div>
-                <label>Vozidlo</label>
-                <select
-                  value={selectedVehicleId}
-                  onChange={(e) => setSelectedVehicleId(e.target.value)}
-                  required
-                >
-                  <option value="">Vyber vůz</option>
-                  {vehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.cislo} — {vehicle.vyrobce || ""} {vehicle.typ || ""}
-                      {vehicle.spz ? ` — ${vehicle.spz}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label>Stav vozu</label>
-                <input
-                  value={
-                    selectedVehicleId
-                      ? getVehicle(selectedVehicleId)?.stav || "—"
-                      : "—"
-                  }
-                  readOnly
-                />
-              </div>
-            </div>
-
-            {selectedVehicleId && getVehicle(selectedVehicleId) && (
-              <div className="panel" style={{ marginTop: "16px" }}>
-                <h3>
-                  Vůz {getVehicle(selectedVehicleId).cislo}
-                </h3>
-                <p className="muted" style={{ marginBottom: 0 }}>
-                  {getVehicle(selectedVehicleId).vyrobce || "—"}{" "}
-                  {getVehicle(selectedVehicleId).typ || "—"}
-                  {getVehicle(selectedVehicleId).rok
-                    ? ` • ${getVehicle(selectedVehicleId).rok}`
-                    : ""}
-                  {getVehicle(selectedVehicleId).spz
-                    ? ` • ${getVehicle(selectedVehicleId).spz}`
-                    : ""}
-                </p>
-              </div>
-            )}
-
-            <div style={{ marginTop: "16px" }}>
-              <label>Žádost / poznámka</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Napiš důvod žádosti, termín, účel použití apod."
-                rows={6}
-                required
-              />
-            </div>
-
-            <div className="form-actions" style={{ marginTop: "16px" }}>
-              <button
-                className="primary-button"
-                type="submit"
-                disabled={saving}
-              >
-                {saving ? "Odesílám…" : "Odeslat žádost"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      <div className="panel" style={{ marginTop: "18px" }}>
-        <div className="users-toolbar">
+      {success && (
+        <div className="request-alert request-alert-success">
+          <span className="request-alert-icon">✓</span>
           <div>
-            <h2>Moje žádosti</h2>
-            <p className="muted">
-              Přehled žádostí, které jsi již odeslal.
-            </p>
+            <strong>Hotovo</strong>
+            <div>{success}</div>
           </div>
         </div>
+      )}
 
-        {requests.length === 0 ? (
-          <div className="empty">Zatím nemáš žádnou žádost.</div>
-        ) : (
-          <div className="reports-list">
-            {requests.map((request) => {
-              const vehicle = getVehicle(request.vuz_id);
-
-              return (
-                <article className="report-card" key={request.id}>
-                  <div className="report-header">
-                    <div>
-                      <h3>
-                        Vůz {vehicle?.cislo ?? request.vuz_id}
-                      </h3>
-                      <small>
-                        {request.created_at
-                          ? new Date(request.created_at).toLocaleString("cs-CZ")
-                          : "-"}
-                      </small>
-                    </div>
-                    <strong>{request.stav || "ČEKÁ NA VYŘÍZENÍ"}</strong>
-                  </div>
-                  <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                    {request.poznamka || "Bez poznámky"}
-                  </p>
-                </article>
-              );
-            })}
+      <div className="request-layout">
+        <section className="request-card request-card-main">
+          <div className="request-card-heading">
+            <div>
+              <span className="request-step">1</span>
+              <div>
+                <h2>Vyber vozidlo</h2>
+                <p>Vyber vůz ze seznamu aktuálně evidovaného vozového parku.</p>
+              </div>
+            </div>
           </div>
-        )}
+
+          {loading ? (
+            <div className="request-loading">
+              <div className="request-spinner" />
+              <span>Načítám vozidla…</span>
+            </div>
+          ) : (
+            <form onSubmit={submitRequest}>
+              <div className="request-field">
+                <label htmlFor="vehicle-request-select">Vozidlo</label>
+                <div className="request-select-wrap">
+                  <select
+                    id="vehicle-request-select"
+                    className="request-select"
+                    value={selectedVehicleId}
+                    onChange={(e) => setSelectedVehicleId(e.target.value)}
+                    required
+                  >
+                    <option value="">Vyber vůz…</option>
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.cislo} — {vehicle.vyrobce || "Neznámý výrobce"}{" "}
+                        {vehicle.typ || ""}
+                        {vehicle.spz ? ` · ${vehicle.spz}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="request-select-arrow">⌄</span>
+                </div>
+              </div>
+
+              {selectedVehicle && (
+                <div className="request-vehicle-preview">
+                  <div className="request-vehicle-icon">🚌</div>
+                  <div className="request-vehicle-info">
+                    <div className="request-vehicle-number">
+                      Vůz {selectedVehicle.cislo}
+                    </div>
+                    <div className="request-vehicle-name">
+                      {selectedVehicle.vyrobce || "—"}{" "}
+                      {selectedVehicle.typ || "—"}
+                    </div>
+                    <div className="request-vehicle-meta">
+                      {selectedVehicle.rok
+                        ? `Rok ${selectedVehicle.rok}`
+                        : "Rok neuveden"}
+                      {selectedVehicle.spz
+                        ? ` · SPZ ${selectedVehicle.spz}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div className="request-vehicle-status">
+                    <span>{selectedVehicle.stav || "—"}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="request-card-heading request-card-heading-spaced">
+                <div>
+                  <span className="request-step">2</span>
+                  <div>
+                    <h2>Co potřebuješ?</h2>
+                    <p>
+                      Napiš důvod, termín nebo účel použití vozidla.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="request-field">
+                <label htmlFor="vehicle-request-note">Žádost / poznámka</label>
+                <textarea
+                  id="vehicle-request-note"
+                  className="request-textarea"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Např. potřebuji vůz na ranní výpravu, školení, náhradní výkon…"
+                  rows={7}
+                  required
+                />
+                <div className="request-hint">
+                  Čím konkrétněji žádost popíšeš, tím snadněji ji dispečer vyřídí.
+                </div>
+              </div>
+
+              <div className="request-submit-row">
+                <button
+                  className="request-submit-button"
+                  type="submit"
+                  disabled={saving || loading}
+                >
+                  <span>{saving ? "Odesílám…" : "Odeslat žádost"}</span>
+                  {!saving && <span className="request-submit-arrow">→</span>}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
+        <aside className="request-card request-card-side">
+          <div className="request-card-heading">
+            <div>
+              <div>
+                <h2>Moje žádosti</h2>
+                <p>Stav dříve odeslaných žádostí.</p>
+              </div>
+            </div>
+          </div>
+
+          {requests.length === 0 ? (
+            <div className="request-empty-state">
+              <div className="request-empty-icon">📋</div>
+              <strong>Zatím žádná žádost</strong>
+              <span>Odeslané žádosti se zobrazí zde.</span>
+            </div>
+          ) : (
+            <div className="request-history">
+              {requests.map((request) => {
+                const vehicle = getVehicle(request.vuz_id);
+
+                return (
+                  <article className="request-history-item" key={request.id}>
+                    <div className="request-history-top">
+                      <div>
+                        <strong>
+                          Vůz {vehicle?.cislo ?? request.vuz_id}
+                        </strong>
+                        <small>
+                          {request.created_at
+                            ? new Date(request.created_at).toLocaleString("cs-CZ")
+                            : "—"}
+                        </small>
+                      </div>
+
+                      <span className="request-history-status">
+                        {request.stav || "ČEKÁ NA VYŘÍZENÍ"}
+                      </span>
+                    </div>
+
+                    <div className="request-history-note">
+                      {request.poznamka || "Bez poznámky"}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   );
 }
+
 
 /* =========================================================
    SPRÁVA ŽÁDOSTÍ O PŘIDĚLENÍ VOZIDLA
@@ -5243,6 +5305,468 @@ button {
     color: #16794c;
     border: 1px solid #b8e4cd;
   }
+
+
+/* =========================================================
+   MODERNÍ UI – ŽÁDOST O PŘIDĚLENÍ VOZIDLA
+========================================================= */
+
+.request-page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.request-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.request-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  color: #718096;
+  margin-bottom: 7px;
+}
+
+.request-hero h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.12;
+  color: #172033;
+}
+
+.request-hero p {
+  margin: 8px 0 0;
+  color: #718096;
+  font-size: 14px;
+}
+
+.request-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid #e4e9f1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(23,32,51,.05);
+}
+
+.request-user-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2f6fed;
+  box-shadow: 0 0 0 4px #eaf1ff;
+}
+
+.request-user strong {
+  display: block;
+  font-size: 13px;
+}
+
+.request-user small {
+  display: block;
+  margin-top: 2px;
+  color: #8a94a6;
+  font-size: 11px;
+}
+
+.request-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .8fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.request-card {
+  background: #fff;
+  border: 1px solid #e3e8f0;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(23,32,51,.055);
+  overflow: hidden;
+}
+
+.request-card-main {
+  padding: 24px;
+}
+
+.request-card-side {
+  padding: 20px;
+  position: sticky;
+  top: 20px;
+}
+
+.request-card-heading {
+  margin-bottom: 18px;
+}
+
+.request-card-heading > div {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.request-card-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #172033;
+}
+
+.request-card-heading p {
+  margin: 5px 0 0;
+  color: #7a8496;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.request-card-heading-spaced {
+  margin-top: 28px;
+}
+
+.request-step {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: #eef4ff;
+  color: #2563eb;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.request-field {
+  margin-bottom: 18px;
+}
+
+.request-field label {
+  display: block;
+  margin: 0 0 8px;
+  color: #253047;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.request-select-wrap {
+  position: relative;
+}
+
+.request-select,
+.request-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d6dce6;
+  background: #fbfcfe;
+  color: #172033;
+  border-radius: 11px;
+  outline: none;
+  font-size: 14px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.request-select {
+  appearance: none;
+  padding: 12px 42px 12px 13px;
+}
+
+.request-textarea {
+  display: block;
+  min-height: 150px;
+  resize: vertical;
+  padding: 13px 14px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.request-select:focus,
+.request-textarea:focus {
+  border-color: #6d94e8;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(37,99,235,.09);
+}
+
+.request-select-arrow {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-58%);
+  pointer-events: none;
+  color: #718096;
+  font-size: 16px;
+}
+
+.request-vehicle-preview {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px;
+  margin: 4px 0 4px;
+  border: 1px solid #dfe7f4;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fbff, #f2f6fc);
+}
+
+.request-vehicle-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #e9f0ff;
+  font-size: 21px;
+}
+
+.request-vehicle-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.request-vehicle-number {
+  font-size: 12px;
+  font-weight: 800;
+  color: #2f6fed;
+  margin-bottom: 2px;
+}
+
+.request-vehicle-name {
+  font-size: 14px;
+  font-weight: 800;
+  color: #172033;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.request-vehicle-meta {
+  margin-top: 3px;
+  color: #7a8496;
+  font-size: 12px;
+}
+
+.request-vehicle-status span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #eef6ef;
+  color: #2f7d42;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.request-hint {
+  margin-top: 7px;
+  color: #8a94a6;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.request-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 5px;
+}
+
+.request-submit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(37,99,235,.2);
+  transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+}
+
+.request-submit-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(37,99,235,.24);
+}
+
+.request-submit-button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.request-submit-arrow {
+  font-size: 16px;
+}
+
+.request-alert {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.request-alert strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.request-alert-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  flex: 0 0 auto;
+}
+
+.request-alert-error {
+  border: 1px solid #f1c4c4;
+  background: #fff5f5;
+  color: #9b2c2c;
+}
+
+.request-alert-error .request-alert-icon {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.request-alert-success {
+  border: 1px solid #c5e6d2;
+  background: #f3fbf6;
+  color: #267148;
+}
+
+.request-alert-success .request-alert-icon {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.request-loading,
+.request-empty-state {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #7a8496;
+}
+
+.request-loading {
+  gap: 10px;
+}
+
+.request-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 3px solid #e3e9f4;
+  border-top-color: #2563eb;
+  animation: requestSpin .8s linear infinite;
+}
+
+@keyframes requestSpin {
+  to { transform: rotate(360deg); }
+}
+
+.request-empty-state {
+  gap: 5px;
+  padding: 35px 12px;
+}
+
+.request-empty-icon {
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+
+.request-empty-state strong {
+  color: #253047;
+  font-size: 14px;
+}
+
+.request-empty-state span {
+  color: #8a94a6;
+  font-size: 12px;
+}
+
+.request-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.request-history-item {
+  border: 1px solid #e6ebf2;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fafbfd;
+}
+
+.request-history-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.request-history-top strong {
+  display: block;
+  font-size: 13px;
+}
+
+.request-history-top small {
+  display: block;
+  margin-top: 3px;
+  color: #8a94a6;
+  font-size: 10px;
+}
+
+.request-history-status {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f4f8;
+  color: #526072;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.request-history-note {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #edf0f4;
+  color: #4c586c;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .request-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .request-card-side {
+    position: static;
+  }
+
+  .request-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 
 @media (max-width: 600px) {
   .sidebar {
