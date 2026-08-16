@@ -23,6 +23,10 @@ function canManageReports(role) {
   );
 }
 
+function canManageUsers(role) {
+  return role === ROLE_ADMIN;
+}
+
 function canUseReports(role) {
   return (
     role === ROLE_ADMIN ||
@@ -124,6 +128,913 @@ function Login({ onLogin }) {
 }
 
 /* =========================================================
+   REGISTRACE
+========================================================= */
+
+function Register({ onRegistered }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleRegister(e) {
+    e.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    if (password.length < 6) {
+      setError(
+        "Heslo musí mít alespoň 6 znaků."
+      );
+      return;
+    }
+
+    if (password !== password2) {
+      setError(
+        "Hesla se neshodují."
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    /*
+      Nejdříve zjistíme, zda admin vytvořil pozvánku
+      pro tento e-mail.
+    */
+
+    const { data: invite, error: inviteError } =
+      await supabase
+        .from("user_invites")
+        .select(
+          "id, email, jmeno, role, used"
+        )
+        .eq(
+          "email",
+          email.trim().toLowerCase()
+        )
+        .eq("used", false)
+        .maybeSingle();
+
+    if (inviteError) {
+      setError(inviteError.message);
+      setLoading(false);
+      return;
+    }
+
+    if (!invite) {
+      setError(
+        "Tento e-mail nebyl pozván administrátorem."
+      );
+      setLoading(false);
+      return;
+    }
+
+    /*
+      Vytvoření Auth účtu.
+    */
+
+    const {
+      data,
+      error,
+    } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (!data?.user) {
+      setError(
+        "Účet se nepodařilo vytvořit."
+      );
+      setLoading(false);
+      return;
+    }
+
+    /*
+      Vytvoření profilu.
+    */
+
+    const { error: profileError } =
+      await supabase
+        .from("profiles")
+        .insert([
+          {
+            id: data.user.id,
+            jmeno: invite.jmeno || name.trim(),
+            role: invite.role,
+          },
+        ]);
+
+    if (profileError) {
+      setError(profileError.message);
+      setLoading(false);
+      return;
+    }
+
+    /*
+      Pozvánku označíme jako použitou.
+    */
+
+    await supabase
+      .from("user_invites")
+      .update({
+        used: true,
+      })
+      .eq("id", invite.id);
+
+    setSuccess(
+      "Registrace byla úspěšná. Nyní se můžeš přihlásit."
+    );
+
+    setLoading(false);
+
+    setTimeout(() => {
+      onRegistered();
+    }, 1500);
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-box">
+        <div className="login-logo">CM</div>
+
+        <h1>Registrace</h1>
+        <p>
+          Zaregistruj se pomocí e-mailu,
+          který ti přidělil administrátor.
+        </p>
+
+        <form onSubmit={handleRegister}>
+          <label>Jméno</label>
+
+          <input
+            type="text"
+            value={name}
+            onChange={(e) =>
+              setName(e.target.value)
+            }
+            placeholder="Tvoje jméno"
+            required
+          />
+
+          <label>E-mail</label>
+
+          <input
+            type="email"
+            value={email}
+            onChange={(e) =>
+              setEmail(e.target.value)
+            }
+            placeholder="vas@email.cz"
+            required
+          />
+
+          <label>Heslo</label>
+
+          <input
+            type="password"
+            value={password}
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
+            placeholder="Min. 6 znaků"
+            required
+          />
+
+          <label>Heslo znovu</label>
+
+          <input
+            type="password"
+            value={password2}
+            onChange={(e) =>
+              setPassword2(e.target.value)
+            }
+            placeholder="Zopakuj heslo"
+            required
+          />
+
+          {error && (
+            <div className="login-error">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="success-box">
+              {success}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+          >
+            {loading
+              ? "Registrace..."
+              : "Zaregistrovat se"}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          className="register-back"
+          onClick={onRegistered}
+        >
+          Zpět na přihlášení
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   SPRÁVA UŽIVATELŮ
+========================================================= */
+
+function AdminUsers() {
+  const [users, setUsers] = useState([]);
+  const [invites, setInvites] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [showForm, setShowForm] =
+    useState(false);
+
+  const [filterRole, setFilterRole] =
+    useState("Vše");
+
+  const emptyForm = {
+    jmeno: "",
+    email: "",
+    role: ROLE_RIDIC,
+  };
+
+  const [form, setForm] =
+    useState(emptyForm);
+
+  async function loadUsers() {
+    setLoading(true);
+    setError("");
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("profiles")
+      .select(
+        "id, jmeno, role, created_at"
+      )
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (error) {
+      setError(error.message);
+      setUsers([]);
+    } else {
+      setUsers(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadInvites() {
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("user_invites")
+      .select(
+        "id, email, jmeno, role, used, created_at"
+      )
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (error) {
+      console.error(
+        "INVITES ERROR:",
+        error
+      );
+      return;
+    }
+
+    setInvites(data || []);
+  }
+
+  useEffect(() => {
+    loadUsers();
+    loadInvites();
+  }, []);
+
+  function handleChange(e) {
+    const {
+      name,
+      value,
+    } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  async function createInvite(e) {
+    e.preventDefault();
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const email =
+      form.email
+        .trim()
+        .toLowerCase();
+
+    const name =
+      form.jmeno.trim();
+
+    if (!name || !email) {
+      setError(
+        "Vyplň jméno a e-mail."
+      );
+      setSaving(false);
+      return;
+    }
+
+    /*
+      Kontrola, zda už účet existuje v profiles.
+    */
+
+    const {
+      data: existingUser,
+    } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("jmeno", name)
+      .maybeSingle();
+
+    /*
+      Kontrola existující pozvánky.
+    */
+
+    const {
+      data: existingInvite,
+    } = await supabase
+      .from("user_invites")
+      .select("id, used")
+      .eq("email", email)
+      .eq("used", false)
+      .maybeSingle();
+
+    if (existingInvite) {
+      setError(
+        "Pro tento e-mail už existuje aktivní pozvánka."
+      );
+      setSaving(false);
+      return;
+    }
+
+    /*
+      Vytvoření pozvánky.
+    */
+
+    const {
+      error,
+    } = await supabase
+      .from("user_invites")
+      .insert([
+        {
+          email,
+          jmeno: name,
+          role: form.role,
+          used: false,
+        },
+      ]);
+
+    if (error) {
+      setError(error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      `Uživatel ${name} byl přidán. Může se nyní zaregistrovat pomocí ${email}.`
+    );
+
+    setForm({
+      ...emptyForm,
+    });
+
+    setShowForm(false);
+
+    await loadInvites();
+
+    setSaving(false);
+  }
+
+  async function changeRole(
+    id,
+    role
+  ) {
+    setError("");
+    setSuccess("");
+
+    const {
+      error,
+    } = await supabase
+      .from("profiles")
+      .update({
+        role,
+      })
+      .eq("id", id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setSuccess(
+      "Role uživatele byla změněna."
+    );
+
+    await loadUsers();
+  }
+
+  async function deleteInvite(id) {
+    if (
+      !window.confirm(
+        "Opravdu chceš tuto pozvánku smazat?"
+      )
+    ) {
+      return;
+    }
+
+    const {
+      error,
+    } = await supabase
+      .from("user_invites")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setSuccess(
+      "Pozvánka byla smazána."
+    );
+
+    await loadInvites();
+  }
+
+  const filteredUsers =
+    users.filter((user) => {
+      return (
+        filterRole === "Vše" ||
+        user.role === filterRole
+      );
+    });
+
+  const pendingInvites =
+    invites.filter(
+      (invite) => !invite.used
+    );
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>
+            Správa uživatelů
+          </h1>
+
+          <p>
+            Správa účtů a uživatelských rolí
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          POUZE ADMIN
+        </div>
+      </div>
+
+      <div className="admin-user-stats">
+        <div className="admin-user-stat">
+          <span>
+            Celkem uživatelů
+          </span>
+
+          <strong>
+            {users.length}
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>
+            Administrátoři
+          </span>
+
+          <strong>
+            {
+              users.filter(
+                (u) =>
+                  u.role === ROLE_ADMIN
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>
+            Dispečeři
+          </span>
+
+          <strong>
+            {
+              users.filter(
+                (u) =>
+                  u.role === ROLE_DISPECER
+              ).length
+            }
+          </strong>
+        </div>
+
+        <div className="admin-user-stat">
+          <span>
+            Řidiči
+          </span>
+
+          <strong>
+            {
+              users.filter(
+                (u) =>
+                  u.role === ROLE_RIDIC
+              ).length
+            }
+          </strong>
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="success-box">
+          {success}
+        </div>
+      )}
+
+      <div className="panel">
+        <div className="users-toolbar">
+          <div>
+            <h2>
+              Uživatelé
+            </h2>
+
+            <p className="muted">
+              Správa registrovaných účtů.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() =>
+              setShowForm(
+                !showForm
+              )
+            }
+          >
+            {showForm
+              ? "✕ Zavřít"
+              : "➕ Přidat uživatele"}
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="user-create-box">
+            <h3>
+              ➕ Přidat uživatele
+            </h3>
+
+            <p>
+              Uživatel se následně zaregistruje
+              pomocí tohoto e-mailu a nastaví si
+              vlastní heslo.
+            </p>
+
+            <form
+              onSubmit={createInvite}
+            >
+              <div className="form-grid">
+                <div>
+                  <label>
+                    Jméno
+                  </label>
+
+                  <input
+                    name="jmeno"
+                    value={form.jmeno}
+                    onChange={
+                      handleChange
+                    }
+                    placeholder="Např. Petr Novák"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label>
+                    E-mail
+                  </label>
+
+                  <input
+                    name="email"
+                    type="email"
+                    value={form.email}
+                    onChange={
+                      handleChange
+                    }
+                    placeholder="petr@email.cz"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label>
+                    Role
+                  </label>
+
+                  <select
+                    name="role"
+                    value={form.role}
+                    onChange={
+                      handleChange
+                    }
+                  >
+                    <option value={ROLE_RIDIC}>
+                      Řidič
+                    </option>
+
+                    <option value={ROLE_DISPECER}>
+                      Dispečer
+                    </option>
+
+                    <option value={ROLE_ADMIN}>
+                      Administrátor
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-buttons">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Vytváření..."
+                    : "✓ Vytvořit pozvánku"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        <div className="user-filter">
+          <select
+            value={filterRole}
+            onChange={(e) =>
+              setFilterRole(
+                e.target.value
+              )
+            }
+          >
+            <option value="Vše">
+              Všechny role
+            </option>
+
+            <option value={ROLE_ADMIN}>
+              Administrátoři
+            </option>
+
+            <option value={ROLE_DISPECER}>
+              Dispečeři
+            </option>
+
+            <option value={ROLE_RIDIC}>
+              Řidiči
+            </option>
+          </select>
+        </div>
+
+        {loading && (
+          <div className="empty">
+            Načítání uživatelů...
+          </div>
+        )}
+
+        {!loading &&
+          filteredUsers.length === 0 && (
+            <div className="empty">
+              Žádní uživatelé.
+            </div>
+          )}
+
+        {!loading &&
+          filteredUsers.length > 0 && (
+            <div className="users-list">
+              {filteredUsers.map(
+                (user) => (
+                  <div
+                    className="user-card"
+                    key={user.id}
+                  >
+                    <div className="user-card-avatar">
+                      {(user.jmeno ||
+                        "U")
+                        .charAt(0)
+                        .toUpperCase()}
+                    </div>
+
+                    <div className="user-card-main">
+                      <strong>
+                        {user.jmeno ||
+                          "Bez jména"}
+                      </strong>
+
+                      <small>
+                        ID: {user.id}
+                      </small>
+                    </div>
+
+                    <div>
+                      <small>
+                        Aktuální role
+                      </small>
+
+                      <strong>
+                        {getRoleName(
+                          user.role
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <small>
+                        Vytvořeno
+                      </small>
+
+                      <strong>
+                        {user.created_at
+                          ? new Date(
+                              user.created_at
+                            ).toLocaleDateString(
+                              "cs-CZ"
+                            )
+                          : "-"}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <select
+                        value={
+                          user.role ||
+                          ROLE_RIDIC
+                        }
+                        onChange={(e) =>
+                          changeRole(
+                            user.id,
+                            e.target.value
+                          )
+                        }
+                      >
+                        <option value={ROLE_RIDIC}>
+                          Řidič
+                        </option>
+
+                        <option value={ROLE_DISPECER}>
+                          Dispečer
+                        </option>
+
+                        <option value={ROLE_ADMIN}>
+                          Administrátor
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </div>
+
+      <div className="panel">
+        <h2>
+          Čekající registrace
+        </h2>
+
+        <p className="muted">
+          Uživatelé, kterým admin vytvořil
+          pozvánku, ale ještě se nezaregistrovali.
+        </p>
+
+        {pendingInvites.length === 0 && (
+          <div className="empty">
+            Žádné čekající registrace.
+          </div>
+        )}
+
+        {pendingInvites.length > 0 && (
+          <div className="users-list">
+            {pendingInvites.map(
+              (invite) => (
+                <div
+                  className="user-card"
+                  key={invite.id}
+                >
+                  <div className="user-card-avatar pending-avatar">
+                    {(
+                      invite.jmeno ||
+                      "U"
+                    )
+                      .charAt(0)
+                      .toUpperCase()}
+                  </div>
+
+                  <div className="user-card-main">
+                    <strong>
+                      {invite.jmeno}
+                    </strong>
+
+                    <small>
+                      {invite.email}
+                    </small>
+                  </div>
+
+                  <div>
+                    <small>
+                      Přidělená role
+                    </small>
+
+                    <strong>
+                      {getRoleName(
+                        invite.role
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span className="pending-label">
+                      Čeká na registraci
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="delete-button"
+                    onClick={() =>
+                      deleteInvite(
+                        invite.id
+                      )
+                    }
+                  >
+                    🗑️ Zrušit
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    STAVY VOZIDEL
 ========================================================= */
 
@@ -143,7 +1054,8 @@ const vehicleStatusColors = {
 
 function VehicleStatus({ status }) {
   const color =
-    vehicleStatusColors[status] || "#eaeaea";
+    vehicleStatusColors[status] ||
+    "#eaeaea";
 
   return (
     <span
@@ -163,16 +1075,26 @@ function VehicleStatus({ status }) {
 ========================================================= */
 
 function Vehicles() {
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const [vehicles, setVehicles] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
 
   async function loadVehicles() {
     setLoading(true);
     setError("");
 
-    const { data, error } = await supabase
+    const {
+      data,
+      error,
+    } = await supabase
       .from("vozy")
       .select(
         "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
@@ -195,37 +1117,40 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filteredVehicles = vehicles.filter(
-    (vehicle) => {
-      const searchText = [
-        vehicle.cislo,
-        vehicle.vyrobce,
-        vehicle.typ,
-        vehicle.spz,
-        vehicle.rok,
-        vehicle.barevne_schema,
-        vehicle.stav,
-      ]
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
+  const filteredVehicles =
+    vehicles.filter(
+      (vehicle) => {
+        const searchText = [
+          vehicle.cislo,
+          vehicle.vyrobce,
+          vehicle.typ,
+          vehicle.spz,
+          vehicle.rok,
+          vehicle.barevne_schema,
+          vehicle.stav,
+        ]
+          .filter(
+            (value) =>
+              value !== null &&
+              value !== undefined
+          )
+          .join(" ")
+          .toLowerCase();
 
-      return searchText.includes(
-        search.toLowerCase()
-      );
-    }
-  );
+        return searchText.includes(
+          search.toLowerCase()
+        );
+      }
+    );
 
   return (
     <div>
       <div className="topbar">
         <div>
           <h1>Vozy</h1>
-          <p>Vozový park Czech Mobility</p>
+          <p>
+            Vozový park Czech Mobility
+          </p>
         </div>
 
         <div className="profile-badge">
@@ -258,1955 +1183,72 @@ function Vehicles() {
           </div>
         )}
 
-        {!loading && !error && (
-          <>
-            {filteredVehicles.length > 0 && (
-              <div className="vehicle-header">
-                <span>Číslo</span>
-                <span>Výrobce</span>
-                <span>Typ</span>
-                <span>SPZ</span>
-                <span>Rok</span>
-                <span>Stav</span>
-              </div>
-            )}
-
-            {filteredVehicles.map(
-              (vehicle) => (
-                <div
-                  className="vehicle-row"
-                  key={vehicle.id}
-                >
-                  <strong>
-                    {vehicle.cislo ?? "-"}
-                  </strong>
-
-                  <span>
-                    {vehicle.vyrobce ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.typ ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.spz ?? "-"}
-                  </span>
-
-                  <span>
-                    {vehicle.rok ?? "-"}
-                  </span>
-
-                  <span>
-                    <VehicleStatus
-                      status={vehicle.stav}
-                    />
-                  </span>
+        {!loading &&
+          !error && (
+            <>
+              {filteredVehicles.length >
+                0 && (
+                <div className="vehicle-header">
+                  <span>Číslo</span>
+                  <span>Výrobce</span>
+                  <span>Typ</span>
+                  <span>SPZ</span>
+                  <span>Rok</span>
+                  <span>Stav</span>
                 </div>
-              )
-            )}
+              )}
 
-            {filteredVehicles.length === 0 && (
-              <div className="empty">
-                {vehicles.length === 0
-                  ? "Tabulka vozy neobsahuje žádné záznamy."
-                  : "Žádné vozy neodpovídají hledání."}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   ADMINISTRACE VOZŮ
-========================================================= */
-
-function AdminVehicles() {
-  const emptyForm = {
-    cislo: "",
-    vyrobce: "",
-    typ: "",
-    spz: "",
-    rok: "",
-    barevne_schema: "",
-    stav: "PROVOZNÍ",
-    provozovna_id: "",
-  };
-
-  const [vehicles, setVehicles] = useState([]);
-  const [provozovny, setProvozovny] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [editingId, setEditingId] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  async function loadVehicles() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ, spz, rok, barevne_schema, stav, provozovna_id, vytvoreno"
-      )
-      .order("cislo", {
-        ascending: true,
-      });
-
-    if (error) {
-      setError(error.message);
-      setVehicles([]);
-    } else {
-      setVehicles(data || []);
-    }
-
-    setLoading(false);
-  }
-
-  async function loadProvozovny() {
-    const { data, error } = await supabase
-      .from("provozovny")
-      .select("id, nazev")
-      .order("nazev", {
-        ascending: true,
-      });
-
-    if (error) {
-      console.error(
-        "CHYBA PROVOZOVEN:",
-        error.message
-      );
-
-      setProvozovny([]);
-      return;
-    }
-
-    setProvozovny(data || []);
-  }
-
-  useEffect(() => {
-    loadVehicles();
-    loadProvozovny();
-  }, []);
-
-  function handleChange(e) {
-    const { name, value } = e.target;
-
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-  }
-
-  function startEdit(vehicle) {
-    setEditingId(vehicle.id);
-
-    setForm({
-      cislo:
-        vehicle.cislo !== null &&
-        vehicle.cislo !== undefined
-          ? String(vehicle.cislo)
-          : "",
-
-      vyrobce: vehicle.vyrobce ?? "",
-      typ: vehicle.typ ?? "",
-      spz: vehicle.spz ?? "",
-
-      rok:
-        vehicle.rok !== null &&
-        vehicle.rok !== undefined
-          ? String(vehicle.rok)
-          : "",
-
-      barevne_schema:
-        vehicle.barevne_schema ?? "",
-
-      stav:
-        vehicle.stav ?? "PROVOZNÍ",
-
-      provozovna_id:
-        vehicle.provozovna_id !== null &&
-        vehicle.provozovna_id !== undefined
-          ? String(vehicle.provozovna_id)
-          : "",
-    });
-
-    setError("");
-    setSuccess("");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setForm({ ...emptyForm });
-    setError("");
-    setSuccess("");
-  }
-
-  async function saveVehicle(e) {
-    e.preventDefault();
-
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const vehicleData = {
-      cislo:
-        form.cislo.trim() !== ""
-          ? Number(form.cislo)
-          : null,
-
-      vyrobce:
-        form.vyrobce.trim() !== ""
-          ? form.vyrobce.trim()
-          : null,
-
-      typ:
-        form.typ.trim() !== ""
-          ? form.typ.trim()
-          : null,
-
-      spz:
-        form.spz.trim() !== ""
-          ? form.spz.trim()
-          : null,
-
-      rok:
-        form.rok.trim() !== ""
-          ? Number(form.rok)
-          : null,
-
-      barevne_schema:
-        form.barevne_schema.trim() !== ""
-          ? form.barevne_schema.trim()
-          : null,
-
-      stav:
-        form.stav.trim() !== ""
-          ? form.stav.trim()
-          : null,
-
-      provozovna_id:
-        form.provozovna_id.trim() !== ""
-          ? Number(form.provozovna_id)
-          : null,
-    };
-
-    let result;
-
-    if (editingId !== null) {
-      result = await supabase
-        .from("vozy")
-        .update(vehicleData)
-        .eq("id", editingId)
-        .select();
-    } else {
-      result = await supabase
-        .from("vozy")
-        .insert([vehicleData])
-        .select();
-    }
-
-    if (result.error) {
-      setError(
-        result.error.message ||
-          "Nepodařilo se uložit vůz."
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    setSuccess(
-      editingId !== null
-        ? "Vůz byl úspěšně upraven."
-        : "Vůz byl úspěšně přidán."
-    );
-
-    setForm({ ...emptyForm });
-    setEditingId(null);
-
-    await loadVehicles();
-
-    setSaving(false);
-  }
-
-  async function deleteVehicle(id, cislo) {
-    const confirmed = window.confirm(
-      `Opravdu chceš smazat vůz ${cislo ?? ""}?`
-    );
-
-    if (!confirmed) return;
-
-    setError("");
-    setSuccess("");
-
-    const { error } = await supabase
-      .from("vozy")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      setError(
-        error.message ||
-          "Nepodařilo se smazat vůz."
-      );
-
-      return;
-    }
-
-    setSuccess(
-      "Vůz byl úspěšně smazán."
-    );
-
-    if (editingId === id) {
-      setEditingId(null);
-      setForm({ ...emptyForm });
-    }
-
-    await loadVehicles();
-  }
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Administrace vozů</h1>
-
-          <p>
-            Přidávání, úprava a mazání vozů
-          </p>
-        </div>
-
-        <div className="profile-badge">
-          ADMIN / DISPEČER
-        </div>
-      </div>
-
-      <div className="panel admin-form-panel">
-        <h2>
-          {editingId !== null
-            ? "✏️ Upravit vůz"
-            : "➕ Přidat nový vůz"}
-        </h2>
-
-        {error && (
-          <div className="error-box">
-            <strong>Chyba:</strong>
-            <br />
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="success-box">
-            {success}
-          </div>
-        )}
-
-        <form
-          onSubmit={saveVehicle}
-          className="vehicle-form"
-        >
-          <div className="form-grid">
-            <div>
-              <label>Číslo vozu</label>
-
-              <input
-                name="cislo"
-                type="number"
-                value={form.cislo}
-                onChange={handleChange}
-                placeholder="Např. 101"
-                required
-              />
-            </div>
-
-            <div>
-              <label>Výrobce</label>
-
-              <input
-                name="vyrobce"
-                value={form.vyrobce}
-                onChange={handleChange}
-                placeholder="Např. Škoda"
-                required
-              />
-            </div>
-
-            <div>
-              <label>Typ</label>
-
-              <input
-                name="typ"
-                value={form.typ}
-                onChange={handleChange}
-                placeholder="Např. 12T"
-                required
-              />
-            </div>
-
-            <div>
-              <label>SPZ</label>
-
-              <input
-                name="spz"
-                value={form.spz}
-                onChange={handleChange}
-                placeholder="1AA 1234"
-              />
-            </div>
-
-            <div>
-              <label>Rok výroby</label>
-
-              <input
-                name="rok"
-                type="number"
-                min="1900"
-                max="2100"
-                value={form.rok}
-                onChange={handleChange}
-                placeholder="2026"
-              />
-            </div>
-
-            <div>
-              <label>Barevné schéma</label>
-
-              <input
-                name="barevne_schema"
-                value={form.barevne_schema}
-                onChange={handleChange}
-                placeholder="Např. modro-bílé"
-              />
-            </div>
-
-            <div>
-              <label>Stav</label>
-
-              <select
-                name="stav"
-                value={form.stav}
-                onChange={handleChange}
-              >
-                <option value="PROVOZNÍ">
-                  PROVOZNÍ
-                </option>
-
-                <option value="V DÍLNĚ / V OPRAVĚ">
-                  V DÍLNĚ / V OPRAVĚ
-                </option>
-
-                <option value="DOČASNĚ ODSTAVEN">
-                  DOČASNĚ ODSTAVEN
-                </option>
-
-                <option value="DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN">
-                  DLOUHODOBĚ/ DEFINITIVNĚ ODSTAVEN
-                </option>
-
-                <option value="SEŠROTOVÁN">
-                  SEŠROTOVÁN
-                </option>
-
-                <option value="PRODÁN / PŘEDÁN JINÉMU DOPRAVCI">
-                  PRODÁN / PŘEDÁN JINÉMU DOPRAVCI
-                </option>
-
-                <option value="DOSUD NEZAŘAZEN DO PROVOZU">
-                  DOSUD NEZAŘAZEN DO PROVOZU
-                </option>
-
-                <option value="SLUŽEBNÍ">
-                  SLUŽEBNÍ
-                </option>
-
-                <option value="RETRO">
-                  RETRO
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label>Provozovna</label>
-
-              <select
-                name="provozovna_id"
-                value={form.provozovna_id}
-                onChange={handleChange}
-              >
-                <option value="">
-                  Vyber provozovnu
-                </option>
-
-                {provozovny.map(
-                  (provozovna) => (
-                    <option
-                      key={provozovna.id}
-                      value={provozovna.id}
-                    >
-                      {provozovna.nazev}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-          </div>
-
-          <div className="form-buttons">
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={saving}
-            >
-              {saving
-                ? "Ukládání..."
-                : editingId !== null
-                ? "💾 Uložit změny"
-                : "➕ Přidat vůz"}
-            </button>
-
-            {editingId !== null && (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={cancelEdit}
-              >
-                Zrušit úpravu
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
-
-      <div className="panel admin-list-panel">
-        <div className="admin-list-title">
-          <div>
-            <h2>Vozový park</h2>
-
-            <p>
-              Celkem {vehicles.length} vozů
-            </p>
-          </div>
-        </div>
-
-        {loading && (
-          <div className="empty">
-            Načítání vozů...
-          </div>
-        )}
-
-        {!loading &&
-          vehicles.length === 0 && (
-            <div className="empty">
-              Zatím zde nejsou žádné vozy.
-            </div>
-          )}
-
-        {!loading &&
-          vehicles.length > 0 && (
-            <div className="admin-vehicle-list">
-              {vehicles.map(
+              {filteredVehicles.map(
                 (vehicle) => (
                   <div
-                    className="admin-vehicle-row"
+                    className="vehicle-row"
                     key={vehicle.id}
                   >
-                    <div className="vehicle-main">
-                      <strong>
-                        {vehicle.cislo ?? "-"}
-                      </strong>
+                    <strong>
+                      {vehicle.cislo ??
+                        "-"}
+                    </strong>
 
-                      <div>
-                        <b>
-                          {vehicle.vyrobce ?? "-"}
-                        </b>
+                    <span>
+                      {vehicle.vyrobce ??
+                        "-"}
+                    </span>
 
-                        <span>
-                          {vehicle.typ ?? "-"}
-                        </span>
-                      </div>
-                    </div>
+                    <span>
+                      {vehicle.typ ??
+                        "-"}
+                    </span>
 
-                    <div>
-                      <small>SPZ</small>
+                    <span>
+                      {vehicle.spz ??
+                        "-"}
+                    </span>
 
-                      <strong>
-                        {vehicle.spz ?? "-"}
-                      </strong>
-                    </div>
+                    <span>
+                      {vehicle.rok ??
+                        "-"}
+                    </span>
 
-                    <div>
-                      <small>Rok</small>
-
-                      <strong>
-                        {vehicle.rok ?? "-"}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <small>Stav</small>
-
+                    <span>
                       <VehicleStatus
-                        status={vehicle.stav}
+                        status={
+                          vehicle.stav
+                        }
                       />
-                    </div>
-
-                    <div className="admin-actions">
-                      <button
-                        type="button"
-                        className="edit-button"
-                        onClick={() =>
-                          startEdit(vehicle)
-                        }
-                      >
-                        ✏️ Upravit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="delete-button"
-                        onClick={() =>
-                          deleteVehicle(
-                            vehicle.id,
-                            vehicle.cislo
-                          )
-                        }
-                      >
-                        🗑️ Smazat
-                      </button>
-                    </div>
+                    </span>
                   </div>
                 )
               )}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
 
-/* =========================================================
-   MOJE VÝKAZY
-========================================================= */
-
-function Reports({ user }) {
-  const emptyForm = {
-    datum: new Date()
-      .toISOString()
-      .slice(0, 10),
-
-    linka: "",
-    smer: "",
-    vuz: "",
-    zacatek: "",
-    konec: "",
-    km: "",
-    poznamka: "",
-  };
-
-  const [reports, setReports] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [form, setForm] =
-    useState(emptyForm);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [saving, setSaving] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  const [success, setSuccess] =
-    useState("");
-
-  async function loadReports() {
-    setLoading(true);
-    setError("");
-
-    const { data, error } = await supabase
-      .from("vykazy")
-      .select(
-        "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
-      )
-      .eq("uzivatel_id", user.id)
-      .order("datum", {
-        ascending: false,
-      })
-      .order("vytvoreno", {
-        ascending: false,
-      });
-
-    if (error) {
-      setError(error.message);
-      setReports([]);
-    } else {
-      setReports(data || []);
-    }
-
-    setLoading(false);
-  }
-
-  async function loadVehicles() {
-    const { data } = await supabase
-      .from("vozy")
-      .select(
-        "id, cislo, vyrobce, typ"
-      )
-      .order("cislo", {
-        ascending: true,
-      });
-
-    setVehicles(data || []);
-  }
-
-  useEffect(() => {
-    loadReports();
-    loadVehicles();
-  }, [user.id]);
-
-  function handleChange(e) {
-    const { name, value } = e.target;
-
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-  }
-
-  async function saveReport(e) {
-    e.preventDefault();
-
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const reportData = {
-      uzivatel_id: user.id,
-      datum: form.datum || null,
-      linka: form.linka.trim() || null,
-      smer: form.smer.trim() || null,
-      vuz: form.vuz.trim() || null,
-      zacatek: form.zacatek || null,
-      konec: form.konec || null,
-
-      km:
-        form.km.trim() !== ""
-          ? Number(form.km)
-          : null,
-
-      poznamka:
-        form.poznamka.trim() || null,
-
-      stav: "Čeká na schválení",
-    };
-
-    const { error } = await supabase
-      .from("vykazy")
-      .insert([reportData]);
-
-    if (error) {
-      setError(error.message);
-      setSaving(false);
-      return;
-    }
-
-    setSuccess(
-      "Výkaz byl úspěšně odeslán."
-    );
-
-    setForm({
-      ...emptyForm,
-      datum: new Date()
-        .toISOString()
-        .slice(0, 10),
-    });
-
-    await loadReports();
-
-    setSaving(false);
-  }
-
-  async function deleteReport(id) {
-    if (
-      !window.confirm(
-        "Opravdu chceš tento výkaz smazat?"
-      )
-    ) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("vykazy")
-      .delete()
-      .eq("id", id)
-      .eq("uzivatel_id", user.id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess(
-      "Výkaz byl smazán."
-    );
-
-    await loadReports();
-  }
-
-  function reportStatusClass(stav) {
-    if (stav === "Schváleno") {
-      return "report-status approved";
-    }
-
-    if (stav === "Zamítnuto") {
-      return "report-status rejected";
-    }
-
-    return "report-status pending";
-  }
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Moje výkazy</h1>
-
-          <p>
-            Evidence odjetých výkonů
-          </p>
-        </div>
-
-        <div className="profile-badge">
-          {reports.length} VÝKAZŮ
-        </div>
-      </div>
-
-      <div className="panel admin-form-panel">
-        <h2>➕ Nový výkaz</h2>
-
-        {error && (
-          <div className="error-box">
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="success-box">
-            {success}
-          </div>
-        )}
-
-        <form
-          onSubmit={saveReport}
-          className="vehicle-form"
-        >
-          <div className="form-grid">
-            <div>
-              <label>Datum</label>
-
-              <input
-                name="datum"
-                type="date"
-                value={form.datum}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div>
-              <label>Linka</label>
-
-              <input
-                name="linka"
-                value={form.linka}
-                onChange={handleChange}
-                placeholder="Např. 12"
-                required
-              />
-            </div>
-
-            <div>
-              <label>Směr</label>
-
-              <input
-                name="smer"
-                value={form.smer}
-                onChange={handleChange}
-                placeholder="Např. Pod Strání"
-              />
-            </div>
-
-            <div>
-              <label>Vůz</label>
-
-              <select
-                name="vuz"
-                value={form.vuz}
-                onChange={handleChange}
-              >
-                <option value="">
-                  Vyber vůz
-                </option>
-
-                {vehicles.map(
-                  (vehicle) => (
-                    <option
-                      key={vehicle.id}
-                      value={vehicle.cislo}
-                    >
-                      {vehicle.cislo} –{" "}
-                      {vehicle.vyrobce}{" "}
-                      {vehicle.typ}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label>Začátek</label>
-
-              <input
-                name="zacatek"
-                type="time"
-                value={form.zacatek}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label>Konec</label>
-
-              <input
-                name="konec"
-                type="time"
-                value={form.konec}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label>Počet km</label>
-
-              <input
-                name="km"
-                type="number"
-                min="0"
-                step="0.1"
-                value={form.km}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <label>Poznámka</label>
-
-              <input
-                name="poznamka"
-                value={form.poznamka}
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          <div className="form-buttons">
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={saving}
-            >
-              {saving
-                ? "Odesílání..."
-                : "📋 Odeslat výkaz"}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="panel admin-list-panel">
-        <h2>Moje výkazy</h2>
-
-        {loading && (
-          <div className="empty">
-            Načítání výkazů...
-          </div>
-        )}
-
-        {!loading &&
-          reports.length === 0 && (
-            <div className="empty">
-              Zatím nemáš žádné výkazy.
-            </div>
-          )}
-
-        {!loading &&
-          reports.length > 0 && (
-            <div className="reports-list">
-              {reports.map(
-                (report) => (
-                  <div
-                    className="report-card"
-                    key={report.id}
-                  >
-                    <div className="report-main">
-                      <div className="report-date">
-                        {report.datum
-                          ? new Date(
-                              `${report.datum}T00:00:00`
-                            ).toLocaleDateString(
-                              "cs-CZ"
-                            )
-                          : "-"}
-                      </div>
-
-                      <div className="report-info">
-                        <strong>
-                          Linka{" "}
-                          {report.linka ?? "-"}
-                        </strong>
-
-                        <span>
-                          Směr:{" "}
-                          {report.smer ?? "-"}
-                        </span>
-
-                        <span>
-                          Vůz:{" "}
-                          {report.vuz ?? "-"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="report-time">
-                      <small>Čas</small>
-
-                      <strong>
-                        {report.zacatek ??
-                          "--:--"}{" "}
-                        →{" "}
-                        {report.konec ??
-                          "--:--"}
-                      </strong>
-                    </div>
-
-                    <div className="report-km">
-                      <small>
-                        Kilometry
-                      </small>
-
-                      <strong>
-                        {report.km ?? 0} km
-                      </strong>
-                    </div>
-
-                    <div>
-                      <small>Stav</small>
-
-                      <span
-                        className={reportStatusClass(
-                          report.stav
-                        )}
-                      >
-                        {report.stav ??
-                          "Čeká na schválení"}
-                      </span>
-                    </div>
-
-                    <div className="report-actions">
-                      <button
-                        type="button"
-                        className="delete-button"
-                        onClick={() =>
-                          deleteReport(
-                            report.id
-                          )
-                        }
-                      >
-                        🗑️ Smazat
-                      </button>
-                    </div>
-
-                    {report.poznamka && (
-                      <div className="report-note">
-                        <small>
-                          Poznámka
-                        </small>
-
-                        <span>
-                          {report.poznamka}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
+              {filteredVehicles.length ===
+                0 && (
+                <div className="empty">
+                  {vehicles.length === 0
+                    ? "Tabulka vozy neobsahuje žádné záznamy."
+                    : "Žádné vozy neodpovídají hledání."}
+                </div>
               )}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   SPRÁVA VÝKAZŮ
-========================================================= */
-
-function AdminReports() {
-  const [reports, setReports] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState("");
-
-  const [success, setSuccess] =
-    useState("");
-
-  const [search, setSearch] =
-    useState("");
-
-  const [filterStatus, setFilterStatus] =
-    useState("Vše");
-
-  async function loadReports() {
-    setLoading(true);
-    setError("");
-
-    const { data, error } = await supabase
-      .from("vykazy")
-      .select(
-        "id, uzivatel_id, datum, linka, smer, vuz, zacatek, konec, km, poznamka, stav, vytvoreno"
-      )
-      .order("datum", {
-        ascending: false,
-      })
-      .order("vytvoreno", {
-        ascending: false,
-      });
-
-    if (error) {
-      setError(error.message);
-      setReports([]);
-    } else {
-      setReports(data || []);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadReports();
-  }, []);
-
-  async function changeStatus(
-    id,
-    newStatus
-  ) {
-    setError("");
-    setSuccess("");
-
-    const { error } = await supabase
-      .from("vykazy")
-      .update({
-        stav: newStatus,
-      })
-      .eq("id", id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess(
-      newStatus === "Schváleno"
-        ? "Výkaz byl schválen."
-        : "Výkaz byl zamítnut."
-    );
-
-    await loadReports();
-  }
-
-  async function deleteReport(id) {
-    if (
-      !window.confirm(
-        "Opravdu chceš tento výkaz smazat?"
-      )
-    ) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("vykazy")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess(
-      "Výkaz byl smazán."
-    );
-
-    await loadReports();
-  }
-
-  const filteredReports =
-    reports.filter((report) => {
-      const statusMatch =
-        filterStatus === "Vše" ||
-        report.stav === filterStatus;
-
-      const searchText = [
-        report.uzivatel_id,
-        report.datum,
-        report.linka,
-        report.smer,
-        report.vuz,
-        report.zacatek,
-        report.konec,
-        report.km,
-        report.poznamka,
-        report.stav,
-      ]
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
-
-      return (
-        statusMatch &&
-        searchText.includes(
-          search.toLowerCase()
-        )
-      );
-    });
-
-  function statusClass(stav) {
-    if (stav === "Schváleno") {
-      return "report-status approved";
-    }
-
-    if (stav === "Zamítnuto") {
-      return "report-status rejected";
-    }
-
-    return "report-status pending";
-  }
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Správa výkazů</h1>
-
-          <p>
-            Kontrola a schvalování výkazů
-            řidičů a dispečerů
-          </p>
-        </div>
-
-        <div className="profile-badge">
-          ADMIN / DISPEČER
-        </div>
-      </div>
-
-      <div className="admin-report-stats">
-        <div className="admin-report-stat">
-          <span>Celkem</span>
-
-          <strong>
-            {reports.length}
-          </strong>
-        </div>
-
-        <div className="admin-report-stat">
-          <span>Čeká</span>
-
-          <strong>
-            {
-              reports.filter(
-                (r) =>
-                  r.stav ===
-                  "Čeká na schválení"
-              ).length
-            }
-          </strong>
-        </div>
-
-        <div className="admin-report-stat">
-          <span>Schváleno</span>
-
-          <strong>
-            {
-              reports.filter(
-                (r) =>
-                  r.stav ===
-                  "Schváleno"
-              ).length
-            }
-          </strong>
-        </div>
-
-        <div className="admin-report-stat">
-          <span>Zamítnuto</span>
-
-          <strong>
-            {
-              reports.filter(
-                (r) =>
-                  r.stav ===
-                  "Zamítnuto"
-              ).length
-            }
-          </strong>
-        </div>
-      </div>
-
-      <div className="panel admin-list-panel">
-        <div className="admin-report-toolbar">
-          <input
-            className="search"
-            type="text"
-            placeholder="🔎 Hledat výkaz..."
-            value={search}
-            onChange={(e) =>
-              setSearch(e.target.value)
-            }
-          />
-
-          <select
-            className="status-filter"
-            value={filterStatus}
-            onChange={(e) =>
-              setFilterStatus(
-                e.target.value
-              )
-            }
-          >
-            <option value="Vše">
-              Všechny stavy
-            </option>
-
-            <option value="Čeká na schválení">
-              Čeká na schválení
-            </option>
-
-            <option value="Schváleno">
-              Schváleno
-            </option>
-
-            <option value="Zamítnuto">
-              Zamítnuto
-            </option>
-          </select>
-        </div>
-
-        {error && (
-          <div className="error-box">
-            <strong>Chyba:</strong>
-            <br />
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="success-box">
-            {success}
-          </div>
-        )}
-
-        {loading && (
-          <div className="empty">
-            Načítání výkazů...
-          </div>
-        )}
-
-        {!loading &&
-          filteredReports.length === 0 && (
-            <div className="empty">
-              {reports.length === 0
-                ? "Zatím nebyly vytvořeny žádné výkazy."
-                : "Žádné výkazy neodpovídají filtru nebo hledání."}
-            </div>
-          )}
-
-        {!loading &&
-          filteredReports.length > 0 && (
-            <div className="admin-reports-list">
-              {filteredReports.map(
-                (report) => (
-                  <div
-                    className="admin-report-card"
-                    key={report.id}
-                  >
-                    <div className="admin-report-header">
-                      <div>
-                        <span className="admin-report-date">
-                          {report.datum
-                            ? new Date(
-                                `${report.datum}T00:00:00`
-                              ).toLocaleDateString(
-                                "cs-CZ"
-                              )
-                            : "-"}
-                        </span>
-
-                        <h3>
-                          Linka{" "}
-                          {report.linka ??
-                            "-"}
-
-                          {report.smer
-                            ? ` → ${report.smer}`
-                            : ""}
-                        </h3>
-                      </div>
-
-                      <span
-                        className={statusClass(
-                          report.stav
-                        )}
-                      >
-                        {report.stav ||
-                          "Čeká na schválení"}
-                      </span>
-                    </div>
-
-                    <div className="admin-report-grid">
-                      <div>
-                        <small>
-                          Uživatel
-                        </small>
-
-                        <strong>
-                          {report.uzivatel_id ??
-                            "-"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <small>Vůz</small>
-
-                        <strong>
-                          {report.vuz ?? "-"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <small>Čas</small>
-
-                        <strong>
-                          {report.zacatek ??
-                            "--:--"}{" "}
-                          →{" "}
-                          {report.konec ??
-                            "--:--"}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <small>
-                          Kilometry
-                        </small>
-
-                        <strong>
-                          {report.km ?? 0} km
-                        </strong>
-                      </div>
-                    </div>
-
-                    {report.poznamka && (
-                      <div className="admin-report-note">
-                        <small>
-                          Poznámka
-                        </small>
-
-                        <span>
-                          {report.poznamka}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="admin-report-actions">
-                      <button
-                        type="button"
-                        className="approve-button"
-                        onClick={() =>
-                          changeStatus(
-                            report.id,
-                            "Schváleno"
-                          )
-                        }
-                        disabled={
-                          report.stav ===
-                          "Schváleno"
-                        }
-                      >
-                        ✓ Schválit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="reject-button"
-                        onClick={() =>
-                          changeStatus(
-                            report.id,
-                            "Zamítnuto"
-                          )
-                        }
-                        disabled={
-                          report.stav ===
-                          "Zamítnuto"
-                        }
-                      >
-                        ✕ Zamítnout
-                      </button>
-
-                      <button
-                        type="button"
-                        className="delete-button"
-                        onClick={() =>
-                          deleteReport(
-                            report.id
-                          )
-                        }
-                      >
-                        🗑️ Smazat
-                      </button>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   SPRÁVA UŽIVATELŮ
-   POUZE ADMINISTRÁTOR
-========================================================= */
-
-function AdminUsers({ currentUser }) {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState(null);
-
-  const [search, setSearch] = useState("");
-  const [filterRole, setFilterRole] = useState("Vše");
-
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
-  async function loadUsers() {
-    setLoading(true);
-    setError("");
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(
-        "id, jmeno, role, created_at"
-      )
-      .order("jmeno", {
-        ascending: true,
-      });
-
-    if (error) {
-      console.error(
-        "USERS ERROR:",
-        error
-      );
-
-      setError(error.message);
-      setUsers([]);
-    } else {
-      setUsers(data || []);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  async function changeRole(
-    userId,
-    newRole
-  ) {
-    if (userId === currentUser.id) {
-      setError(
-        "Nemůžeš změnit roli svého vlastního účtu."
-      );
-      return;
-    }
-
-    setSavingId(userId);
-    setError("");
-    setSuccess("");
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        role: newRole,
-      })
-      .eq("id", userId);
-
-    if (error) {
-      setError(error.message);
-      setSavingId(null);
-      return;
-    }
-
-    setSuccess(
-      "Role uživatele byla úspěšně změněna."
-    );
-
-    await loadUsers();
-
-    setSavingId(null);
-  }
-
-  async function deleteProfile(
-    userId,
-    userName
-  ) {
-    if (userId === currentUser.id) {
-      setError(
-        "Nemůžeš smazat svůj vlastní účet."
-      );
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Opravdu chceš odstranit profil uživatele ${
-        userName || "bez jména"
-      }?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-
-    const { error } = await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", userId);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setSuccess(
-      "Profil uživatele byl odstraněn."
-    );
-
-    await loadUsers();
-  }
-
-  const filteredUsers = users.filter(
-    (user) => {
-      const roleMatch =
-        filterRole === "Vše" ||
-        user.role === filterRole;
-
-      const searchText = [
-        user.id,
-        user.jmeno,
-        user.role,
-        user.created_at,
-      ]
-        .filter(
-          (value) =>
-            value !== null &&
-            value !== undefined
-        )
-        .join(" ")
-        .toLowerCase();
-
-      return (
-        roleMatch &&
-        searchText.includes(
-          search.toLowerCase()
-        )
-      );
-    }
-  );
-
-  return (
-    <div>
-      <div className="topbar">
-        <div>
-          <h1>Správa uživatelů</h1>
-
-          <p>
-            Správa účtů a uživatelských rolí
-          </p>
-        </div>
-
-        <div className="profile-badge">
-          POUZE ADMIN
-        </div>
-      </div>
-
-      <div className="admin-user-stats">
-        <div className="admin-user-stat">
-          <span>Celkem uživatelů</span>
-
-          <strong>
-            {users.length}
-          </strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Administrátoři</span>
-
-          <strong>
-            {
-              users.filter(
-                (user) =>
-                  user.role === ROLE_ADMIN
-              ).length
-            }
-          </strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Dispečeři</span>
-
-          <strong>
-            {
-              users.filter(
-                (user) =>
-                  user.role === ROLE_DISPECER
-              ).length
-            }
-          </strong>
-        </div>
-
-        <div className="admin-user-stat">
-          <span>Řidiči</span>
-
-          <strong>
-            {
-              users.filter(
-                (user) =>
-                  user.role === ROLE_RIDIC
-              ).length
-            }
-          </strong>
-        </div>
-      </div>
-
-      <div className="panel admin-list-panel">
-        <div className="admin-report-toolbar">
-          <input
-            className="search"
-            type="text"
-            placeholder="🔎 Hledat uživatele..."
-            value={search}
-            onChange={(e) =>
-              setSearch(e.target.value)
-            }
-          />
-
-          <select
-            className="status-filter"
-            value={filterRole}
-            onChange={(e) =>
-              setFilterRole(
-                e.target.value
-              )
-            }
-          >
-            <option value="Vše">
-              Všechny role
-            </option>
-
-            <option value="admin">
-              Administrátoři
-            </option>
-
-            <option value="dispecer">
-              Dispečeři
-            </option>
-
-            <option value="ridic">
-              Řidiči
-            </option>
-          </select>
-        </div>
-
-        {error && (
-          <div className="error-box">
-            <strong>Chyba:</strong>
-            <br />
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="success-box">
-            {success}
-          </div>
-        )}
-
-        {loading && (
-          <div className="empty">
-            Načítání uživatelů...
-          </div>
-        )}
-
-        {!loading &&
-          filteredUsers.length === 0 && (
-            <div className="empty">
-              {users.length === 0
-                ? "Tabulka profiles neobsahuje žádné uživatele."
-                : "Žádní uživatelé neodpovídají hledání."}
-            </div>
-          )}
-
-        {!loading &&
-          filteredUsers.length > 0 && (
-            <div className="admin-users-list">
-              {filteredUsers.map(
-                (profile) => (
-                  <div
-                    className="admin-user-row"
-                    key={profile.id}
-                  >
-                    <div className="admin-user-main">
-                      <div className="admin-user-avatar">
-                        {(
-                          profile.jmeno ||
-                          "U"
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-                      </div>
-
-                      <div>
-                        <strong>
-                          {profile.jmeno ||
-                            "Bez jména"}
-                        </strong>
-
-                        <small>
-                          ID: {profile.id}
-                        </small>
-                      </div>
-                    </div>
-
-                    <div className="admin-user-role">
-                      <small>
-                        Aktuální role
-                      </small>
-
-                      <span
-                        className={`role-badge role-${profile.role}`}
-                      >
-                        {getRoleName(
-                          profile.role
-                        )}
-                      </span>
-                    </div>
-
-                    <div>
-                      <small>
-                        Vytvořeno
-                      </small>
-
-                      <strong>
-                        {profile.created_at
-                          ? new Date(
-                              profile.created_at
-                            ).toLocaleDateString(
-                              "cs-CZ"
-                            )
-                          : "-"}
-                      </strong>
-                    </div>
-
-                    <div className="admin-user-actions">
-                      <select
-                        value={
-                          profile.role ||
-                          ROLE_RIDIC
-                        }
-                        disabled={
-                          savingId ===
-                            profile.id ||
-                          profile.id ===
-                            currentUser.id
-                        }
-                        onChange={(e) =>
-                          changeRole(
-                            profile.id,
-                            e.target.value
-                          )
-                        }
-                      >
-                        <option value="ridic">
-                          Řidič
-                        </option>
-
-                        <option value="dispecer">
-                          Dispečer
-                        </option>
-
-                        <option value="admin">
-                          Administrátor
-                        </option>
-                      </select>
-
-                      <button
-                        type="button"
-                        className="delete-button"
-                        disabled={
-                          profile.id ===
-                          currentUser.id
-                        }
-                        onClick={() =>
-                          deleteProfile(
-                            profile.id,
-                            profile.jmeno
-                          )
-                        }
-                      >
-                        🗑️ Odstranit
-                      </button>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
+            </>
           )}
       </div>
     </div>
@@ -2233,6 +1275,9 @@ function App() {
   const [page, setPage] =
     useState("dashboard");
 
+  const [showRegister, setShowRegister] =
+    useState(false);
+
   async function loadProfile(authUser) {
     if (!authUser) {
       setProfile(null);
@@ -2241,18 +1286,31 @@ function App() {
 
     setProfileLoading(true);
 
-    const { data, error } =
-      await supabase
-        .from("profiles")
-        .select(
-          "id, jmeno, role, created_at"
-        )
-        .eq("id", authUser.id)
-        .maybeSingle();
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("profiles")
+      .select(
+        "id, jmeno, role, created_at"
+      )
+      .eq("id", authUser.id)
+      .maybeSingle();
 
-    console.log("AUTH USER:", authUser);
-    console.log("PROFILE DATA:", data);
-    console.log("PROFILE ERROR:", error);
+    console.log(
+      "AUTH USER:",
+      authUser
+    );
+
+    console.log(
+      "PROFILE DATA:",
+      data
+    );
+
+    console.log(
+      "PROFILE ERROR:",
+      error
+    );
 
     if (error) {
       console.error(
@@ -2273,12 +1331,18 @@ function App() {
     checkSession();
 
     const {
-      data: { subscription },
+      data: {
+        subscription,
+      },
     } =
       supabase.auth.onAuthStateChange(
-        async (_event, session) => {
+        async (
+          _event,
+          session
+        ) => {
           const loggedUser =
-            session?.user ?? null;
+            session?.user ??
+            null;
 
           setUser(loggedUser);
 
@@ -2302,7 +1366,8 @@ function App() {
     const {
       data,
       error,
-    } = await supabase.auth.getUser();
+    } =
+      await supabase.auth.getUser();
 
     if (error) {
       console.error(
@@ -2333,10 +1398,13 @@ function App() {
     setPage("dashboard");
   }
 
-  if (loading || profileLoading) {
+  if (loading ||
+    profileLoading) {
     return (
       <>
-        <style>{styles}</style>
+        <style>
+          {styles}
+        </style>
 
         <div className="loading">
           Načítání...
@@ -2346,41 +1414,60 @@ function App() {
   }
 
   if (!user) {
+    if (showRegister) {
+      return (
+        <>
+          <style>
+            {styles}
+          </style>
+
+          <Register
+            onRegistered={() =>
+              setShowRegister(false)
+            }
+          />
+        </>
+      );
+    }
+
     return (
       <>
-        <style>{styles}</style>
+        <style>
+          {styles}
+        </style>
 
         <Login
-          onLogin={(loggedUser) => {
-            setUser(loggedUser);
+          onLogin={(
+            loggedUser
+          ) => {
+            setUser(
+              loggedUser
+            );
 
             loadProfile(
               loggedUser
             );
           }}
         />
+
+        <button
+          className="register-link"
+          onClick={() =>
+            setShowRegister(true)
+          }
+        >
+          Nemáš účet? Zaregistrovat se
+        </button>
       </>
     );
   }
 
-  /* =======================================================
-     ROLE
-  ======================================================= */
-
   const role =
-    profile?.role?.toLowerCase() || "";
+    profile?.role?.toLowerCase() ||
+    "";
 
   const roleName =
     getRoleName(role);
-
-  const isAdmin =
-    role === ROLE_ADMIN;
-
-  const isDispecer =
-    role === ROLE_DISPECER;
-
-  const isRidic =
-    role === ROLE_RIDIC;
 
   const manageVehicles =
     canManageVehicles(role);
@@ -2388,12 +1475,17 @@ function App() {
   const manageReports =
     canManageReports(role);
 
+  const manageUsers =
+    canManageUsers(role);
+
   const useReports =
     canUseReports(role);
 
   return (
     <>
-      <style>{styles}</style>
+      <style>
+        {styles}
+      </style>
 
       <div className="app">
         <aside className="sidebar">
@@ -2421,12 +1513,15 @@ function App() {
             <button
               type="button"
               className={
-                page === "dashboard"
+                page ===
+                "dashboard"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage("dashboard")
+                setPage(
+                  "dashboard"
+                )
               }
             >
               <span>⌂</span>
@@ -2436,12 +1531,15 @@ function App() {
             <button
               type="button"
               className={
-                page === "departures"
+                page ===
+                "departures"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage("departures")
+                setPage(
+                  "departures"
+                )
               }
             >
               <span>◈</span>
@@ -2451,12 +1549,15 @@ function App() {
             <button
               type="button"
               className={
-                page === "vehicles"
+                page ===
+                "vehicles"
                   ? "active"
                   : ""
               }
               onClick={() =>
-                setPage("vehicles")
+                setPage(
+                  "vehicles"
+                )
               }
             >
               <span>▣</span>
@@ -2467,12 +1568,15 @@ function App() {
               <button
                 type="button"
                 className={
-                  page === "reports"
+                  page ===
+                  "reports"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage("reports")
+                  setPage(
+                    "reports"
+                  )
                 }
               >
                 <span>▤</span>
@@ -2482,7 +1586,7 @@ function App() {
 
             {(manageVehicles ||
               manageReports ||
-              isAdmin) && (
+              manageUsers) && (
               <>
                 <div className="menu-divider" />
 
@@ -2496,12 +1600,15 @@ function App() {
               <button
                 type="button"
                 className={
-                  page === "admin"
+                  page ===
+                  "admin"
                     ? "active"
                     : ""
                 }
                 onClick={() =>
-                  setPage("admin")
+                  setPage(
+                    "admin"
+                  )
                 }
               >
                 <span>⚙</span>
@@ -2513,7 +1620,8 @@ function App() {
               <button
                 type="button"
                 className={
-                  page === "adminReports"
+                  page ===
+                  "adminReports"
                     ? "active"
                     : ""
                 }
@@ -2528,11 +1636,12 @@ function App() {
               </button>
             )}
 
-            {isAdmin && (
+            {manageUsers && (
               <button
                 type="button"
                 className={
-                  page === "adminUsers"
+                  page ===
+                  "adminUsers"
                     ? "active"
                     : ""
                 }
@@ -2573,7 +1682,9 @@ function App() {
             <button
               type="button"
               className="logout"
-              onClick={logout}
+              onClick={
+                logout
+              }
             >
               Odhlásit
             </button>
@@ -2581,10 +1692,8 @@ function App() {
         </aside>
 
         <main className="content">
-
-          {/* DASHBOARD */}
-
-          {page === "dashboard" && (
+          {page ===
+            "dashboard" && (
             <>
               <div className="topbar">
                 <div>
@@ -2664,56 +1773,30 @@ function App() {
             </>
           )}
 
-          {/* VÝPRAVY */}
-
-          {page === "departures" && (
+          {page ===
+            "departures" && (
             <div className="panel">
               <h1>
                 Výpravy
               </h1>
 
               <p>
-                Tady budou výpravy vozů.
+                Tady budou výpravy
+                vozů.
               </p>
             </div>
           )}
 
-          {/* VOZY */}
-
-          {page === "vehicles" && (
+          {page ===
+            "vehicles" && (
             <Vehicles />
           )}
 
-          {/* MOJE VÝKAZY */}
-
-          {page === "reports" &&
-            useReports && (
-              <Reports user={user} />
+          {page ===
+            "adminUsers" &&
+            manageUsers && (
+              <AdminUsers />
             )}
-
-          {/* ADMINISTRACE VOZŮ */}
-
-          {page === "admin" &&
-            manageVehicles && (
-              <AdminVehicles />
-            )}
-
-          {/* SPRÁVA VÝKAZŮ */}
-
-          {page === "adminReports" &&
-            manageReports && (
-              <AdminReports />
-            )}
-
-          {/* SPRÁVA UŽIVATELŮ */}
-
-          {page === "adminUsers" &&
-            isAdmin && (
-              <AdminUsers
-                currentUser={user}
-              />
-            )}
-
         </main>
       </div>
     </>
@@ -2825,6 +1908,27 @@ button {
   margin-top: 15px;
 }
 
+.register-link {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 25px;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.register-back {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  margin-top: 15px;
+  cursor: pointer;
+}
+
 /* LOADING */
 
 .loading {
@@ -2840,8 +1944,6 @@ button {
   min-height: 100vh;
   display: flex;
 }
-
-/* SIDEBAR */
 
 .sidebar {
   width: 255px;
@@ -2930,8 +2032,6 @@ button {
   padding: 0 12px 5px;
 }
 
-/* USER */
-
 .user-box {
   margin-top: auto;
   border-top: 1px solid #273245;
@@ -2941,7 +2041,8 @@ button {
   gap: 9px;
 }
 
-.avatar {
+.avatar,
+.user-card-avatar {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -2981,8 +2082,6 @@ button {
   font-size: 10px;
 }
 
-/* CONTENT */
-
 .content {
   margin-left: 255px;
   padding: 35px;
@@ -3015,10 +2114,7 @@ button {
   white-space: nowrap;
 }
 
-/* STATS */
-
 .stats,
-.admin-report-stats,
 .admin-user-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -3027,7 +2123,6 @@ button {
 }
 
 .stat,
-.admin-report-stat,
 .admin-user-stat {
   background: white;
   padding: 20px;
@@ -3036,32 +2131,164 @@ button {
 }
 
 .stat span,
-.admin-report-stat span,
 .admin-user-stat span {
   color: #718096;
   font-size: 13px;
 }
 
-.stat strong {
+.stat strong,
+.admin-user-stat strong {
   display: block;
   font-size: 30px;
   margin-top: 10px;
 }
-
-.admin-report-stat strong,
-.admin-user-stat strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 26px;
-}
-
-/* PANEL */
 
 .panel {
   background: white;
   border-radius: 16px;
   padding: 25px;
   box-shadow: 0 3px 14px rgba(0,0,0,.04);
+  margin-bottom: 25px;
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.muted {
+  color: #718096;
+}
+
+.error-box {
+  padding: 15px;
+  border-radius: 9px;
+  background: #fee2e2;
+  color: #b91c1c;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+
+.success-box {
+  padding: 15px;
+  border-radius: 9px;
+  background: #dcfce7;
+  color: #15803d;
+  margin-bottom: 20px;
+}
+
+.empty {
+  text-align: center;
+  padding: 30px;
+  color: #718096;
+}
+
+.primary-button,
+.delete-button {
+  border: 0;
+  border-radius: 9px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: #2563eb;
+  color: white;
+}
+
+.primary-button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.delete-button {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* USERS */
+
+.users-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+}
+
+.users-toolbar h2 {
+  margin-bottom: 5px;
+}
+
+.user-create-box {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+}
+
+.user-create-box h3 {
+  margin-top: 0;
+}
+
+.user-filter {
+  margin: 20px 0;
+}
+
+.user-filter select,
+.user-card select {
+  padding: 10px;
+  border: 1px solid #d9dee7;
+  border-radius: 9px;
+  background: white;
+}
+
+.users-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #edf0f5;
+}
+
+.user-card {
+  display: grid;
+  grid-template-columns: auto 2fr 1fr 1fr 170px;
+  gap: 20px;
+  align-items: center;
+  padding: 16px 5px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.user-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.user-card-main strong {
+  font-size: 15px;
+}
+
+.user-card small {
+  display: block;
+  color: #718096;
+  font-size: 11px;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.pending-avatar {
+  background: #f59e0b;
+}
+
+.pending-label {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 20px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* VOZY */
@@ -3077,10 +2304,6 @@ button {
   border-radius: 9px;
   outline: none;
   margin-bottom: 20px;
-}
-
-.search:focus {
-  border-color: #2563eb;
 }
 
 .vehicle-header,
@@ -3118,39 +2341,7 @@ button {
   white-space: nowrap;
 }
 
-.empty {
-  text-align: center;
-  padding: 30px;
-  color: #718096;
-}
-
-.error-box {
-  padding: 15px;
-  border-radius: 9px;
-  background: #fee2e2;
-  color: #b91c1c;
-  margin-bottom: 20px;
-  overflow-wrap: anywhere;
-}
-
-.success-box {
-  padding: 15px;
-  border-radius: 9px;
-  background: #dcfce7;
-  color: #15803d;
-  margin-bottom: 20px;
-}
-
 /* FORM */
-
-.admin-form-panel {
-  margin-top: 25px;
-}
-
-.admin-form-panel h2 {
-  margin-top: 0;
-  margin-bottom: 25px;
-}
 
 .form-grid {
   display: grid;
@@ -3175,11 +2366,6 @@ button {
   background: white;
 }
 
-.form-grid input:focus,
-.form-grid select:focus {
-  border-color: #2563eb;
-}
-
 .form-buttons {
   display: flex;
   gap: 10px;
@@ -3187,454 +2373,21 @@ button {
   flex-wrap: wrap;
 }
 
-.primary-button,
-.secondary-button,
-.edit-button,
-.delete-button,
-.approve-button,
-.reject-button {
-  border: 0;
-  border-radius: 9px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.primary-button {
-  background: #2563eb;
-  color: white;
-}
-
-.primary-button:disabled,
-.approve-button:disabled,
-.reject-button:disabled,
-.admin-user-actions select:disabled,
-.delete-button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-.secondary-button {
-  background: #e5e7eb;
-  color: #374151;
-}
-
-.edit-button {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.delete-button {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.approve-button {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.reject-button {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-/* ADMIN LIST */
-
-.admin-list-panel {
-  margin-top: 25px;
-}
-
-.admin-list-title {
-  margin-bottom: 15px;
-}
-
-.admin-list-title h2 {
-  margin: 0;
-}
-
-.admin-list-title p {
-  margin-top: 5px;
-  color: #718096;
-}
-
-.admin-vehicle-list {
-  border-top: 1px solid #edf0f5;
-}
-
-.admin-vehicle-row {
-  display: grid;
-  grid-template-columns: 2fr 1fr .7fr 1.5fr auto;
-  gap: 20px;
-  align-items: center;
-  padding: 16px 5px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.admin-vehicle-row small,
-.report-card small,
-.admin-report-card small,
-.admin-user-row small {
-  display: block;
-  color: #718096;
-  font-size: 11px;
-  margin-bottom: 4px;
-}
-
-.vehicle-main {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-  min-width: 0;
-}
-
-.vehicle-main > strong {
-  min-width: 55px;
-  font-size: 18px;
-}
-
-.vehicle-main div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.vehicle-main b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.vehicle-main span {
-  color: #718096;
-  font-size: 12px;
-}
-
-.admin-actions {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-/* VÝKAZY */
-
-.reports-list {
-  border-top: 1px solid #edf0f5;
-}
-
-.report-card {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1.3fr auto;
-  gap: 20px;
-  align-items: center;
-  padding: 18px 5px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.report-main {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.report-date {
-  background: #eff6ff;
-  color: #1d4ed8;
-  padding: 10px;
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.report-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.report-info span {
-  color: #718096;
-  font-size: 12px;
-}
-
-.report-time,
-.report-km {
-  display: flex;
-  flex-direction: column;
-}
-
-.report-status {
-  display: inline-block;
-  padding: 6px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.report-status.pending {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.report-status.approved {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.report-status.rejected {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.report-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.report-note {
-  grid-column: 1 / -1;
-  background: #f8fafc;
-  padding: 10px 12px;
-  border-radius: 8px;
-}
-
-/* ADMIN VÝKAZY */
-
-.admin-report-toolbar {
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: 12px;
-}
-
-.admin-report-toolbar .search {
-  margin-bottom: 20px;
-}
-
-.status-filter {
-  height: 45px;
-  padding: 10px;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  background: white;
-}
-
-.admin-reports-list {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.admin-report-card {
-  border: 1px solid #edf0f5;
-  border-radius: 14px;
-  padding: 20px;
-  background: #fff;
-}
-
-.admin-report-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 15px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.admin-report-date {
-  color: #718096;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.admin-report-header h3 {
-  margin: 6px 0 0;
-  font-size: 18px;
-}
-
-.admin-report-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-  padding: 18px 0;
-}
-
-.admin-report-grid small {
-  display: block;
-  color: #718096;
-  font-size: 11px;
-  margin-bottom: 5px;
-}
-
-.admin-report-grid strong {
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.admin-report-note {
-  background: #f8fafc;
-  border-radius: 9px;
-  padding: 12px;
-  margin-bottom: 15px;
-}
-
-.admin-report-note span {
-  font-size: 13px;
-  color: #4b5563;
-}
-
-.admin-report-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* SPRÁVA UŽIVATELŮ */
-
-.admin-users-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.admin-user-row {
-  display: grid;
-  grid-template-columns: 2fr 1.2fr 1fr 1.5fr;
-  gap: 20px;
-  align-items: center;
-  padding: 18px 5px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.admin-user-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.admin-user-main > div:last-child {
-  min-width: 0;
-}
-
-.admin-user-main strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-user-main small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-user-avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #2563eb;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  flex-shrink: 0;
-}
-
-.admin-user-role {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.role-badge {
-  display: inline-block;
-  width: fit-content;
-  padding: 6px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.role-admin {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.role-dispecer {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.role-ridic {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.admin-user-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.admin-user-actions select {
-  min-width: 145px;
-  padding: 10px;
-  border: 1px solid #d9dee7;
-  border-radius: 9px;
-  background: white;
-  outline: none;
-}
-
-.admin-user-actions select:focus {
-  border-color: #2563eb;
-}
-
 /* RESPONSIVE */
-
-@media (max-width: 1200px) {
-  .report-card {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .report-main {
-    grid-column: 1 / -1;
-  }
-
-  .report-actions {
-    justify-content: flex-start;
-  }
-
-  .admin-report-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .admin-user-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .admin-user-actions {
-    grid-column: 1 / -1;
-  }
-}
 
 @media (max-width: 1100px) {
   .stats,
-  .admin-report-stats,
   .admin-user-stats {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .admin-vehicle-row {
-    grid-template-columns: 1fr 1fr;
+  .user-card {
+    grid-template-columns: auto 1fr 1fr;
   }
 
-  .admin-actions {
-    grid-column: 1 / -1;
+  .user-card > *:nth-child(4),
+  .user-card > *:nth-child(5) {
+    grid-column: span 1;
   }
 }
 
@@ -3649,23 +2402,12 @@ button {
     padding: 25px;
   }
 
-  .vehicle-header,
-  .vehicle-row {
-    grid-template-columns: 70px 1fr 1fr;
-  }
-
-  .vehicle-header span:nth-child(n+4),
-  .vehicle-row span:nth-child(n+4) {
-    display: none;
-  }
-
-  .form-grid,
-  .admin-report-toolbar {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .admin-report-grid {
-    grid-template-columns: 1fr 1fr;
+  .user-card {
+    grid-template-columns: auto 1fr;
   }
 }
 
@@ -3681,46 +2423,21 @@ button {
   }
 
   .stats,
-  .admin-report-stats,
   .admin-user-stats {
     grid-template-columns: 1fr;
   }
 
-  .admin-vehicle-row,
-  .report-card,
-  .admin-report-grid,
-  .admin-user-row {
-    grid-template-columns: 1fr;
-  }
-
-  .admin-actions {
-    grid-column: auto;
-  }
-
-  .report-main {
-    grid-column: auto;
-  }
-
-  .report-note {
-    grid-column: auto;
-  }
-
-  .admin-report-header {
+  .users-toolbar {
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .vehicle-header,
-  .vehicle-row {
-    grid-template-columns: 60px 1fr 1fr;
-    gap: 8px;
+  .user-card {
+    grid-template-columns: auto 1fr;
   }
 
   .panel {
     padding: 18px;
-  }
-
-  .admin-user-actions {
-    grid-column: auto;
   }
 }
 `;
