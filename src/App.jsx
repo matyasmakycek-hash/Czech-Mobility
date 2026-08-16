@@ -3530,20 +3530,20 @@ function VehicleRequest({ user, profile }) {
                   <div>
                     <h2>Dodatek</h2>
                     <p>
-                      Napiš důvod, termín nebo účel použití vozidla.
+                      Napiš dodatek k přidělení vozidla, např. šel by tuning?
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="request-field">
-                <label htmlFor="vehicle-request-note">Žádost / poznámka</label>
+                <label htmlFor="vehicle-request-note">Dodatek</label>
                 <textarea
                   id="vehicle-request-note"
                   className="request-textarea"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Např. potřebuji vůz na ranní výpravu, školení, náhradní výkon…"
+                  placeholder="Napiš dodatek k přidělení vozidla, např. šel by tuning?"
                   rows={7}
                   required
                 />
