@@ -547,36 +547,6 @@ function AdminUsers() {
     (invite) => !invite.used
   );
 
-  async function deleteRequest(id) {
-    setError("");
-    setSuccess("");
-
-    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("zadosti_vozidla")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("Chyba mazání žádosti:", error);
-      setError(error.message);
-      return;
-    }
-
-    await supabase.from("audit_log").insert({
-      akce: "SMAZÁNA ŽÁDOST O PŘIDĚLENÍ",
-      entita: "zadosti_vozidla",
-      entita_id: String(id),
-      detail: "Smazána žádost o přidělení vozidla"
-    });
-
-    setSuccess("Žádost byla smazána.");
-    await loadRequests();
-  }
-
   return (
     <div>
       <div className="topbar">
@@ -3968,87 +3938,216 @@ function AdminVehicleRequests() {
     setSavingId(null);
   }
 
+
+  async function deleteRequest(request) {
+    setError("");
+    setSuccess("");
+    setSavingId(request.id);
+
+    const vehicle = vehicles[request.vuz_id];
+    const applicant = profiles[request.uzivatel_id];
+
+    const confirmed = window.confirm(
+      `Opravdu chceš smazat žádost ${applicant?.jmeno || ""} o vůz ${
+        vehicle?.cislo ?? request.vuz_id
+      }?`
+    );
+
+    if (!confirmed) {
+      setSavingId(null);
+      return;
+    }
+
+    const { data: deletedRows, error: deleteError } = await supabase
+      .from("zadosti_vozidla")
+      .delete()
+      .eq("id", request.id)
+      .select("id");
+
+    if (deleteError) {
+      console.error("Chyba při mazání žádosti:", deleteError);
+      setError(`Žádost se nepodařilo smazat: ${deleteError.message}`);
+      setSavingId(null);
+      return;
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+      setError(
+        "Žádost nebyla smazána. Supabase nevrátil smazaný řádek. Zkontroluj DELETE RLS policy pro zadosti_vozidla."
+      );
+      setSavingId(null);
+      return;
+    }
+
+    // Okamžitě ji odebereme i z UI.
+    setRequests((old) =>
+      old.filter((item) => String(item.id) !== String(request.id))
+    );
+
+    // Audit nesmí zablokovat samotné smazání žádosti.
+    const { error: auditError } = await supabase.from("audit_log").insert({
+      uzivatel_id: null,
+      akce: "SMAZANA_ZADOST_O_PRIDELENI",
+      entita: "zadosti_vozidla",
+      entita_id: String(request.id),
+      detail: `${applicant?.jmeno || request.uzivatel_id} · vůz ${
+        vehicle?.cislo ?? request.vuz_id
+      }`,
+    });
+
+    if (auditError) {
+      console.warn("Audit log se nepodařilo zapsat:", auditError);
+    }
+
+    setSuccess("Žádost byla úspěšně smazána.");
+    setSavingId(null);
+
+    // Synchronizace s databází.
+    await loadRequests();
+  }
+
+  function getRequestStatusClass(stav) {
+    if (stav === "SCHVÁLENO") return "approved";
+    if (stav === "ZAMÍTNUTO") return "rejected";
+    if (stav === "VYŘÍZENO") return "done";
+    return "pending";
+  }
+
   return (
-    <div>
+    <div className="assignment-admin-page">
       <div className="topbar">
         <div>
+          <div className="assignment-admin-eyebrow">VOZOVÝ PARK</div>
           <h1>Žádosti o přidělení vozidla</h1>
-          <p>Vyřízení žádostí o konkrétní vůz</p>
+          <p>Schvalování, zamítání a správa žádostí o konkrétní vozy.</p>
         </div>
+
         <div className="profile-badge">
           {requests.length} ŽÁDOSTÍ
         </div>
       </div>
 
-      {error && <div className="error-box"><strong>Chyba:</strong><br />{error}</div>}
-      {success && <div className="success-box">{success}</div>}
+      {error && (
+        <div className="request-alert request-alert-error">
+          <span className="request-alert-icon">!</span>
+          <div>
+            <strong>Chyba</strong>
+            <div>{error}</div>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="request-alert request-alert-success">
+          <span className="request-alert-icon">✓</span>
+          <div>
+            <strong>Hotovo</strong>
+            <div>{success}</div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
-        <div className="empty">Načítání žádostí...</div>
+        <div className="assignment-admin-empty">
+          <div className="request-spinner" />
+          <span>Načítám žádosti…</span>
+        </div>
       ) : requests.length === 0 ? (
-        <div className="empty">Zatím nebyla vytvořena žádná žádost.</div>
+        <div className="assignment-admin-empty">
+          <div className="assignment-admin-empty-icon">📋</div>
+          <strong>Žádné žádosti</strong>
+          <span>Aktuálně není co vyřizovat.</span>
+        </div>
       ) : (
-        <div className="admin-reports-list">
+        <div className="assignment-admin-list">
           {requests.map((request) => {
-            const user = profiles[request.uzivatel_id];
+            const applicant = profiles[request.uzivatel_id];
             const vehicle = vehicles[request.vuz_id];
+            const busy = savingId === request.id;
 
             return (
-              <article className="admin-report-card request-card" key={request.id}>
-                <div className="admin-report-header">
-                  <div>
-                    <span className="admin-report-date">
-                      {request.created_at
-                        ? new Date(request.created_at).toLocaleString("cs-CZ")
-                        : "-"}
-                    </span>
-                    <h3>
-                      Vůz {vehicle?.cislo ?? "-"}
-                    </h3>
+              <article className="assignment-admin-card" key={request.id}>
+                <div className="assignment-admin-card-head">
+                  <div className="assignment-admin-vehicle">
+                    <div className="assignment-admin-bus-icon">🚌</div>
+
+                    <div className="assignment-admin-title">
+                      <span>ŽÁDOST O PŘIDĚLENÍ</span>
+                      <h3>Vůz {vehicle?.cislo ?? request.vuz_id ?? "-"}</h3>
+                      <p>
+                        {vehicle
+                          ? `${vehicle.vyrobce || "—"} ${vehicle.typ || ""}`.trim()
+                          : "Vozidlo se nepodařilo načíst"}
+                      </p>
+                    </div>
                   </div>
 
-                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                    <select
-                      className="status-select"
-                      value={request.stav || "ČEKÁ NA VYŘÍZENÍ"}
-                      onChange={(e) => changeStatus(request.id, e.target.value)}
-                      disabled={savingId === request.id}
-                    >
-                      <option value="ČEKÁ NA VYŘÍZENÍ">ČEKÁ NA VYŘÍZENÍ</option>
-                      <option value="SCHVÁLENO">SCHVÁLENO</option>
-                      <option value="ZAMÍTNUTO">ZAMÍTNUTO</option>
-                      <option value="VYŘÍZENO">VYŘÍZENO</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="delete-button"
-                      onClick={() => deleteRequest(request.id)}
-                    >
-                      🗑️ Smazat
-                    </button>
-                  </div>
+                  <span
+                    className={`assignment-status-badge ${getRequestStatusClass(
+                      request.stav
+                    )}`}
+                  >
+                    {request.stav || "ČEKÁ NA VYŘÍZENÍ"}
+                  </span>
                 </div>
 
-                <div className="admin-report-grid">
-                  <div>
-                    <small>Žadatel</small>
-                    <strong>{user?.jmeno || request.uzivatel_id || "-"}</strong>
-                  </div>
-                  <div>
-                    <small>Vozidlo</small>
+                <div className="assignment-admin-info-grid">
+                  <div className="assignment-admin-info">
+                    <span>👤 Žadatel</span>
                     <strong>
-                      {vehicle
-                        ? `${vehicle.vyrobce || ""} ${vehicle.typ || ""}${vehicle.spz ? ` • ${vehicle.spz}` : ""}`.trim()
-                        : request.vuz_id || "-"}
+                      {applicant?.jmeno || request.uzivatel_id || "-"}
+                    </strong>
+                  </div>
+
+                  <div className="assignment-admin-info">
+                    <span>🪪 SPZ</span>
+                    <strong>{vehicle?.spz || "—"}</strong>
+                  </div>
+
+                  <div className="assignment-admin-info">
+                    <span>📅 Odesláno</span>
+                    <strong>
+                      {request.created_at
+                        ? new Date(request.created_at).toLocaleString("cs-CZ")
+                        : "—"}
                     </strong>
                   </div>
                 </div>
 
-                <div className="panel" style={{ marginTop: "12px" }}>
-                  <small>Poznámka žadatele</small>
-                  <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                    {request.poznamka || "Bez poznámky"}
-                  </p>
+                <div className="assignment-admin-note">
+                  <span>Poznámka žadatele</span>
+                  <p>{request.poznamka || "Bez poznámky"}</p>
+                </div>
+
+                <div className="assignment-admin-actions">
+                  <div className="assignment-admin-status-control">
+                    <label>Stav žádosti</label>
+                    <select
+                      className="assignment-status-select"
+                      value={request.stav || "ČEKÁ NA VYŘÍZENÍ"}
+                      onChange={(e) =>
+                        changeStatus(request.id, e.target.value)
+                      }
+                      disabled={busy}
+                    >
+                      <option value="ČEKÁ NA VYŘÍZENÍ">
+                        ČEKÁ NA VYŘÍZENÍ
+                      </option>
+                      <option value="SCHVÁLENO">SCHVÁLENO</option>
+                      <option value="ZAMÍTNUTO">ZAMÍTNUTO</option>
+                      <option value="VYŘÍZENO">VYŘÍZENO</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="assignment-delete-button"
+                    disabled={busy}
+                    onClick={() => deleteRequest(request)}
+                  >
+                    <span>🗑️</span>
+                    {busy ? "Pracuji…" : "Smazat žádost"}
+                  </button>
                 </div>
               </article>
             );
@@ -4058,6 +4157,8 @@ function AdminVehicleRequests() {
     </div>
   );
 }
+
+
 
 /* =========================================================
    ČLENOVÉ
@@ -6654,6 +6755,304 @@ button {
 }
 
 .vehicle-extra-panel{margin-top:22px;padding-top:18px;border-top:1px solid #e5e7eb}.simple-list{display:flex;flex-direction:column;gap:10px}.simple-list-item{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px;border:1px solid #e5e7eb;border-radius:12px;min-width:0}.simple-list-item>div{min-width:0}.simple-list-item.unread{border-left:4px solid #172033;background:#f8fafc}.table-scroll{overflow-x:auto}.data-table{width:100%;border-collapse:collapse;min-width:850px}.data-table th,.data-table td{text-align:left;padding:12px;border-bottom:1px solid #e5e7eb;white-space:nowrap}@media(max-width:700px){.simple-list-item{align-items:flex-start;flex-direction:column}.simple-list-item button,.simple-list-item select{width:100%}}
+
+/* =========================================================
+   ADMIN - ŽÁDOSTI O PŘIDĚLENÍ
+========================================================= */
+.assignment-admin-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.assignment-admin-eyebrow {
+  margin-bottom: 7px;
+  color: #2f6fed;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.assignment-admin-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
+  gap: 18px;
+}
+
+.assignment-admin-card {
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e3e8f0;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(23, 32, 51, .06);
+}
+
+.assignment-admin-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid #edf1f6;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.assignment-admin-vehicle {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.assignment-admin-bus-icon {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: #eaf1ff;
+  font-size: 22px;
+}
+
+.assignment-admin-title {
+  min-width: 0;
+}
+
+.assignment-admin-title > span {
+  display: block;
+  margin-bottom: 3px;
+  color: #7b879b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .09em;
+}
+
+.assignment-admin-title h3 {
+  margin: 0;
+  color: #172033;
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.assignment-admin-title p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #68758a;
+  font-size: 12px;
+}
+
+.assignment-status-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 190px;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.assignment-status-badge.pending {
+  background: #fff4d6;
+  color: #93631a;
+}
+
+.assignment-status-badge.approved {
+  background: #dcfce7;
+  color: #18733a;
+}
+
+.assignment-status-badge.rejected {
+  background: #fee2e2;
+  color: #a52b2b;
+}
+
+.assignment-status-badge.done {
+  background: #e9edf3;
+  color: #526072;
+}
+
+.assignment-admin-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: #edf1f6;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.assignment-admin-info {
+  min-width: 0;
+  padding: 15px 18px;
+  background: #fff;
+}
+
+.assignment-admin-info span {
+  display: block;
+  margin-bottom: 5px;
+  color: #8994a6;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.assignment-admin-info strong {
+  display: block;
+  color: #263248;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.assignment-admin-note {
+  margin: 17px 20px;
+  padding: 14px 15px;
+  border: 1px solid #e6ebf2;
+  border-radius: 12px;
+  background: #fafbfd;
+}
+
+.assignment-admin-note > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #7a8496;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.assignment-admin-note p {
+  margin: 0;
+  color: #3f4b5f;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assignment-admin-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 0 20px 20px;
+}
+
+.assignment-admin-status-control {
+  min-width: 0;
+  flex: 1;
+}
+
+.assignment-admin-status-control label {
+  display: block;
+  margin-bottom: 6px;
+  color: #7a8496;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.assignment-status-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d6dce6;
+  border-radius: 10px;
+  background: #fff;
+  color: #263248;
+  font-weight: 700;
+  outline: none;
+}
+
+.assignment-status-select:focus {
+  border-color: #6d94e8;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, .08);
+}
+
+.assignment-delete-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid #f0caca;
+  border-radius: 10px;
+  background: #fff3f3;
+  color: #b42323;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background .15s ease, transform .15s ease;
+}
+
+.assignment-delete-button:hover:not(:disabled) {
+  background: #ffe6e6;
+  transform: translateY(-1px);
+}
+
+.assignment-delete-button:disabled,
+.assignment-status-select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.assignment-admin-empty {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 30px;
+  border: 1px solid #e3e8f0;
+  border-radius: 18px;
+  background: #fff;
+  color: #7a8496;
+  text-align: center;
+}
+
+.assignment-admin-empty strong {
+  color: #2a3549;
+}
+
+.assignment-admin-empty-icon {
+  font-size: 30px;
+  margin-bottom: 3px;
+}
+
+@media (max-width: 760px) {
+  .assignment-admin-list {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-admin-card-head {
+    flex-direction: column;
+  }
+
+  .assignment-status-badge {
+    max-width: 100%;
+    align-self: flex-start;
+  }
+
+  .assignment-admin-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-admin-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .assignment-delete-button {
+    width: 100%;
+  }
+}
+
 `;
 
 export default App;
