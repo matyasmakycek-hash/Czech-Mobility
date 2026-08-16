@@ -3744,20 +3744,93 @@ function AdminVehicleRequests() {
     setError("");
     setSuccess("");
 
+    const request = requests.find((item) => item.id === id);
+
+    if (!request) {
+      setError("Žádost se nepodařilo najít.");
+      setSavingId(null);
+      return;
+    }
+
+    // Při schválení žádosti automaticky přidělíme žadatele k vozu.
+    // Pokud už je Řidič 1 obsazený, použije se Řidič 2.
+    if (stav === "SCHVÁLENO") {
+      const applicant = profiles[request.uzivatel_id];
+      const driverName = applicant?.jmeno?.trim();
+
+      if (!driverName) {
+        setError("U žadatele není vyplněné jméno, proto ho nelze přidělit k vozu.");
+        setSavingId(null);
+        return;
+      }
+
+      const { data: vehicleRow, error: vehicleLoadError } = await supabase
+        .from("vozy")
+        .select("id, cislo, ridic_1, ridic_2")
+        .eq("id", request.vuz_id)
+        .single();
+
+      if (vehicleLoadError || !vehicleRow) {
+        setError(
+          vehicleLoadError?.message || "Vůz se nepodařilo načíst."
+        );
+        setSavingId(null);
+        return;
+      }
+
+      const driver1 = (vehicleRow.ridic_1 || "").trim();
+      const driver2 = (vehicleRow.ridic_2 || "").trim();
+      const alreadyAssigned =
+        driver1.toLowerCase() === driverName.toLowerCase() ||
+        driver2.toLowerCase() === driverName.toLowerCase();
+
+      if (!alreadyAssigned) {
+        let vehiclePayload = null;
+
+        if (!driver1) {
+          vehiclePayload = { ridic_1: driverName };
+        } else if (!driver2) {
+          vehiclePayload = { ridic_2: driverName };
+        } else {
+          setError(
+            `Vůz ${vehicleRow.cislo ?? ""} už má přidělené dva řidiče (${driver1} a ${driver2}).`
+          );
+          setSavingId(null);
+          return;
+        }
+
+        const { error: vehicleUpdateError } = await supabase
+          .from("vozy")
+          .update(vehiclePayload)
+          .eq("id", request.vuz_id);
+
+        if (vehicleUpdateError) {
+          setError(vehicleUpdateError.message);
+          setSavingId(null);
+          return;
+        }
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("zadosti_vozidla")
       .update({ stav })
       .eq("id", id);
 
-    setSavingId(null);
-
     if (updateError) {
       setError(updateError.message);
+      setSavingId(null);
       return;
     }
 
-    setSuccess("Stav žádosti byl změněn.");
+    setSuccess(
+      stav === "SCHVÁLENO"
+        ? "Žádost byla schválena a řidič byl přidělen k vozu."
+        : "Stav žádosti byl změněn."
+    );
+
     await loadRequests();
+    setSavingId(null);
   }
 
   return (
@@ -5431,7 +5504,7 @@ button {
 .vehicle-row {
   display: grid;
   grid-template-columns:
-    80px 140px minmax(0, 1fr) 120px 80px minmax(150px, 190px);
+    80px 140px 1fr 120px 80px 150px;
   gap: 15px;
   align-items: center;
 }
@@ -5460,23 +5533,7 @@ button {
 }
 
 .vehicle-status {
-  white-space: normal;
-  max-width: 100%;
-  width: fit-content;
-  box-sizing: border-box;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  line-height: 1.25;
-  text-align: center;
-}
-
-.vehicle-row > * {
-  min-width: 0;
-}
-
-.vehicle-row > span:last-child {
-  min-width: 0;
-  overflow: hidden;
+  white-space: nowrap;
 }
 
 .admin-vehicles-list {
@@ -5617,12 +5674,7 @@ button {
 
   .vehicle-row {
     grid-template-columns:
-      70px minmax(0, 1fr);
-  }
-
-  .vehicle-status {
-    max-width: 100%;
-    white-space: normal;
+      70px 1fr;
   }
 
   .vehicle-row > * {
