@@ -67,6 +67,10 @@ function Login({ onLogin }) {
   );
 }
 
+/* =========================
+   VOZY
+========================= */
+
 function Vehicles() {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,8 +84,7 @@ function Vehicles() {
 
       const { data, error } = await supabase
         .from("vozy")
-        .select("*")
-        .order("císlo", { ascending: true });
+        .select("*");
 
       console.log("VOZY DATA:", data);
       console.log("VOZY ERROR:", error);
@@ -99,11 +102,69 @@ function Vehicles() {
     loadVehicles();
   }, []);
 
-  const filteredVehicles = vehicles.filter((vehicle) =>
-    `${vehicle.císlo || ""} ${vehicle.vyrobce || ""} ${vehicle.typ || ""} ${vehicle.spz || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+  /*
+    Najde hodnotu i když je sloupec pojmenovaný
+    například:
+    cislo
+    číslo
+    císlo
+    evidencni_cislo
+    evidenční_číslo
+  */
+
+  function getValue(vehicle, names) {
+    for (const name of names) {
+      if (
+        vehicle[name] !== undefined &&
+        vehicle[name] !== null
+      ) {
+        return vehicle[name];
+      }
+    }
+
+    return "-";
+  }
+
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const text = [
+      getValue(vehicle, [
+        "číslo",
+        "císlo",
+        "cislo",
+        "evidencni_cislo",
+        "evidenční_číslo",
+        "evidencniCislo",
+      ]),
+      getValue(vehicle, [
+        "výrobce",
+        "vyrobce",
+        "manufacturer",
+      ]),
+      getValue(vehicle, [
+        "typ",
+        "type",
+        "model",
+      ]),
+      getValue(vehicle, [
+        "spz",
+        "SPZ",
+        "rz",
+        "RZ",
+      ]),
+      getValue(vehicle, [
+        "rok",
+        "year",
+      ]),
+      getValue(vehicle, [
+        "stav",
+        "status",
+      ]),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return text.includes(search.toLowerCase());
+  });
 
   return (
     <div>
@@ -118,7 +179,8 @@ function Vehicles() {
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel vehicles-panel">
+
         <input
           className="search"
           type="text"
@@ -143,39 +205,81 @@ function Vehicles() {
 
         {!loading && !error && (
           <>
-            <div className="vehicle-header">
-              <span>Číslo</span>
-              <span>Výrobce</span>
-              <span>Typ</span>
-              <span>SPZ</span>
-              <span>Rok</span>
-              <span>Stav</span>
-            </div>
-
-            {filteredVehicles.map((vehicle) => (
-              <div
-                className="vehicle-row"
-                key={vehicle.id}
-              >
-                <strong>{vehicle.císlo || "-"}</strong>
-                <span>{vehicle.vyrobce || "-"}</span>
-                <span>{vehicle.typ || "-"}</span>
-                <span>{vehicle.spz || "-"}</span>
-                <span>{vehicle.rok || "-"}</span>
-                <span>
-                  <span className="status">
-                    {vehicle.stav || "-"}
-                  </span>
-                </span>
+            {filteredVehicles.length > 0 && (
+              <div className="vehicle-header">
+                <span>Číslo</span>
+                <span>Výrobce</span>
+                <span>Typ</span>
+                <span>SPZ</span>
+                <span>Rok</span>
+                <span>Stav</span>
               </div>
-            ))}
+            )}
+
+            {filteredVehicles.map((vehicle) => {
+              const cislo = getValue(vehicle, [
+                "číslo",
+                "císlo",
+                "cislo",
+                "evidencni_cislo",
+                "evidenční_číslo",
+                "evidencniCislo",
+              ]);
+
+              const vyrobce = getValue(vehicle, [
+                "výrobce",
+                "vyrobce",
+                "manufacturer",
+              ]);
+
+              const typ = getValue(vehicle, [
+                "typ",
+                "type",
+                "model",
+              ]);
+
+              const spz = getValue(vehicle, [
+                "spz",
+                "SPZ",
+                "rz",
+                "RZ",
+              ]);
+
+              const rok = getValue(vehicle, [
+                "rok",
+                "year",
+              ]);
+
+              const stav = getValue(vehicle, [
+                "stav",
+                "status",
+              ]);
+
+              return (
+                <div
+                  className="vehicle-row"
+                  key={vehicle.id}
+                >
+                  <strong>{cislo}</strong>
+                  <span>{vyrobce}</span>
+                  <span>{typ}</span>
+                  <span>{spz}</span>
+                  <span>{rok}</span>
+
+                  <span>
+                    <span className="status">
+                      {stav}
+                    </span>
+                  </span>
+                </div>
+              );
+            })}
 
             {filteredVehicles.length === 0 && (
               <div className="empty">
-                Tabulka <strong>vozy</strong> je dostupná,
-                ale aktuálně nevrátila žádné záznamy.
-                <br />
-                Zkontroluj data v Supabase a RLS policy.
+                {vehicles.length === 0
+                  ? "Tabulka vozy neobsahuje žádné záznamy."
+                  : "Žádné vozy neodpovídají hledání."}
               </div>
             )}
           </>
@@ -184,6 +288,11 @@ function Vehicles() {
     </div>
   );
 }
+
+/* =========================
+   APP
+========================= */
+
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -194,13 +303,15 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
 
-      if (!session?.user) {
-        setPage("dashboard");
+        if (!session?.user) {
+          setPage("dashboard");
+        }
       }
-    });
+    );
 
     return () => subscription.unsubscribe();
   }, []);
@@ -224,7 +335,9 @@ function App() {
     return (
       <>
         <style>{styles}</style>
-        <div className="loading">Načítání...</div>
+        <div className="loading">
+          Načítání...
+        </div>
       </>
     );
   }
@@ -233,27 +346,38 @@ function App() {
     return (
       <>
         <style>{styles}</style>
-        <Login onLogin={(loggedUser) => setUser(loggedUser)} />
+
+        <Login
+          onLogin={(loggedUser) =>
+            setUser(loggedUser)
+          }
+        />
       </>
     );
   }
 
   const isAdmin =
-    user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL.toLowerCase();
 
   return (
     <>
       <style>{styles}</style>
 
       <div className="app">
+
         <aside className="sidebar">
+
           <div className="brand">
-            <div className="brand-logo">CM</div>
+            <div className="brand-logo">
+              CM
+            </div>
 
             <div>
               <div className="brand-title">
                 Czech Mobility
               </div>
+
               <div className="brand-subtitle">
                 VDP systém
               </div>
@@ -265,33 +389,58 @@ function App() {
           </div>
 
           <nav className="menu">
+
             <button
-              className={page === "dashboard" ? "active" : ""}
-              onClick={() => setPage("dashboard")}
+              className={
+                page === "dashboard"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("dashboard")
+              }
             >
               <span>⌂</span>
               Dashboard
             </button>
 
             <button
-              className={page === "departures" ? "active" : ""}
-              onClick={() => setPage("departures")}
+              className={
+                page === "departures"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("departures")
+              }
             >
               <span>◈</span>
               Výpravy
             </button>
 
             <button
-              className={page === "vehicles" ? "active" : ""}
-              onClick={() => setPage("vehicles")}
+              className={
+                page === "vehicles"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("vehicles")
+              }
             >
               <span>▣</span>
               Vozy
             </button>
 
             <button
-              className={page === "reports" ? "active" : ""}
-              onClick={() => setPage("reports")}
+              className={
+                page === "reports"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("reports")
+              }
             >
               <span>▤</span>
               Moje výkazy
@@ -299,16 +448,24 @@ function App() {
 
             {isAdmin && (
               <button
-                className={page === "admin" ? "active" : ""}
-                onClick={() => setPage("admin")}
+                className={
+                  page === "admin"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage("admin")
+                }
               >
                 <span>⚙</span>
                 Administrace
               </button>
             )}
+
           </nav>
 
           <div className="user-box">
+
             <div className="avatar">
               {(user.email || "U")
                 .charAt(0)
@@ -316,8 +473,11 @@ function App() {
             </div>
 
             <div className="user-info">
+
               <div className="user-name">
-                {isAdmin ? "Maty" : user.email}
+                {isAdmin
+                  ? "Maty"
+                  : user.email}
               </div>
 
               <div className="user-role">
@@ -325,6 +485,7 @@ function App() {
                   ? "Administrátor"
                   : "Řidič"}
               </div>
+
             </div>
 
             <button
@@ -333,7 +494,9 @@ function App() {
             >
               Odhlásit
             </button>
+
           </div>
+
         </aside>
 
         <main className="content">
@@ -341,43 +504,70 @@ function App() {
           {page === "dashboard" && (
             <>
               <div className="topbar">
+
                 <div>
-                  <h1>Dashboard</h1>
+                  <h1>
+                    Dashboard
+                  </h1>
+
                   <p>
-                    Informační systém Czech Mobility
+                    Informační systém
+                    Czech Mobility
                   </p>
                 </div>
 
                 <div className="profile-badge">
-                  {isAdmin ? "ADMIN" : "ŘIDIČ"}
+                  {isAdmin
+                    ? "ADMIN"
+                    : "ŘIDIČ"}
                 </div>
+
               </div>
 
               <div className="stats">
+
                 <div className="stat">
-                  <span>Dnešní výpravy</span>
+                  <span>
+                    Dnešní výpravy
+                  </span>
                   <strong>0</strong>
                 </div>
 
                 <div className="stat">
-                  <span>Aktivní vozy</span>
-                  <strong>14</strong>
+                  <span>
+                    Aktivní vozy
+                  </span>
+                  <strong>
+                    {14}
+                  </strong>
                 </div>
 
                 <div className="stat">
-                  <span>Vozy celkem</span>
-                  <strong>42</strong>
+                  <span>
+                    Vozy celkem
+                  </span>
+                  <strong>
+                    {42}
+                  </strong>
                 </div>
 
                 <div className="stat">
-                  <span>Provozovny</span>
+                  <span>
+                    Provozovny
+                  </span>
                   <strong>1</strong>
                 </div>
+
               </div>
 
               <div className="panel">
+
                 <h2>
-                  Vítej, {isAdmin ? "Maty" : user.email} 👋
+                  Vítej,{" "}
+                  {isAdmin
+                    ? "Maty"
+                    : user.email}{" "}
+                  👋
                 </h2>
 
                 <p>
@@ -388,44 +578,67 @@ function App() {
                       : "řidič"}
                   </strong>.
                 </p>
+
               </div>
             </>
           )}
 
           {page === "departures" && (
             <div className="panel">
-              <h1>Výpravy</h1>
+              <h1>
+                Výpravy
+              </h1>
+
               <p>
                 Tady budou výpravy vozů.
               </p>
             </div>
           )}
 
-          {page === "vehicles" && <Vehicles />}
+          {page === "vehicles" && (
+            <Vehicles />
+          )}
 
           {page === "reports" && (
             <div className="panel">
-              <h1>Moje výkazy</h1>
+
+              <h1>
+                Moje výkazy
+              </h1>
+
               <p>
-                Zde budou výkazy přihlášeného řidiče.
+                Zde budou výkazy
+                přihlášeného řidiče.
               </p>
+
             </div>
           )}
 
-          {page === "admin" && isAdmin && (
-            <div className="panel">
-              <h1>Administrace</h1>
-              <p>
-                Správa systému Czech Mobility.
-              </p>
-            </div>
-          )}
+          {page === "admin" &&
+            isAdmin && (
+              <div className="panel">
+
+                <h1>
+                  Administrace
+                </h1>
+
+                <p>
+                  Správa systému
+                  Czech Mobility.
+                </p>
+
+              </div>
+            )}
 
         </main>
       </div>
     </>
   );
 }
+
+/* =========================
+   STYLY
+========================= */
 
 const styles = `
 * {
