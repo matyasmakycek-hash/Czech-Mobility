@@ -548,7 +548,12 @@ function AdminUsers() {
   );
 
   async function deleteRequest(id) {
-    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) return;
+    setError("");
+    setSuccess("");
+
+    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) {
+      return;
+    }
 
     const { error } = await supabase
       .from("zadosti_vozidla")
@@ -556,6 +561,7 @@ function AdminUsers() {
       .eq("id", id);
 
     if (error) {
+      console.error("Chyba mazání žádosti:", error);
       setError(error.message);
       return;
     }
@@ -568,7 +574,7 @@ function AdminUsers() {
     });
 
     setSuccess("Žádost byla smazána.");
-    loadRequests();
+    await loadRequests();
   }
 
   return (
