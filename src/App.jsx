@@ -5431,7 +5431,7 @@ button {
 .vehicle-row {
   display: grid;
   grid-template-columns:
-    80px 140px 1fr 120px 80px 150px;
+    80px 140px minmax(0, 1fr) 120px 80px minmax(150px, 190px);
   gap: 15px;
   align-items: center;
 }
@@ -5460,7 +5460,23 @@ button {
 }
 
 .vehicle-status {
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 100%;
+  width: fit-content;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.vehicle-row > * {
+  min-width: 0;
+}
+
+.vehicle-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .admin-vehicles-list {
@@ -5601,29 +5617,16 @@ button {
 
   .vehicle-row {
     grid-template-columns:
-      70px 1fr;
+      70px minmax(0, 1fr);
+  }
+
+  .vehicle-status {
+    max-width: 100%;
+    white-space: normal;
   }
 
   .vehicle-row > * {
     margin-bottom: 5px;
-    min-width: 0;
-  }
-
-  /* Na mobilu se dlouhy stav musi vejit do druheho sloupce. */
-  .vehicle-row .vehicle-status {
-    display: inline-block;
-    max-width: 100%;
-    box-sizing: border-box;
-    white-space: normal;
-    overflow-wrap: break-word;
-    word-break: normal;
-    line-height: 1.25;
-    text-align: center;
-  }
-
-  .vehicle-row > span {
-    min-width: 0;
-    max-width: 100%;
   }
 
   .provozovna-bar {
