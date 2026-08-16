@@ -3,6 +3,10 @@ import { supabase } from "./supabase";
 
 const ADMIN_EMAIL = "matyas.makycek@gmail.com";
 
+/* =========================
+   LOGIN
+========================= */
+
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -11,6 +15,7 @@ function Login({ onLogin }) {
 
   async function handleLogin(e) {
     e.preventDefault();
+
     setError("");
     setLoading(true);
 
@@ -39,6 +44,7 @@ function Login({ onLogin }) {
 
         <form onSubmit={handleLogin}>
           <label>E-mail</label>
+
           <input
             type="email"
             value={email}
@@ -48,6 +54,7 @@ function Login({ onLogin }) {
           />
 
           <label>Heslo</label>
+
           <input
             type="password"
             value={password}
@@ -56,7 +63,11 @@ function Login({ onLogin }) {
             required
           />
 
-          {error && <div className="login-error">{error}</div>}
+          {error && (
+            <div className="login-error">
+              {error}
+            </div>
+          )}
 
           <button type="submit" disabled={loading}>
             {loading ? "Přihlašování..." : "Přihlásit se"}
@@ -78,90 +89,55 @@ function Vehicles() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    async function loadVehicles() {
-      setLoading(true);
-      setError("");
-
-      const { data, error } = await supabase
-        .from("vozy")
-        .select("*");
-
-      console.log("VOZY DATA:", data);
-      console.log("VOZY ERROR:", error);
-
-      if (error) {
-        setError(error.message);
-        setVehicles([]);
-      } else {
-        setVehicles(data || []);
-      }
-
-      setLoading(false);
-    }
-
     loadVehicles();
   }, []);
 
-  /*
-    Najde hodnotu i když je sloupec pojmenovaný
-    například:
-    cislo
-    číslo
-    císlo
-    evidencni_cislo
-    evidenční_číslo
-  */
+  async function loadVehicles() {
+    setLoading(true);
+    setError("");
 
-  function getValue(vehicle, names) {
-    for (const name of names) {
-      if (
-        vehicle[name] !== undefined &&
-        vehicle[name] !== null
-      ) {
-        return vehicle[name];
-      }
+    const { data, error } = await supabase
+      .from("vozy")
+      .select(`
+        id,
+        cislo,
+        vyrobce,
+        typ,
+        spz,
+        rok,
+        barevne_schema,
+        stav,
+        provozovna_id,
+        vytvoreno
+      `)
+      .order("cislo", { ascending: true });
+
+    console.log("VOZY DATA:", data);
+    console.log("VOZY ERROR:", error);
+
+    if (error) {
+      console.error("Chyba při načítání vozů:", error);
+      setError(error.message);
+      setVehicles([]);
+    } else {
+      setVehicles(data || []);
     }
 
-    return "-";
+    setLoading(false);
   }
 
   const filteredVehicles = vehicles.filter((vehicle) => {
-    const text = [
-      getValue(vehicle, [
-        "číslo",
-        "císlo",
-        "cislo",
-        "evidencni_cislo",
-        "evidenční_číslo",
-        "evidencniCislo",
-      ]),
-      getValue(vehicle, [
-        "výrobce",
-        "vyrobce",
-        "manufacturer",
-      ]),
-      getValue(vehicle, [
-        "typ",
-        "type",
-        "model",
-      ]),
-      getValue(vehicle, [
-        "spz",
-        "SPZ",
-        "rz",
-        "RZ",
-      ]),
-      getValue(vehicle, [
-        "rok",
-        "year",
-      ]),
-      getValue(vehicle, [
-        "stav",
-        "status",
-      ]),
-    ]
-      .join(" ")
-      .toLowerCase();
+    const text = `
+      ${vehicle.cislo || ""}
+      ${vehicle.vyrobce || ""}
+      ${vehicle.typ || ""}
+      ${vehicle.spz || ""}
+      ${vehicle.rok || ""}
+      ${vehicle.barevne_schema || ""}
+      ${vehicle.stav || ""}
+    `
+      .toLowerCase()
+      .trim();
 
     return text.includes(search.toLowerCase());
   });
@@ -205,75 +181,47 @@ function Vehicles() {
 
         {!loading && !error && (
           <>
-            {filteredVehicles.length > 0 && (
-              <div className="vehicle-header">
-                <span>Číslo</span>
-                <span>Výrobce</span>
-                <span>Typ</span>
-                <span>SPZ</span>
-                <span>Rok</span>
-                <span>Stav</span>
-              </div>
-            )}
+            <div className="vehicle-header">
+              <span>Číslo</span>
+              <span>Výrobce</span>
+              <span>Typ</span>
+              <span>SPZ</span>
+              <span>Rok</span>
+              <span>Stav</span>
+            </div>
 
-            {filteredVehicles.map((vehicle) => {
-              const cislo = getValue(vehicle, [
-                "číslo",
-                "císlo",
-                "cislo",
-                "evidencni_cislo",
-                "evidenční_číslo",
-                "evidencniCislo",
-              ]);
+            {filteredVehicles.map((vehicle) => (
+              <div
+                className="vehicle-row"
+                key={vehicle.id}
+              >
+                <strong>
+                  {vehicle.cislo || "-"}
+                </strong>
 
-              const vyrobce = getValue(vehicle, [
-                "výrobce",
-                "vyrobce",
-                "manufacturer",
-              ]);
+                <span>
+                  {vehicle.vyrobce || "-"}
+                </span>
 
-              const typ = getValue(vehicle, [
-                "typ",
-                "type",
-                "model",
-              ]);
+                <span>
+                  {vehicle.typ || "-"}
+                </span>
 
-              const spz = getValue(vehicle, [
-                "spz",
-                "SPZ",
-                "rz",
-                "RZ",
-              ]);
+                <span>
+                  {vehicle.spz || "-"}
+                </span>
 
-              const rok = getValue(vehicle, [
-                "rok",
-                "year",
-              ]);
+                <span>
+                  {vehicle.rok || "-"}
+                </span>
 
-              const stav = getValue(vehicle, [
-                "stav",
-                "status",
-              ]);
-
-              return (
-                <div
-                  className="vehicle-row"
-                  key={vehicle.id}
-                >
-                  <strong>{cislo}</strong>
-                  <span>{vyrobce}</span>
-                  <span>{typ}</span>
-                  <span>{spz}</span>
-                  <span>{rok}</span>
-
-                  <span>
-                    <span className="status">
-                      {stav}
-                    </span>
+                <span>
+                  <span className="status">
+                    {vehicle.stav || "-"}
                   </span>
-                </div>
-              );
-            })}
+                </span>
+              </div>
+            ))}
 
             {filteredVehicles.length === 0 && (
               <div className="empty">
@@ -327,6 +275,7 @@ function App() {
 
   async function logout() {
     await supabase.auth.signOut();
+
     setUser(null);
     setPage("dashboard");
   }
@@ -335,6 +284,7 @@ function App() {
     return (
       <>
         <style>{styles}</style>
+
         <div className="loading">
           Načítání...
         </div>
@@ -365,6 +315,8 @@ function App() {
       <style>{styles}</style>
 
       <div className="app">
+
+        {/* SIDEBAR */}
 
         <aside className="sidebar">
 
@@ -464,6 +416,8 @@ function App() {
 
           </nav>
 
+          {/* USER */}
+
           <div className="user-box">
 
             <div className="avatar">
@@ -499,7 +453,11 @@ function App() {
 
         </aside>
 
+        {/* CONTENT */}
+
         <main className="content">
+
+          {/* DASHBOARD */}
 
           {page === "dashboard" && (
             <>
@@ -530,15 +488,19 @@ function App() {
                   <span>
                     Dnešní výpravy
                   </span>
-                  <strong>0</strong>
+
+                  <strong>
+                    0
+                  </strong>
                 </div>
 
                 <div className="stat">
                   <span>
                     Aktivní vozy
                   </span>
+
                   <strong>
-                    {14}
+                    14
                   </strong>
                 </div>
 
@@ -546,8 +508,9 @@ function App() {
                   <span>
                     Vozy celkem
                   </span>
+
                   <strong>
-                    {42}
+                    42
                   </strong>
                 </div>
 
@@ -555,7 +518,10 @@ function App() {
                   <span>
                     Provozovny
                   </span>
-                  <strong>1</strong>
+
+                  <strong>
+                    1
+                  </strong>
                 </div>
 
               </div>
@@ -583,8 +549,11 @@ function App() {
             </>
           )}
 
+          {/* VÝPRAVY */}
+
           {page === "departures" && (
             <div className="panel">
+
               <h1>
                 Výpravy
               </h1>
@@ -592,12 +561,17 @@ function App() {
               <p>
                 Tady budou výpravy vozů.
               </p>
+
             </div>
           )}
+
+          {/* VOZY */}
 
           {page === "vehicles" && (
             <Vehicles />
           )}
+
+          {/* VÝKAZY */}
 
           {page === "reports" && (
             <div className="panel">
@@ -613,6 +587,8 @@ function App() {
 
             </div>
           )}
+
+          {/* ADMIN */}
 
           {page === "admin" &&
             isAdmin && (
@@ -656,6 +632,8 @@ button,
 input {
   font-family: inherit;
 }
+
+/* LOGIN */
 
 .login-page {
   min-height: 100vh;
@@ -727,6 +705,8 @@ input {
   margin-top: 15px;
 }
 
+/* LOADING */
+
 .loading {
   min-height: 100vh;
   display: flex;
@@ -734,10 +714,14 @@ input {
   justify-content: center;
 }
 
+/* APP */
+
 .app {
   min-height: 100vh;
   display: flex;
 }
+
+/* SIDEBAR */
 
 .sidebar {
   width: 255px;
@@ -811,6 +795,8 @@ input {
   color: white;
 }
 
+/* USER */
+
 .user-box {
   margin-top: auto;
   border-top: 1px solid #273245;
@@ -859,6 +845,8 @@ input {
   font-size: 10px;
 }
 
+/* CONTENT */
+
 .content {
   margin-left: 255px;
   padding: 35px;
@@ -888,6 +876,8 @@ input {
   font-weight: 700;
 }
 
+/* STATS */
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -913,6 +903,8 @@ input {
   margin-top: 10px;
 }
 
+/* PANEL */
+
 .panel {
   background: white;
   border-radius: 16px;
@@ -923,6 +915,8 @@ input {
 .vehicles-panel {
   margin-top: 25px;
 }
+
+/* SEARCH */
 
 .search {
   width: 100%;
@@ -937,10 +931,18 @@ input {
   border-color: #2563eb;
 }
 
+/* VEHICLES */
+
 .vehicle-header,
 .vehicle-row {
   display: grid;
-  grid-template-columns: 80px 140px 1fr 120px 80px 120px;
+  grid-template-columns:
+    80px
+    140px
+    1fr
+    120px
+    80px
+    120px;
   gap: 15px;
   align-items: center;
 }
@@ -983,7 +985,10 @@ input {
   color: #b91c1c;
 }
 
+/* RESPONSIVE */
+
 @media (max-width: 800px) {
+
   .sidebar {
     width: 210px;
   }
@@ -999,7 +1004,10 @@ input {
 
   .vehicle-header,
   .vehicle-row {
-    grid-template-columns: 70px 1fr 1fr;
+    grid-template-columns:
+      70px
+      1fr
+      1fr;
   }
 
   .vehicle-header span:nth-child(n+4),
@@ -1009,6 +1017,7 @@ input {
 }
 
 @media (max-width: 600px) {
+
   .sidebar {
     display: none;
   }
