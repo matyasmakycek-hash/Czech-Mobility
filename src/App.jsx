@@ -547,6 +547,30 @@ function AdminUsers() {
     (invite) => !invite.used
   );
 
+  async function deleteRequest(id) {
+    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) return;
+
+    const { error } = await supabase
+      .from("zadosti_vozidla")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    await supabase.from("audit_log").insert({
+      akce: "SMAZÁNA ŽÁDOST O PŘIDĚLENÍ",
+      entita: "zadosti_vozidla",
+      entita_id: String(id),
+      detail: "Smazána žádost o přidělení vozidla"
+    });
+
+    setSuccess("Žádost byla smazána.");
+    loadRequests();
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -3764,32 +3788,6 @@ function AdminVehicleRequests() {
     setLoading(false);
   }
 
-  async function deleteRequest(id) {
-    if (!window.confirm("Opravdu chceš smazat tuto žádost o přidělení?")) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from("zadosti_vozidla")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    await supabase.from("audit_log").insert({
-      akce: "SMAZÁNA ŽÁDOST O PŘIDĚLENÍ",
-      entita: "zadosti_vozidla",
-      entita_id: String(id),
-      detail: "Administrátor/dispečer smazal žádost o přidělení vozu"
-    });
-
-    setSuccess("Žádost byla smazána.");
-    loadRequests();
-  }
-
   useEffect(() => {
     loadRequests();
   }, []);
@@ -3990,7 +3988,7 @@ function AdminVehicleRequests() {
             const vehicle = vehicles[request.vuz_id];
 
             return (
-              <article className="admin-report-card" key={request.id}>
+              <article className="admin-report-card request-card" key={request.id}>
                 <div className="admin-report-header">
                   <div>
                     <span className="admin-report-date">
@@ -4003,17 +4001,26 @@ function AdminVehicleRequests() {
                     </h3>
                   </div>
 
-                  <select
-                    className="status-select"
-                    value={request.stav || "ČEKÁ NA VYŘÍZENÍ"}
-                    onChange={(e) => changeStatus(request.id, e.target.value)}
-                    disabled={savingId === request.id}
-                  >
-                    <option value="ČEKÁ NA VYŘÍZENÍ">ČEKÁ NA VYŘÍZENÍ</option>
-                    <option value="SCHVÁLENO">SCHVÁLENO</option>
-                    <option value="ZAMÍTNUTO">ZAMÍTNUTO</option>
-                    <option value="VYŘÍZENO">VYŘÍZENO</option>
-                  </select>
+                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                    <select
+                      className="status-select"
+                      value={request.stav || "ČEKÁ NA VYŘÍZENÍ"}
+                      onChange={(e) => changeStatus(request.id, e.target.value)}
+                      disabled={savingId === request.id}
+                    >
+                      <option value="ČEKÁ NA VYŘÍZENÍ">ČEKÁ NA VYŘÍZENÍ</option>
+                      <option value="SCHVÁLENO">SCHVÁLENO</option>
+                      <option value="ZAMÍTNUTO">ZAMÍTNUTO</option>
+                      <option value="VYŘÍZENO">VYŘÍZENO</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() => deleteRequest(request.id)}
+                    >
+                      🗑️ Smazat
+                    </button>
+                  </div>
                 </div>
 
                 <div className="admin-report-grid">
@@ -4386,43 +4393,7 @@ function VehicleFaults({ user, role }) {
  async function load(){const [a,b]=await Promise.all([supabase.from("vehicle_faults").select("*").order("created_at",{ascending:false}),supabase.from("vozy").select("id,cislo").order("cislo")]); if(a.error)setError(a.error.message); setRows(a.data||[]);setVehicles(b.data||[])} useEffect(()=>{load()},[]);
  async function add(e){e.preventDefault();const {error}=await supabase.from("vehicle_faults").insert({...form,vuz_id:Number(form.vuz_id),uzivatel_id:user.id});if(error)setError(error.message);else{await supabase.from("vehicle_history").insert({vuz_id:Number(form.vuz_id),uzivatel_id:user.id,typ:"ZAVADA",popis:`Nahlášena závada: ${form.nazev}`});setForm({vuz_id:"",nazev:"",popis:"",zavaznost:"BĚŽNÁ"});load()}}
  async function status(r,stav){await supabase.from("vehicle_faults").update({stav,vyreseno_at:stav==="OPRAVENO"?new Date().toISOString():null}).eq("id",r.id);load()}
- return <div><div className="topbar"><div><h1>Závady vozů</h1><p>Evidence a řešení závad</p></div></div>{error&&<div className="error-box">{error}</div>}<div className="panel"><h2>Nahlásit závadu</h2><form onSubmit={add} className="form-grid"><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vyber vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>Vůz {v.cislo}</option>)}</select><input placeholder="Název závady" value={form.nazev} onChange={e=>setForm({...form,nazev:e.target.value})} required/><select value={form.zavaznost} onChange={e=>setForm({...form,zavaznost:e.target.value})}><option>BĚŽNÁ</option><option>VÁŽNÁ</option><option>KRITICKÁ</option></select><input placeholder="Popis" value={form.popis} onChange={e=>setForm({...form,popis:e.target.value})}/><button className="primary-button">Nahlásit</button></form></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>Vůz {vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id} · {r.nazev}</strong><div>{r.zavaznost} · {r.popis||"Bez popisu"}</div></div>{manage ? (
-  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-    <select value={r.stav} onChange={e=>status(r,e.target.value)}>
-      <option>NOVÁ</option>
-      <option>ŘEŠÍ SE</option>
-      <option>OPRAVENO</option>
-    </select>
-    <button
-      type="button"
-      className="delete-button"
-      onClick={async()=>{
-        if(!window.confirm("Opravdu chceš smazat tuto závadu?")) return;
-
-        const { error } = await supabase
-          .from("vehicle_faults")
-          .delete()
-          .eq("id", r.id);
-
-        if(error){
-          setError(error.message);
-          return;
-        }
-
-        await supabase.from("audit_log").insert({
-          akce:"SMAZÁNA ZÁVADA",
-          entita:"vehicle_faults",
-          entita_id:String(r.id),
-          detail:`Smazána závada ${r.nazev}`
-        });
-
-        load();
-      }}
-    >
-      🗑️ Smazat
-    </button>
-  </div>
-) : <strong>{r.stav}</strong>}</div>)}</div></div>
+ return <div><div className="topbar"><div><h1>Závady vozů</h1><p>Evidence a řešení závad</p></div></div>{error&&<div className="error-box">{error}</div>}<div className="panel"><h2>Nahlásit závadu</h2><form onSubmit={add} className="form-grid"><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vyber vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>Vůz {v.cislo}</option>)}</select><input placeholder="Název závady" value={form.nazev} onChange={e=>setForm({...form,nazev:e.target.value})} required/><select value={form.zavaznost} onChange={e=>setForm({...form,zavaznost:e.target.value})}><option>BĚŽNÁ</option><option>VÁŽNÁ</option><option>KRITICKÁ</option></select><input placeholder="Popis" value={form.popis} onChange={e=>setForm({...form,popis:e.target.value})}/><button className="primary-button">Nahlásit</button></form></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>Vůz {vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id} · {r.nazev}</strong><div>{r.zavaznost} · {r.popis||"Bez popisu"}</div></div>{manage?<select value={r.stav} onChange={e=>status(r,e.target.value)}><option>NOVÁ</option><option>ŘEŠÍ SE</option><option>OPRAVENO</option></select>:<strong>{r.stav}</strong>}</div>)}</div></div>
 }
 
 function Departures({ role }) { const manage=canManageVehicles(role); const [rows,setRows]=useState([]),[vehicles,setVehicles]=useState([]),[drivers,setDrivers]=useState([]),[form,setForm]=useState({datum:new Date().toISOString().slice(0,10),linka:"",poradi:"",vuz_id:"",ridic_id:"",zacatek:"",konec:"",poznamka:""}); async function load(){const [a,b,c]=await Promise.all([supabase.from("vypravy").select("*").order("datum",{ascending:false}),supabase.from("vozy").select("id,cislo,ridic_1,ridic_2"),supabase.from("profiles").select("id,jmeno").eq("role","ridic")]);setRows(a.data||[]);setVehicles(b.data||[]);setDrivers(c.data||[])} useEffect(()=>{load()},[]); async function add(e){e.preventDefault();await supabase.from("vypravy").insert({...form,vuz_id:Number(form.vuz_id),ridic_id:form.ridic_id||null});load()} return <div><div className="topbar"><div><h1>Výpravy</h1><p>Tabulka výprav vozů a řidičů</p></div></div>{manage&&<div className="panel"><form className="form-grid" onSubmit={add}><input type="date" value={form.datum} onChange={e=>setForm({...form,datum:e.target.value})} required/><input placeholder="Linka" value={form.linka} onChange={e=>setForm({...form,linka:e.target.value})} required/><input placeholder="Pořadí" value={form.poradi} onChange={e=>setForm({...form,poradi:e.target.value})}/><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.cislo}</option>)}</select><select value={form.ridic_id} onChange={e=>setForm({...form,ridic_id:e.target.value})}><option value="">Řidič</option>{drivers.map(d=><option key={d.id} value={d.id}>{d.jmeno}</option>)}</select><input type="time" value={form.zacatek} onChange={e=>setForm({...form,zacatek:e.target.value})}/><input type="time" value={form.konec} onChange={e=>setForm({...form,konec:e.target.value})}/><input placeholder="Poznámka" value={form.poznamka} onChange={e=>setForm({...form,poznamka:e.target.value})}/><button className="primary-button">Přidat výpravu</button></form></div>}<div className="panel table-scroll"><table className="data-table"><thead><tr><th>Datum</th><th>Linka</th><th>Pořadí</th><th>Vůz</th><th>Řidič</th><th>Začátek</th><th>Konec</th><th>Poznámka</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.datum}</td><td>{r.linka}</td><td>{r.poradi||"-"}</td><td>{vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id}</td><td>{drivers.find(d=>d.id===r.ridic_id)?.jmeno||"-"}</td><td>{r.zacatek||"-"}</td><td>{r.konec||"-"}</td><td>{r.poznamka||"-"}</td></tr>)}</tbody></table></div></div> }
