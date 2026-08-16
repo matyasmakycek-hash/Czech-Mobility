@@ -70,17 +70,24 @@ function Login({ onLogin }) {
 function Vehicles() {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     async function loadVehicles() {
+      setLoading(true);
+      setError("");
+
       const { data, error } = await supabase
         .from("vozy")
         .select("*")
         .order("císlo", { ascending: true });
 
+      console.log("VOZY DATA:", data);
+      console.log("VOZY ERROR:", error);
+
       if (error) {
-        console.error("Chyba při načítání vozů:", error);
+        setError(error.message);
         setVehicles([]);
       } else {
         setVehicles(data || []);
@@ -113,55 +120,70 @@ function Vehicles() {
 
       <div className="panel">
         <input
+          className="search"
           type="text"
           placeholder="🔎 Hledat vůz..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "12px",
-            border: "1px solid #d9dee7",
-            borderRadius: "9px",
-            marginBottom: "20px",
-            fontSize: "14px",
-          }}
         />
 
-        {loading ? (
-          <p>Načítání vozů...</p>
-        ) : (
-          <div>
+        {loading && (
+          <div className="empty">
+            Načítání vozů...
+          </div>
+        )}
+
+        {error && (
+          <div className="error-box">
+            <strong>Chyba při načítání vozů:</strong>
+            <br />
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div className="vehicle-header">
+              <span>Číslo</span>
+              <span>Výrobce</span>
+              <span>Typ</span>
+              <span>SPZ</span>
+              <span>Rok</span>
+              <span>Stav</span>
+            </div>
+
             {filteredVehicles.map((vehicle) => (
               <div
+                className="vehicle-row"
                 key={vehicle.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "80px 150px 1fr 120px 80px 120px",
-                  gap: "15px",
-                  padding: "15px 10px",
-                  borderBottom: "1px solid #e3e8f0",
-                  alignItems: "center",
-                }}
               >
                 <strong>{vehicle.císlo || "-"}</strong>
                 <span>{vehicle.vyrobce || "-"}</span>
                 <span>{vehicle.typ || "-"}</span>
                 <span>{vehicle.spz || "-"}</span>
                 <span>{vehicle.rok || "-"}</span>
-                <span>{vehicle.stav || "-"}</span>
+                <span>
+                  <span className="status">
+                    {vehicle.stav || "-"}
+                  </span>
+                </span>
               </div>
             ))}
 
             {filteredVehicles.length === 0 && (
-              <p>Žádné vozy nebyly nalezeny.</p>
+              <div className="empty">
+                Tabulka <strong>vozy</strong> je dostupná,
+                ale aktuálně nevrátila žádné záznamy.
+                <br />
+                Zkontroluj data v Supabase a RLS policy.
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
   );
 }
-
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
