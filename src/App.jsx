@@ -29,6 +29,10 @@ function canUseReports(role) {
   );
 }
 
+function canManageNews(role) {
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+}
+
 function getRoleName(role) {
   if (role === ROLE_ADMIN) return "Administrátor";
   if (role === ROLE_DISPECER) return "Dispečer";
@@ -2383,6 +2387,626 @@ function AdminReports() {
 }
 
 /* =========================================================
+   NOVINKY
+========================================================= */
+
+function News({ user, profile, role }) {
+  const [news, setNews] = useState([]);
+  const [confirmations, setConfirmations] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [selectedNews, setSelectedNews] = useState(null);
+
+  const canManage = canManageNews(role);
+  const isDriver = role === ROLE_RIDIC;
+
+  const emptyForm = {
+    nadpis: "",
+    obsah: "",
+    dulezitost: "Běžná",
+  };
+
+  const [form, setForm] = useState(emptyForm);
+
+  async function loadNews() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("novinky")
+      .select(`
+        id,
+        nadpis,
+        obsah,
+        dulezitost,
+        autor_id,
+        created_at
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("NOVINKY ERROR:", error);
+      setError(error.message);
+      setNews([]);
+      setLoading(false);
+      return;
+    }
+
+    setNews(data || []);
+
+    const newsIds = (data || []).map((item) => item.id);
+
+    if (newsIds.length > 0) {
+      const { data: confirmationData, error: confirmationError } =
+        await supabase
+          .from("novinky_potvrzeni")
+          .select("id, novinka_id, uzivatel_id, potvrzeno_at")
+          .in("novinka_id", newsIds);
+
+      if (confirmationError) {
+        console.error(
+          "NOVINKY POTVRZENI ERROR:",
+          confirmationError
+        );
+      }
+
+      setConfirmations(confirmationData || []);
+    } else {
+      setConfirmations([]);
+    }
+
+    if (canManage) {
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("id, jmeno, role")
+          .order("jmeno", { ascending: true });
+
+      if (profileError) {
+        console.error(
+          "NOVINKY PROFILES ERROR:",
+          profileError
+        );
+      }
+
+      setProfiles(profileData || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadNews();
+  }, [canManage]);
+
+  function openCreate() {
+    setEditing(null);
+    setForm(emptyForm);
+    setError("");
+    setSuccess("");
+    setShowForm(true);
+  }
+
+  function openEdit(item) {
+    setEditing(item);
+    setForm({
+      nadpis: item.nadpis || "",
+      obsah: item.obsah || "",
+      dulezitost: item.dulezitost || "Běžná",
+    });
+    setError("");
+    setSuccess("");
+    setShowForm(true);
+  }
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  }
+
+  async function saveNews(e) {
+    e.preventDefault();
+
+    const nadpis = form.nadpis.trim();
+    const obsah = form.obsah.trim();
+
+    if (!nadpis || !obsah) {
+      setError("Vyplň nadpis a text novinky.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      nadpis,
+      obsah,
+      dulezitost: form.dulezitost,
+    };
+
+    let result;
+
+    if (editing) {
+      result = await supabase
+        .from("novinky")
+        .update(payload)
+        .eq("id", editing.id);
+    } else {
+      result = await supabase
+        .from("novinky")
+        .insert({
+          ...payload,
+          autor_id: user.id,
+        });
+    }
+
+    if (result.error) {
+      console.error("SAVE NOVINKA ERROR:", result.error);
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editing
+        ? "Novinka byla upravena."
+        : "Novinka byla zveřejněna."
+    );
+
+    setForm(emptyForm);
+    setEditing(null);
+    setShowForm(false);
+
+    await loadNews();
+    setSaving(false);
+  }
+
+  async function deleteNews(id) {
+    if (
+      !window.confirm(
+        "Opravdu chceš tuto novinku smazat?"
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+
+    const { error } = await supabase
+      .from("novinky")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("DELETE NOVINKA ERROR:", error);
+      setError(error.message);
+      return;
+    }
+
+    if (selectedNews?.id === id) {
+      setSelectedNews(null);
+    }
+
+    await loadNews();
+  }
+
+  async function confirmNews(item) {
+    if (!user?.id) return;
+
+    setError("");
+    setSuccess("");
+
+    const alreadyConfirmed = confirmations.some(
+      (confirmation) =>
+        confirmation.novinka_id === item.id &&
+        confirmation.uzivatel_id === user.id
+    );
+
+    if (alreadyConfirmed) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("novinky_potvrzeni")
+      .insert({
+        novinka_id: item.id,
+        uzivatel_id: user.id,
+      });
+
+    if (error) {
+      if (error.code === "23505") {
+        await loadNews();
+        return;
+      }
+
+      console.error(
+        "CONFIRM NOVINKA ERROR:",
+        error
+      );
+      setError(error.message);
+      return;
+    }
+
+    setSuccess("Novinka byla potvrzena jako přečtená.");
+    await loadNews();
+  }
+
+  function isConfirmed(item) {
+    return confirmations.some(
+      (confirmation) =>
+        confirmation.novinka_id === item.id &&
+        confirmation.uzivatel_id === user?.id
+    );
+  }
+
+  function getAuthorName(authorId) {
+    const author = profiles.find(
+      (profileItem) => profileItem.id === authorId
+    );
+
+    return author?.jmeno || "Uživatel";
+  }
+
+  function getConfirmationCount(item) {
+    return confirmations.filter(
+      (confirmation) =>
+        confirmation.novinka_id === item.id
+    ).length;
+  }
+
+  function getDriverProfiles() {
+    return profiles.filter(
+      (profileItem) =>
+        profileItem.role?.toLowerCase() === ROLE_RIDIC
+    );
+  }
+
+  function formatDate(value) {
+    if (!value) return "";
+
+    return new Date(value).toLocaleString(
+      "cs-CZ",
+      {
+        dateStyle: "short",
+        timeStyle: "short",
+      }
+    );
+  }
+
+  return (
+    <div className="news-page">
+      <div className="topbar">
+        <div>
+          <h1>Novinky</h1>
+          <p>
+            Důležité informace pro řidiče a vedení Czech Mobility
+          </p>
+        </div>
+
+        {canManage && (
+          <button
+            className="primary-button"
+            onClick={openCreate}
+          >
+            + Nová novinka
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="error-box">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="success-box">
+          {success}
+        </div>
+      )}
+
+      {showForm && canManage && (
+        <div className="panel news-form-panel">
+          <div className="panel-header">
+            <div>
+              <h2>
+                {editing
+                  ? "Upravit novinku"
+                  : "Vytvořit novinku"}
+              </h2>
+              <p>
+                Novinka se po zveřejnění zobrazí všem
+                přihlášeným uživatelům.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setShowForm(false);
+                setEditing(null);
+                setForm(emptyForm);
+              }}
+            >
+              Zavřít
+            </button>
+          </div>
+
+          <form
+            className="news-form"
+            onSubmit={saveNews}
+          >
+            <div className="form-group">
+              <label>Nadpis</label>
+              <input
+                name="nadpis"
+                value={form.nadpis}
+                onChange={handleChange}
+                placeholder="Např. Změna pravidel výprav"
+                maxLength={160}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Důležitost</label>
+              <select
+                name="dulezitost"
+                value={form.dulezitost}
+                onChange={handleChange}
+              >
+                <option value="Běžná">Běžná</option>
+                <option value="Důležitá">Důležitá</option>
+                <option value="Urgentní">Urgentní</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Text novinky</label>
+              <textarea
+                name="obsah"
+                value={form.obsah}
+                onChange={handleChange}
+                placeholder="Napiš text novinky..."
+                rows={8}
+              />
+            </div>
+
+            <div className="news-form-actions">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={saving}
+              >
+                {saving
+                  ? "Ukládání..."
+                  : editing
+                    ? "Uložit změny"
+                    : "Zveřejnit novinku"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="panel">
+          <div className="loading-inline">
+            Načítání novinek...
+          </div>
+        </div>
+      ) : news.length === 0 ? (
+        <div className="panel empty-state">
+          <div className="empty-icon">📰</div>
+          <h2>Zatím nejsou žádné novinky</h2>
+          <p>
+            Jakmile bude zveřejněna první novinka,
+            zobrazí se zde.
+          </p>
+        </div>
+      ) : (
+        <div className="news-list">
+          {news.map((item) => {
+            const confirmed =
+              isDriver && isConfirmed(item);
+            const confirmationCount =
+              getConfirmationCount(item);
+            const driverCount =
+              getDriverProfiles().length;
+
+            return (
+              <article
+                className={
+                  `news-card ${
+                    confirmed
+                      ? "news-card-confirmed"
+                      : ""
+                  }`
+                }
+                key={item.id}
+              >
+                <div className="news-card-top">
+                  <div>
+                    <span
+                      className={
+                        `news-priority ${
+                          item.dulezitost === "Urgentní"
+                            ? "urgent"
+                            : item.dulezitost === "Důležitá"
+                              ? "important"
+                              : ""
+                        }`
+                      }
+                    >
+                      {item.dulezitost || "Běžná"}
+                    </span>
+
+                    <h2>{item.nadpis}</h2>
+
+                    <div className="news-meta">
+                      {formatDate(item.created_at)}
+                      {canManage &&
+                        item.autor_id && (
+                          <>
+                            {" • "}
+                            Autor:{" "}
+                            {getAuthorName(
+                              item.autor_id
+                            )}
+                          </>
+                        )}
+                    </div>
+                  </div>
+
+                  <div
+                    className={
+                      confirmed
+                        ? "news-status confirmed"
+                        : isDriver
+                          ? "news-status pending"
+                          : "news-status confirmed"
+                    }
+                  >
+                    {isDriver
+                      ? confirmed
+                        ? "✓ Přečteno"
+                        : "● Nepotvrzeno"
+                      : "ℹ Pro řidiče"}
+                  </div>
+                </div>
+
+                <div className="news-content">
+                  {item.obsah}
+                </div>
+
+                <div className="news-card-actions">
+                  {isDriver && !confirmed && (
+                    <button
+                      className="primary-button"
+                      onClick={() =>
+                        confirmNews(item)
+                      }
+                    >
+                      ✓ Potvrdit přečtení
+                    </button>
+                  )}
+
+                  {isDriver && confirmed && (
+                    <span className="confirmed-text">
+                      ✓ Tuto novinku jsi potvrdil
+                    </span>
+                  )}
+
+                  {canManage && (
+                    <>
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          setSelectedNews(
+                            selectedNews?.id === item.id
+                              ? null
+                              : item
+                          )
+                        }
+                      >
+                        {selectedNews?.id === item.id
+                          ? "Skrýt potvrzení"
+                          : `Potvrzení ${confirmationCount}/${driverCount}`}
+                      </button>
+
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          openEdit(item)
+                        }
+                      >
+                        ✎ Upravit
+                      </button>
+
+                      <button
+                        className="secondary-button danger-button"
+                        onClick={() =>
+                          deleteNews(item.id)
+                        }
+                      >
+                        🗑 Smazat
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {canManage &&
+                  selectedNews?.id === item.id && (
+                    <div className="news-confirmation-panel">
+                      <h3>Potvrzení přečtení</h3>
+
+                      {getDriverProfiles().length ===
+                      0 ? (
+                        <p>
+                          Zatím není evidován žádný řidič.
+                        </p>
+                      ) : (
+                        <div className="news-driver-list">
+                          {getDriverProfiles().map(
+                            (driver) => {
+                              const confirmedByDriver =
+                                confirmations.some(
+                                  (confirmation) =>
+                                    confirmation.novinka_id ===
+                                      item.id &&
+                                    confirmation.uzivatel_id ===
+                                      driver.id
+                                );
+
+                              return (
+                                <div
+                                  className="news-driver-row"
+                                  key={driver.id}
+                                >
+                                  <span>
+                                    {driver.jmeno ||
+                                      "Bez jména"}
+                                  </span>
+
+                                  <strong
+                                    className={
+                                      confirmedByDriver
+                                        ? "driver-confirmed"
+                                        : "driver-not-confirmed"
+                                    }
+                                  >
+                                    {confirmedByDriver
+                                      ? "✓ Potvrzeno"
+                                      : "✕ Nepotvrzeno"}
+                                  </strong>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
    APP
 ========================================================= */
 
@@ -2581,6 +3205,7 @@ function App() {
   const manageReports = canManageReports(role);
   const manageUsers = canManageUsers(role);
   const useReports = canUseReports(role);
+  const manageNews = canManageNews(role);
 
   return (
     <>
@@ -2665,9 +3290,24 @@ function App() {
               </button>
             )}
 
+            <button
+              className={
+                page === "news"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("news")
+              }
+            >
+              <span>📰</span>
+              Novinky
+            </button>
+
             {(manageVehicles ||
               manageReports ||
-              manageUsers) && (
+              manageUsers ||
+              manageNews) && (
               <>
                 <div className="menu-divider" />
 
@@ -2819,6 +3459,14 @@ function App() {
                 Tady budou výpravy vozů.
               </p>
             </div>
+          )}
+
+          {page === "news" && (
+            <News
+              user={user}
+              profile={profile}
+              role={role}
+            />
           )}
 
           {page === "vehicles" && <Vehicles />}
@@ -3586,6 +4234,260 @@ button {
     align-items: stretch;
   }
 }
+
+
+  /* NOVINKY */
+  .news-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .news-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .news-card {
+    background: #ffffff;
+    border: 1px solid #e1e6ef;
+    border-radius: 16px;
+    padding: 22px;
+    box-shadow: 0 4px 16px rgba(23, 32, 51, 0.05);
+  }
+
+  .news-card-confirmed {
+    border-left: 4px solid #22a06b;
+  }
+
+  .news-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .news-card h2 {
+    margin: 9px 0 6px;
+    font-size: 21px;
+  }
+
+  .news-meta {
+    color: #788397;
+    font-size: 13px;
+  }
+
+  .news-priority {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: #526074;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .news-priority.important {
+    background: #fff1d6;
+    color: #9a6200;
+  }
+
+  .news-priority.urgent {
+    background: #ffe1e1;
+    color: #b42318;
+  }
+
+  .news-status {
+    white-space: nowrap;
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .news-status.confirmed {
+    background: #e8f7ef;
+    color: #16794c;
+  }
+
+  .news-status.pending {
+    background: #fff1d6;
+    color: #9a6200;
+  }
+
+  .news-content {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #edf0f5;
+    white-space: pre-wrap;
+    line-height: 1.65;
+    color: #303b4f;
+  }
+
+  .news-card-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 20px;
+  }
+
+  .news-form-panel {
+    padding: 22px;
+  }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .news-form {
+    display: grid;
+    gap: 16px;
+  }
+
+  .news-form textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 170px;
+    padding: 12px 13px;
+    border: 1px solid #d8deea;
+    border-radius: 10px;
+    background: #fff;
+    color: #172033;
+    font: inherit;
+  }
+
+  .news-form textarea:focus,
+  .news-form input:focus,
+  .news-form select:focus {
+    outline: none;
+    border-color: #4b72d8;
+    box-shadow: 0 0 0 3px rgba(75, 114, 216, 0.12);
+  }
+
+  .news-form-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .primary-button,
+  .secondary-button {
+    border: 0;
+    border-radius: 9px;
+    padding: 10px 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .primary-button {
+    background: #315fce;
+    color: #fff;
+  }
+
+  .primary-button:hover {
+    background: #274fae;
+  }
+
+  .primary-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .secondary-button {
+    background: #eef2f7;
+    color: #2d3a50;
+  }
+
+  .secondary-button:hover {
+    background: #e2e7ef;
+  }
+
+  .danger-button {
+    color: #b42318;
+  }
+
+  .confirmed-text {
+    color: #16794c;
+    font-weight: 700;
+    padding: 9px 0;
+  }
+
+  .news-confirmation-panel {
+    margin-top: 18px;
+    padding: 16px;
+    background: #f7f9fc;
+    border: 1px solid #e4e8ef;
+    border-radius: 12px;
+  }
+
+  .news-confirmation-panel h3 {
+    margin: 0 0 12px;
+  }
+
+  .news-driver-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .news-driver-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 10px 12px;
+    background: #fff;
+    border-radius: 8px;
+    border: 1px solid #e8ebf1;
+  }
+
+  .driver-confirmed {
+    color: #16794c;
+  }
+
+  .driver-not-confirmed {
+    color: #b42318;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 50px 20px;
+  }
+
+  .empty-icon {
+    font-size: 38px;
+    margin-bottom: 8px;
+  }
+
+  .loading-inline {
+    padding: 30px;
+    text-align: center;
+    color: #788397;
+  }
+
+  .error-box,
+  .success-box {
+    padding: 12px 15px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+
+  .error-box {
+    background: #ffe8e8;
+    color: #a51d1d;
+    border: 1px solid #f2b8b8;
+  }
+
+  .success-box {
+    background: #e8f7ef;
+    color: #16794c;
+    border: 1px solid #b8e4cd;
+  }
 
 @media (max-width: 600px) {
   .sidebar {
