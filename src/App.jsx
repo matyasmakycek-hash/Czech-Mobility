@@ -2390,6 +2390,13 @@ function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
 
+  const [dashboardStats, setDashboardStats] = useState({
+    vypravy: 0,
+    aktivniVozy: 0,
+    vozyCelkem: 0,
+    provozovny: 0,
+  });
+
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] =
     useState(false);
