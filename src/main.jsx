@@ -1,14 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-
-function App() {
-  return (
-    <div>
-      <h1>Czech Mobility</h1>
-      <p>Vítejte v systému Czech Mobility.</p>
-    </div>
-  );
-}
+import App from "./App.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
