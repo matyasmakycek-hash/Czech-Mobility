@@ -13079,7 +13079,7 @@ thead .departures-vehicle-column {
   background-position: center;
   opacity: 0;
   transform: scale(1.035);
-  filter: brightness(1.20) saturate(1.08);
+  filter: brightness(1.32) saturate(1.12) contrast(1.03);
   transition:
     opacity 1.25s ease,
     transform 9s ease;
@@ -13096,15 +13096,16 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       90deg,
-      rgba(4, 10, 22, .48) 0%,
-      rgba(4, 10, 22, .24) 45%,
-      rgba(4, 10, 22, .08) 100%
+      rgba(4, 10, 22, .18) 0%,
+      rgba(4, 10, 22, .06) 42%,
+      rgba(4, 10, 22, 0) 75%
     ),
     linear-gradient(
       0deg,
-      rgba(4, 10, 22, .55) 0%,
-      transparent 48%,
-      rgba(4, 10, 22, .12) 100%
+      rgba(4, 10, 22, .24) 0%,
+      rgba(4, 10, 22, .06) 34%,
+      transparent 58%,
+      rgba(4, 10, 22, .05) 100%
     );
 }
 
@@ -13142,7 +13143,7 @@ thead .departures-vehicle-column {
   font-size: clamp(34px, 4.7vw, 72px);
   line-height: .98;
   letter-spacing: -.045em;
-  text-shadow: 0 3px 18px rgba(0,0,0,.65);
+  text-shadow: 0 3px 14px rgba(0,0,0,.82), 0 1px 3px rgba(0,0,0,.9);
 }
 
 .dashboard-hero-head p {
@@ -13158,7 +13159,7 @@ thead .departures-vehicle-column {
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border: 1px solid rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.30);
   border-radius: 999px;
   background: rgba(10,18,34,.36);
   backdrop-filter: blur(12px);
@@ -13199,14 +13200,14 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       145deg,
-      rgba(10,18,34,.30),
-      rgba(10,18,34,.16)
+      rgba(8,15,28,.18),
+      rgba(8,15,28,.08)
     );
   box-shadow:
-    0 10px 28px rgba(0,0,0,.14),
-    inset 0 1px 0 rgba(255,255,255,.10);
-  backdrop-filter: blur(6px) saturate(1.08);
-  -webkit-backdrop-filter: blur(6px) saturate(1.08);
+    0 8px 22px rgba(0,0,0,.12),
+    inset 0 1px 0 rgba(255,255,255,.12);
+  backdrop-filter: blur(1.5px) saturate(1.03);
+  -webkit-backdrop-filter: blur(1.5px) saturate(1.03);
   display: flex;
   flex-direction: column;
   font-family: inherit;
@@ -13226,8 +13227,8 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       145deg,
-      rgba(10,18,34,.38),
-      rgba(10,18,34,.20)
+      rgba(8,15,28,.25),
+      rgba(8,15,28,.11)
     );
 }
 
@@ -13351,9 +13352,9 @@ thead .departures-vehicle-column {
     background:
       linear-gradient(
         0deg,
-        rgba(4,10,22,.68) 0%,
-        rgba(4,10,22,.32) 58%,
-        rgba(4,10,22,.20) 100%
+        rgba(4,10,22,.34) 0%,
+        rgba(4,10,22,.12) 52%,
+        rgba(4,10,22,.06) 100%
       );
   }
 
@@ -13436,6 +13437,43 @@ thead .departures-vehicle-column {
   .dashboard-hero-live {
     display: none;
   }
+}
+
+
+/* Ještě světlejší varianta dashboardu */
+.dashboard-glass-label,
+.dashboard-glass-card strong,
+.dashboard-glass-card small,
+.dashboard-hero-kicker,
+.dashboard-hero-head p {
+  text-shadow: 0 1px 4px rgba(0,0,0,.75);
+}
+
+.dashboard-glass-card {
+  outline: 1px solid rgba(0,0,0,.08);
+}
+
+.dashboard-glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,.08),
+    rgba(0,0,0,.02)
+  );
+}
+
+.dashboard-glass-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-glass-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 `;
