@@ -14611,6 +14611,68 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   }
 }
 
+
+/* =========================================================
+   DARK MODE V4 - SEZNAM VOZŮ
+========================================================= */
+.app.dark-mode .vehicle-header {
+  background: #172233 !important;
+  color: #9eabc0 !important;
+  border: 1px solid #2b394d !important;
+}
+
+.app.dark-mode .vehicle-header span {
+  color: #aebbd0 !important;
+}
+
+.app.dark-mode .vehicle-row {
+  background: #111927 !important;
+  color: #dfe8f5 !important;
+  border-bottom-color: #2a374b !important;
+}
+
+.app.dark-mode .vehicle-row-clickable {
+  background: #111927 !important;
+  color: #dfe8f5 !important;
+}
+
+.app.dark-mode .vehicle-row-clickable:hover {
+  background: #18263a !important;
+  box-shadow: inset 3px 0 #3b82f6 !important;
+}
+
+.app.dark-mode .vehicle-row-clickable:focus {
+  background: #18263a !important;
+  outline-color: #4d8dff !important;
+}
+
+.app.dark-mode .vehicle-row span,
+.app.dark-mode .vehicle-row strong {
+  color: #dfe8f5;
+}
+
+.app.dark-mode .vehicle-row > span:first-child,
+.app.dark-mode .vehicle-row > strong:first-child {
+  color: #8fb4ff !important;
+}
+
+.app.dark-mode .vehicles-list,
+.app.dark-mode .vehicle-list {
+  background: transparent !important;
+}
+
+@media (max-width: 700px) {
+  .app.dark-mode .vehicle-row {
+    background: #111927 !important;
+    border-color: #2b394d !important;
+  }
+
+  .app.dark-mode .vehicle-row-clickable:hover,
+  .app.dark-mode .vehicle-row-clickable:focus {
+    background: #18263a !important;
+  }
+}
+
 `;
 
 export default App;
