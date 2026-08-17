@@ -1679,7 +1679,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
    VEŘEJNÝ SEZNAM VOZŮ
 ========================================================= */
 
-function Vehicles({ role }) {
+function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1716,6 +1716,16 @@ function Vehicles({ role }) {
   useEffect(() => {
     loadVehicles();
   }, []);
+
+  useEffect(() => {
+    if (!initialVehicleId) return;
+
+    setSelectedVehicleId(initialVehicleId);
+
+    if (onVehicleOpened) {
+      onVehicleOpened();
+    }
+  }, [initialVehicleId]);
 
   const selectedVehicle = vehicles.find(
     (vehicle) => String(vehicle.id) === String(selectedVehicleId)
@@ -5954,7 +5964,7 @@ function AdminCourses() {
 
 
 
-function Departures({ role }) {
+function Departures({ role, onOpenVehicle }) {
   const manage = canManageVehicles(role);
   const { provozovny } = useProvozovny();
 
@@ -6395,29 +6405,22 @@ function Departures({ role }) {
             <tbody>
               {visibleVehicles.map((vehicle) => (
                 <tr key={vehicle.id}>
-                  <td className="departures-vehicle-column departures-vehicle-with-courses">
-                    <strong>{vehicle.cislo}</strong>
-                    <small>
-                      {vehicle.vyrobce || ""} {vehicle.typ || ""}
-                    </small>
-
-                    <div className="vehicle-course-chips">
-                      {visibleCourses.length === 0 ? (
-                        <span className="vehicle-course-chip empty">
-                          Bez kurzů
-                        </span>
-                      ) : (
-                        visibleCourses.map((course) => (
-                          <span
-                            key={course.id}
-                            className="vehicle-course-chip"
-                            title={`Výprava / pořadí ${course.nazev}`}
-                          >
-                            {course.nazev}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                  <td className="departures-vehicle-column">
+                    <button
+                      type="button"
+                      className="departure-vehicle-link"
+                      onClick={() => {
+                        if (onOpenVehicle) {
+                          onOpenVehicle(vehicle.id);
+                        }
+                      }}
+                      title={`Otevřít detail vozu ${vehicle.cislo}`}
+                    >
+                      <strong>{vehicle.cislo}</strong>
+                      <small>
+                        {vehicle.vyrobce || ""} {vehicle.typ || ""}
+                      </small>
+                    </button>
                   </td>
 
                   {days.map((day) => {
@@ -6655,6 +6658,7 @@ function App() {
     useState(false);
 
   const [page, setPage] = useState("dashboard");
+  const [vehicleToOpen, setVehicleToOpen] = useState(null);
   const [showRegister, setShowRegister] =
     useState(false);
 
@@ -7108,7 +7112,15 @@ function App() {
             </>
           )}
 
-          {page === "departures" && <Departures role={role} />}
+          {page === "departures" && (
+            <Departures
+              role={role}
+              onOpenVehicle={(vehicleId) => {
+                setVehicleToOpen(vehicleId);
+                setPage("vehicles");
+              }}
+            />
+          )}
 
           {page === "news" && (
             <News
@@ -7118,7 +7130,13 @@ function App() {
             />
           )}
 
-          {page === "vehicles" && <Vehicles role={role} />}
+          {page === "vehicles" && (
+            <Vehicles
+              role={role}
+              initialVehicleId={vehicleToOpen}
+              onVehicleOpened={() => setVehicleToOpen(null)}
+            />
+          )}
 
           {page === "members" && <Members user={user} />}
 
@@ -10449,6 +10467,46 @@ thead .departures-vehicle-column {
   .departure-course-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+
+/* =========================================================
+   VÝPRAVY - KLIKACÍ VŮZ
+========================================================= */
+.departure-vehicle-link {
+  width: 100%;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.departure-vehicle-link strong,
+.departure-vehicle-link small {
+  display: block;
+}
+
+.departure-vehicle-link strong {
+  color: #172033;
+  transition: color .15s ease;
+}
+
+.departure-vehicle-link small {
+  margin-top: 2px;
+}
+
+.departure-vehicle-link:hover strong {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.departure-vehicle-link:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 `;
