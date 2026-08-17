@@ -4794,13 +4794,17 @@ function Notifications({ user, role }) {
 
               <div className="notification-field">
                 <label>Typ notifikace</label>
-                <input
-                  type="text"
+                <select
                   value={notificationType}
                   onChange={(e) => setNotificationType(e.target.value)}
-                  placeholder="Např. DŮLEŽITÉ OZNÁMENÍ"
-                  maxLength={80}
-                />
+                >
+                  <option value="OBECNÁ">OBECNÁ</option>
+                  <option value="INFORMACE">INFORMACE</option>
+                  <option value="DŮLEŽITÉ">DŮLEŽITÉ</option>
+                  <option value="UPOZORNĚNÍ">UPOZORNĚNÍ</option>
+                  <option value="VOZIDLO">VOZIDLO</option>
+                  <option value="VÝPRAVA">VÝPRAVA</option>
+                </select>
               </div>
             </div>
 
