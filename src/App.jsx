@@ -6389,6 +6389,34 @@ function Departures({ role, onOpenVehicle }) {
 
   const departureCourseGroups = getDepartureCourseGroups(visibleCourses);
 
+  function getMissingCoursesForDay(day) {
+    const date = isoDate(day);
+
+    const assignedCourseIds = new Set(
+      rows
+        .filter(
+          (row) =>
+            row.datum === date &&
+            row.kurz_id
+        )
+        .map((row) => String(row.kurz_id))
+    );
+
+    return visibleCourses.filter(
+      (course) => !assignedCourseIds.has(String(course.id))
+    );
+  }
+
+  function getAssignedCountForDay(day) {
+    const date = isoDate(day);
+
+    return rows.filter(
+      (row) =>
+        row.datum === date &&
+        row.kurz_id
+    ).length;
+  }
+
   return (
     <div className="departures-page">
       <div className="topbar">
@@ -6520,6 +6548,15 @@ function Departures({ role, onOpenVehicle }) {
                     >
                       <span>{info.name}</span>
                       <strong>{day}</strong>
+
+                      {getMissingCoursesForDay(day).length > 0 && (
+                        <em
+                          className="departure-missing-badge"
+                          title={`${getMissingCoursesForDay(day).length} nevypravených pořadí`}
+                        >
+                          !{getMissingCoursesForDay(day).length}
+                        </em>
+                      )}
                     </th>
                   );
                 })}
@@ -6589,10 +6626,69 @@ function Departures({ role, onOpenVehicle }) {
                   })}
                 </tr>
               ))}
+
+              <tr className="departure-missing-row">
+                <td className="departures-vehicle-column departure-missing-label">
+                  <strong>Nevypraveno</strong>
+                  <small>Chybějící pořadí</small>
+                </td>
+
+                {days.map((day) => {
+                  const missing = getMissingCoursesForDay(day);
+
+                  return (
+                    <td
+                      key={`missing-${day}`}
+                      className={[
+                        "departure-missing-cell",
+                        missing.length > 0 ? "has-missing" : "all-dispatched",
+                      ].join(" ")}
+                    >
+                      {missing.length === 0 ? (
+                        <span className="departure-all-ok">✓</span>
+                      ) : (
+                        <div className="departure-missing-list">
+                          <strong>{missing.length}</strong>
+                          <div className="departure-missing-names">
+                            {missing.map((course) => (
+                              <span key={course.id}>
+                                {course.nazev}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
             </tbody>
           </table>
         </div>
       )}
+
+      {selectedProvozovna &&
+        visibleCourses.length > 0 && (
+          <div className="departure-missing-summary">
+            <div>
+              <strong>Kontrola vypravení</strong>
+              <span>
+                Červené označení znamená, že v daný den není některé pořadí přiřazené žádnému vozu.
+              </span>
+            </div>
+
+            <div className="departure-missing-summary-stats">
+              {days
+                .filter((day) => getMissingCoursesForDay(day).length > 0)
+                .slice(0, 7)
+                .map((day) => (
+                  <span key={day}>
+                    {day}. den: {getMissingCoursesForDay(day).length}
+                  </span>
+                ))}
+            </div>
+          </div>
+        )}
 
       {manage &&
         selectedProvozovna &&
@@ -10680,6 +10776,160 @@ thead .departures-vehicle-column {
 @media (max-width: 700px) {
   .departure-course-group {
     padding: 8px;
+  }
+}
+
+
+/* =========================================================
+   VÝPRAVY - KONTROLA NEVYPRAVENÝCH POŘADÍ
+========================================================= */
+.departures-month-table thead th {
+  position: sticky;
+}
+
+.departure-missing-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  margin-top: 3px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.departure-missing-row td {
+  border-top: 2px solid #f1b7b7 !important;
+}
+
+.departure-missing-label {
+  background: #fff1f2 !important;
+  color: #991b1b !important;
+}
+
+.departure-missing-label strong {
+  color: #991b1b !important;
+}
+
+.departure-missing-cell {
+  width: 66px;
+  min-width: 66px;
+  max-width: 66px;
+  padding: 4px 3px;
+  text-align: center;
+  vertical-align: top;
+}
+
+.departure-missing-cell.has-missing {
+  background: #fff1f2;
+}
+
+.departure-missing-cell.all-dispatched {
+  background: #f0fdf4;
+}
+
+.departure-all-ok {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.departure-missing-list > strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  margin-bottom: 4px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.departure-missing-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 90px;
+  overflow-y: auto;
+}
+
+.departure-missing-names span {
+  display: block;
+  padding: 2px 3px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.72);
+  color: #991b1b;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.departure-missing-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 11px;
+  background: #fff7f7;
+}
+
+.departure-missing-summary > div:first-child strong,
+.departure-missing-summary > div:first-child span {
+  display: block;
+}
+
+.departure-missing-summary > div:first-child strong {
+  color: #991b1b;
+  font-size: 12px;
+}
+
+.departure-missing-summary > div:first-child span {
+  margin-top: 3px;
+  color: #8f5a5a;
+  font-size: 9px;
+}
+
+.departure-missing-summary-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.departure-missing-summary-stats span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .departure-missing-summary {
+    flex-direction: column;
+  }
+
+  .departure-missing-summary-stats {
+    justify-content: flex-start;
   }
 }
 
