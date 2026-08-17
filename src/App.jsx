@@ -4515,6 +4515,72 @@ function Notifications({ user, role }) {
     return profiles.find((profile) => String(profile.id) === String(id));
   }
 
+
+  // Jedna rozesílka může mít v DB více řádků (jeden pro každého příjemce).
+  // V administraci je ale zobrazíme jako JEDNU kartu.
+  const sentGroups = sentItems.reduce((groups, notification) => {
+    const key = `${notification.odesilatel_id || "sender"}::${
+      notification.created_at || notification.id
+    }`;
+
+    let group = groups.find((item) => item.key === key);
+
+    if (!group) {
+      group = {
+        key,
+        items: [],
+        first: notification,
+      };
+      groups.push(group);
+    }
+
+    group.items.push(notification);
+    return groups;
+  }, []);
+
+  function getGroupRecipientNames(group) {
+    const names = group.items.map((notification) => {
+      const profile = getProfile(notification.uzivatel_id);
+      return profile?.jmeno || notification.uzivatel_id;
+    });
+
+    if (names.length <= 4) return names.join(", ");
+
+    return `${names.slice(0, 4).join(", ")} +${names.length - 4}`;
+  }
+
+  function getGroupConfirmation(group) {
+    const first = group.first;
+
+    if (!first.vyzaduje_potvrzeni) {
+      return {
+        label: "Potvrzení se nevyžaduje",
+        confirmed: true,
+      };
+    }
+
+    const driverItems = group.items.filter((notification) => {
+      const profile = getProfile(notification.uzivatel_id);
+      return profile?.role === ROLE_RIDIC;
+    });
+
+    if (driverItems.length === 0) {
+      return {
+        label: "Bez řidičů k potvrzení",
+        confirmed: true,
+      };
+    }
+
+    const confirmedCount = driverItems.filter(
+      (notification) => notification.potvrzeno
+    ).length;
+
+    return {
+      label: `${confirmedCount}/${driverItems.length} řidičů potvrdilo`,
+      confirmed: confirmedCount === driverItems.length,
+    };
+  }
+
   async function load() {
     setError("");
 
@@ -4865,12 +4931,14 @@ function Notifications({ user, role }) {
     }
   }
 
-  function startEdit(notification) {
+  function startEditGroup(group) {
+    const notification = group.first;
+
     setError("");
     setSuccess("");
 
     resetEditImage();
-    setEditingId(notification.id);
+    setEditingId(group.key);
     setEditType(notification.typ || "OBECNÁ");
     setEditMessage(notification.zprava || "");
     setEditRequiresConfirmation(
@@ -4886,7 +4954,7 @@ function Notifications({ user, role }) {
     setEditRequiresConfirmation(true);
   }
 
-  async function saveEdit(notification) {
+  async function saveEditGroup(group) {
     if (!manage) return;
 
     const cleanMessage = editMessage.trim();
@@ -4898,10 +4966,11 @@ function Notifications({ user, role }) {
 
     setError("");
     setSuccess("");
-    setBusyId(notification.id);
+    setBusyId(group.key);
 
+    const ids = group.items.map((notification) => notification.id);
+    const oldImageUrl = group.first.image_url || null;
     let newUploadedPath = null;
-    const oldImageUrl = notification.image_url || null;
 
     try {
       let nextImageUrl = oldImageUrl;
@@ -4926,7 +4995,7 @@ function Notifications({ user, role }) {
           precteno: false,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", notification.id);
+        .in("id", ids);
 
       if (updateError) {
         if (newUploadedPath) {
@@ -4943,8 +5012,9 @@ function Notifications({ user, role }) {
       }
 
       setSuccess(
-        "Notifikace byla upravena. Původní potvrzení bylo vynulováno."
+        `Rozesílka byla upravena pro ${ids.length} příjemců. Potvrzení byla vynulována.`
       );
+
       cancelEdit();
       await load();
     } catch (editError) {
@@ -4954,14 +5024,14 @@ function Notifications({ user, role }) {
     }
   }
 
-  async function deleteNotification(notification) {
+  async function deleteNotificationGroup(group) {
     if (!manage) return;
 
-    const recipient = getProfile(notification.uzivatel_id);
+    const count = group.items.length;
 
     const confirmed = window.confirm(
-      `Opravdu chceš smazat notifikaci pro ${
-        recipient?.jmeno || notification.uzivatel_id
+      `Opravdu chceš smazat celou tuto rozesílku pro ${count} ${
+        count === 1 ? "příjemce" : "příjemců"
       }?`
     );
 
@@ -4969,14 +5039,15 @@ function Notifications({ user, role }) {
 
     setError("");
     setSuccess("");
-    setBusyId(notification.id);
+    setBusyId(group.key);
 
-    const imageUrl = notification.image_url || null;
+    const ids = group.items.map((notification) => notification.id);
+    const imageUrl = group.first.image_url || null;
 
     const { error: deleteError } = await supabase
       .from("notifications")
       .delete()
-      .eq("id", notification.id);
+      .in("id", ids);
 
     if (deleteError) {
       setError(`Smazání notifikace selhalo: ${deleteError.message}`);
@@ -4988,35 +5059,13 @@ function Notifications({ user, role }) {
       await removeUnusedImage(imageUrl);
     }
 
-    if (editingId === notification.id) {
+    if (editingId === group.key) {
       cancelEdit();
     }
 
-    setSuccess("Notifikace byla smazána.");
+    setSuccess(`Celá rozesílka byla smazána (${count} příjemců).`);
     await load();
     setBusyId(null);
-  }
-
-  function confirmationLabel(notification) {
-    const recipient = getProfile(notification.uzivatel_id);
-
-    if (!notification.vyzaduje_potvrzeni) {
-      return "Potvrzení se nevyžaduje";
-    }
-
-    if (recipient && recipient.role !== ROLE_RIDIC) {
-      return "Potvrzení jen pro řidiče";
-    }
-
-    if (notification.potvrzeno) {
-      return notification.potvrzeno_at
-        ? `Potvrzeno ${new Date(notification.potvrzeno_at).toLocaleString(
-            "cs-CZ"
-          )}`
-        : "Potvrzeno";
-    }
-
-    return "Čeká na potvrzení";
   }
 
   return (
@@ -5283,53 +5332,63 @@ function Notifications({ user, role }) {
             <div>
               <h2>Odeslané notifikace</h2>
               <p>
-                Tady může admin/dispečer zprávy upravit, smazat a zkontrolovat
-                potvrzení řidiče.
+                Jedna rozesílka je teď vždy jedna karta. Úprava i smazání se
+                provedou všem příjemcům najednou.
               </p>
             </div>
           </div>
 
           <div className="notifications-list">
-            {sentItems.length === 0 ? (
+            {sentGroups.length === 0 ? (
               <div className="notification-empty">
                 <div>📨</div>
                 <strong>Zatím nic odesláno</strong>
                 <span>Ručně odeslané notifikace se zobrazí tady.</span>
               </div>
             ) : (
-              sentItems.map((notification) => {
-                const recipient = getProfile(notification.uzivatel_id);
-                const editing = editingId === notification.id;
-                const busy = busyId === notification.id;
+              sentGroups.map((group) => {
+                const notification = group.first;
+                const editing = editingId === group.key;
+                const busy = busyId === group.key;
+                const confirmation = getGroupConfirmation(group);
 
                 return (
                   <article
                     className="notification-card notification-sent-card"
-                    key={notification.id}
+                    key={group.key}
                   >
                     <div className="notification-card-header">
                       <div>
                         <span className="notification-type">
                           {notification.typ || "OZNÁMENÍ"}
                         </span>
+
                         <small>
-                          Pro: {recipient?.jmeno || notification.uzivatel_id}
-                          {" · "}
                           {notification.created_at
                             ? new Date(
                                 notification.created_at
                               ).toLocaleString("cs-CZ")
                             : "—"}
+                          {" · "}
+                          {group.items.length}{" "}
+                          {group.items.length === 1
+                            ? "příjemce"
+                            : "příjemců"}
                         </small>
                       </div>
 
                       <span
                         className={`notification-confirm-state ${
-                          notification.potvrzeno ? "confirmed" : "waiting"
+                          confirmation.confirmed ? "confirmed" : "waiting"
                         }`}
                       >
-                        {confirmationLabel(notification)}
+                        {confirmation.label}
                       </span>
+                    </div>
+
+                    <div className="notification-recipient-summary">
+                      <strong>Příjemci:</strong>{" "}
+                      {getGroupRecipientNames(group)}
                     </div>
 
                     {editing ? (
@@ -5428,9 +5487,11 @@ function Notifications({ user, role }) {
                             type="button"
                             className="primary-button"
                             disabled={busy}
-                            onClick={() => saveEdit(notification)}
+                            onClick={() => saveEditGroup(group)}
                           >
-                            {busy ? "Ukládám…" : "💾 Uložit změny"}
+                            {busy
+                              ? "Ukládám…"
+                              : `💾 Uložit všem (${group.items.length})`}
                           </button>
 
                           <button
@@ -5470,18 +5531,18 @@ function Notifications({ user, role }) {
                             type="button"
                             className="secondary-button"
                             disabled={busy}
-                            onClick={() => startEdit(notification)}
+                            onClick={() => startEditGroup(group)}
                           >
-                            ✏️ Upravit
+                            ✏️ Upravit celou rozesílku
                           </button>
 
                           <button
                             type="button"
                             className="delete-button"
                             disabled={busy}
-                            onClick={() => deleteNotification(notification)}
+                            onClick={() => deleteNotificationGroup(group)}
                           >
-                            🗑️ Smazat
+                            🗑️ Smazat celou rozesílku
                           </button>
                         </div>
                       </>
@@ -5493,6 +5554,7 @@ function Notifications({ user, role }) {
           </div>
         </>
       )}
+
     </div>
   );
 }
@@ -8609,6 +8671,22 @@ button {
     box-sizing: border-box;
     text-align: center;
   }
+}
+
+
+.notification-recipient-summary {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: #f7f9fc;
+  color: #69768b;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.notification-recipient-summary strong {
+  color: #344056;
 }
 
 `;
