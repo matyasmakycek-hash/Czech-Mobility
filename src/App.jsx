@@ -4576,6 +4576,11 @@ function Notifications({ user, role }) {
   const [success, setSuccess] = useState("");
   const [sending, setSending] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [browserPermission, setBrowserPermission] = useState(
+    typeof window !== "undefined" && "Notification" in window
+      ? window.Notification.permission
+      : "unsupported"
+  );
 
   const [recipientId, setRecipientId] = useState("");
   const [notificationType, setNotificationType] = useState("OBECNÁ");
@@ -4734,6 +4739,36 @@ function Notifications({ user, role }) {
   }, [user.id, manage]);
 
   useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`notifications-page-${user.id}-${manage ? "manage" : "own"}`)
+      .on(
+        "postgres_changes",
+        manage
+          ? {
+              event: "*",
+              schema: "public",
+              table: "notifications",
+            }
+          : {
+              event: "*",
+              schema: "public",
+              table: "notifications",
+              filter: `uzivatel_id=eq.${user.id}`,
+            },
+        () => {
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user.id, manage]);
+
+  useEffect(() => {
     loadProfiles();
   }, [manage]);
 
@@ -4743,6 +4778,35 @@ function Notifications({ user, role }) {
       if (editImagePreview) URL.revokeObjectURL(editImagePreview);
     };
   }, [imagePreview, editImagePreview]);
+
+  async function enableBrowserNotifications() {
+    if (
+      typeof window === "undefined" ||
+      !("Notification" in window)
+    ) {
+      setError("Tento prohlížeč nepodporuje systémová oznámení.");
+      return;
+    }
+
+    try {
+      const permission = await window.Notification.requestPermission();
+      setBrowserPermission(permission);
+
+      if (permission === "granted") {
+        setSuccess("Systémová oznámení byla zapnuta.");
+        setError("");
+      } else if (permission === "denied") {
+        setError(
+          "Oznámení jsou v prohlížeči zakázaná. Povol je v nastavení webu."
+        );
+      }
+    } catch (permissionError) {
+      setError(
+        permissionError?.message ||
+          "Nepodařilo se požádat o povolení oznámení."
+      );
+    }
+  }
 
   async function markAll() {
     setError("");
@@ -5167,13 +5231,34 @@ function Notifications({ user, role }) {
           <p>Zprávy, oznámení a potvrzení řidičů.</p>
         </div>
 
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={markAll}
-        >
-          ✓ Označit vše jako přečtené
-        </button>
+        <div className="notification-topbar-actions">
+          {browserPermission !== "unsupported" && (
+            <button
+              type="button"
+              className={
+                browserPermission === "granted"
+                  ? "secondary-button notification-browser-enabled"
+                  : "primary-button"
+              }
+              onClick={enableBrowserNotifications}
+              disabled={browserPermission === "granted"}
+            >
+              {browserPermission === "granted"
+                ? "✓ Oznámení zapnutá"
+                : browserPermission === "denied"
+                ? "🔕 Oznámení zakázaná"
+                : "🔔 Zapnout oznámení"}
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={markAll}
+          >
+            ✓ Označit vše jako přečtené
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -7117,6 +7202,7 @@ function App() {
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
   const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
   const [showStkSoon, setShowStkSoon] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRegister, setShowRegister] =
     useState(false);
@@ -7187,6 +7273,83 @@ function App() {
     setMobileMenuOpen(false);
   }, [page]);
 
+
+  async function loadUnreadNotifications(targetUser = user) {
+    if (!targetUser?.id) {
+      setUnreadNotifications(0);
+      return;
+    }
+
+    const { count, error: unreadError } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("uzivatel_id", targetUser.id)
+      .eq("precteno", false);
+
+    if (unreadError) {
+      console.error("UNREAD NOTIFICATIONS ERROR:", unreadError);
+      return;
+    }
+
+    setUnreadNotifications(Number(count || 0));
+  }
+
+  useEffect(() => {
+    if (!user?.id) {
+      setUnreadNotifications(0);
+      return;
+    }
+
+    loadUnreadNotifications(user);
+
+    const channel = supabase
+      .channel(`notifications-global-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `uzivatel_id=eq.${user.id}`,
+        },
+        (payload) => {
+          loadUnreadNotifications(user);
+
+          if (
+            payload.eventType === "INSERT" &&
+            payload.new &&
+            typeof window !== "undefined" &&
+            "Notification" in window &&
+            window.Notification.permission === "granted"
+          ) {
+            try {
+              const popup = new window.Notification(
+                payload.new.typ || "Czech Mobility",
+                {
+                  body: payload.new.zprava || "Máš nové oznámení.",
+                }
+              );
+
+              popup.onclick = () => {
+                window.focus();
+                setPage("notifications");
+                popup.close();
+              };
+            } catch (notificationError) {
+              console.error(
+                "BROWSER NOTIFICATION ERROR:",
+                notificationError
+              );
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   async function loadProfile(authUser) {
     if (!authUser) {
@@ -7476,7 +7639,20 @@ function App() {
               Žádost o přidělení vozidla
             </button>
 
-            <button className={page === "notifications" ? "active" : ""} onClick={() => setPage("notifications")}><span>🔔</span>Notifikace</button>
+            <button
+              className={page === "notifications" ? "active" : ""}
+              onClick={() => setPage("notifications")}
+            >
+              <span>🔔</span>
+              <span className="menu-notification-label">
+                Notifikace
+                {unreadNotifications > 0 && (
+                  <span className="menu-notification-count">
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                  </span>
+                )}
+              </span>
+            </button>
             <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
             <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
 
@@ -12291,6 +12467,66 @@ thead .departures-vehicle-column {
   .audit-log-item time {
     grid-column: 2;
     white-space: normal;
+  }
+}
+
+
+/* =========================================================
+   NOTIFIKACE - REALTIME DORUČOVÁNÍ
+========================================================= */
+.notification-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.notification-browser-enabled {
+  border-color: #bbf7d0 !important;
+  background: #f0fdf4 !important;
+  color: #18733a !important;
+}
+
+.menu-notification-label {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.menu-notification-count {
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 2px 7px rgba(220,38,38,.25);
+}
+
+@media (max-width: 700px) {
+  .notification-topbar-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-topbar-actions button {
+    width: 100%;
+  }
+
+  .menu-notification-count {
+    min-width: 22px;
+    height: 22px;
+    font-size: 10px;
   }
 }
 
