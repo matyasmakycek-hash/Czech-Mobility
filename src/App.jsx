@@ -1698,22 +1698,27 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                   </>
                 )
               ) : (
-                <div style={{ fontWeight: 600 }}>
-                  {form[field] === null ||
-                  form[field] === undefined ||
-                  form[field] === ""
-                    ? "—"
-                    : field === "stk"
-                    ? formatStkForDisplay(form[field])
-                    : String(form[field])}
-                </div>
-                {field === "stk" && form[field] && getStkStatus(form[field]) && (
-                  <div
-                    className={`stk-status-note ${getStkStatus(form[field]).type}`}
-                  >
-                    {getStkStatus(form[field]).text}
+                <>
+                  <div style={{ fontWeight: 600 }}>
+                    {form[field] === null ||
+                    form[field] === undefined ||
+                    form[field] === ""
+                      ? "—"
+                      : field === "stk"
+                      ? formatStkForDisplay(form[field])
+                      : String(form[field])}
                   </div>
-                )}
+
+                  {field === "stk" &&
+                    form[field] &&
+                    getStkStatus(form[field]) && (
+                      <div
+                        className={`stk-status-note ${getStkStatus(form[field]).type}`}
+                      >
+                        {getStkStatus(form[field]).text}
+                      </div>
+                    )}
+                </>
               )}
             </div>
           ))}
