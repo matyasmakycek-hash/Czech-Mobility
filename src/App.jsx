@@ -6605,7 +6605,12 @@ function Departures({ role, onOpenVehicle }) {
           Administraci vozů.
         </div>
       ) : (
-        <div className="departures-table-wrap">
+        <>
+          <div className="departures-mobile-hint">
+            ← Posuň tabulku do stran • číslo vozu zůstává vlevo
+          </div>
+
+          <div className="departures-table-wrap">
           <table className="departures-month-table">
             <thead>
               <tr>
@@ -6744,7 +6749,8 @@ function Departures({ role, onOpenVehicle }) {
               </tr>
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {selectedProvozovna &&
@@ -6974,6 +6980,7 @@ function App() {
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
   const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
   const [showStkSoon, setShowStkSoon] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRegister, setShowRegister] =
     useState(false);
 
@@ -7038,6 +7045,10 @@ function App() {
       loadDashboardStats();
     }
   }, [page, user]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [page]);
 
 
   async function loadProfile(authUser) {
@@ -7183,7 +7194,36 @@ function App() {
       <style>{styles}</style>
 
       <div className="app">
-        <aside className="sidebar">
+        <header className="mobile-app-bar">
+          <div className="mobile-app-brand">
+            <div className="mobile-app-logo">CM</div>
+            <div>
+              <strong>Czech Mobility</strong>
+              <span>{roleName}</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="mobile-menu-button"
+            onClick={() => setMobileMenuOpen((old) => !old)}
+            aria-label={mobileMenuOpen ? "Zavřít menu" : "Otevřít menu"}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? "✕" : "☰"}
+          </button>
+        </header>
+
+        {mobileMenuOpen && (
+          <button
+            type="button"
+            className="mobile-menu-overlay"
+            aria-label="Zavřít menu"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+
+        <aside className={`sidebar ${mobileMenuOpen ? "mobile-open" : ""}`}>
           <div className="brand">
             <div className="brand-logo">CM</div>
 
@@ -7202,7 +7242,17 @@ function App() {
             Navigace
           </div>
 
-          <nav className="menu">
+          <nav
+            className="menu"
+            onClick={(e) => {
+              if (
+                e.target.closest("button") &&
+                window.innerWidth <= 700
+              ) {
+                setMobileMenuOpen(false);
+              }
+            }}
+          >
             <button
               className={
                 page === "dashboard"
@@ -11385,6 +11435,644 @@ thead .departures-vehicle-column {
   .stk-dashboard-date {
     min-width: 0;
     text-align: left;
+  }
+}
+
+
+/* =========================================================
+   MOBILE UX 2026
+========================================================= */
+.mobile-app-bar,
+.mobile-menu-overlay,
+.departures-mobile-hint {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* ----- horní mobilní lišta ----- */
+  .mobile-app-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 220;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #dfe5ee;
+    background: rgba(255,255,255,.97);
+    box-shadow: 0 3px 14px rgba(15,23,42,.08);
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-app-brand {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .mobile-app-logo {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .mobile-app-brand strong,
+  .mobile-app-brand span {
+    display: block;
+  }
+
+  .mobile-app-brand strong {
+    overflow: hidden;
+    color: #172033;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-app-brand span {
+    margin-top: 1px;
+    color: #788397;
+    font-size: 9px;
+  }
+
+  .mobile-menu-button {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border: 1px solid #d9e1eb;
+    border-radius: 11px;
+    background: #f7f9fc;
+    color: #172033;
+    font-size: 20px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .mobile-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 198;
+    display: block;
+    border: 0;
+    background: rgba(15,23,42,.48);
+    backdrop-filter: blur(2px);
+  }
+
+  /* ----- sidebar jako vysouvací menu ----- */
+  .sidebar {
+    display: flex !important;
+    width: min(86vw, 320px) !important;
+    padding: 16px 12px !important;
+    z-index: 210;
+    transform: translateX(-105%);
+    transition: transform .22s ease;
+    box-shadow: 16px 0 35px rgba(15,23,42,.2);
+    overflow: hidden;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar .brand {
+    padding: 4px 7px 16px;
+  }
+
+  .sidebar .brand-logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .sidebar .brand-title {
+    font-size: 13px;
+  }
+
+  .sidebar .brand-subtitle {
+    font-size: 10px;
+  }
+
+  .sidebar .section-title {
+    margin-bottom: 5px;
+    font-size: 9px;
+  }
+
+  .sidebar .menu {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+  }
+
+  .sidebar .menu button {
+    min-height: 44px;
+    padding: 10px 11px;
+    font-size: 12px;
+  }
+
+  .sidebar .menu-divider {
+    margin: 9px 7px 7px;
+  }
+
+  .sidebar .user-box {
+    flex: 0 0 auto;
+    padding: 11px 4px 2px;
+  }
+
+  /* ----- hlavní obsah ----- */
+  .content {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100%;
+    padding: 76px 12px 28px !important;
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+    line-height: 1.15;
+  }
+
+  .topbar p {
+    margin: 5px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .profile-badge {
+    padding: 6px 9px;
+    font-size: 9px;
+  }
+
+  .panel {
+    margin-bottom: 14px;
+    padding: 14px !important;
+    border-radius: 13px;
+  }
+
+  .panel h2 {
+    font-size: 17px;
+  }
+
+  .empty {
+    padding: 20px 10px;
+    font-size: 12px;
+  }
+
+  .error-box,
+  .success-box {
+    padding: 11px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+
+  /* ----- dashboard ----- */
+  .stats,
+  .admin-user-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 9px !important;
+    margin: 14px 0 !important;
+  }
+
+  .stat,
+  .admin-user-stat {
+    min-width: 0;
+    min-height: 105px;
+    padding: 13px !important;
+    border-radius: 13px;
+  }
+
+  .stat span,
+  .admin-user-stat span {
+    font-size: 10px;
+    line-height: 1.25;
+  }
+
+  .stat strong,
+  .admin-user-stat strong {
+    margin-top: 7px;
+    font-size: 25px;
+  }
+
+  .stat-clickable small {
+    margin-top: 5px;
+    font-size: 8px;
+  }
+
+  /* ----- formuláře ----- */
+  .form-grid,
+  .course-admin-filters,
+  .notification-compose-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .form-grid label,
+  .notification-field label {
+    font-size: 11px;
+  }
+
+  .form-grid input,
+  .form-grid select,
+  .form-input,
+  .notification-field input,
+  .notification-field select,
+  .notification-field textarea,
+  .search,
+  .provozovna-bar select {
+    min-height: 44px;
+    padding: 10px 11px;
+  }
+
+  textarea {
+    min-height: 96px;
+  }
+
+  .form-buttons,
+  .vehicle-actions,
+  .report-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 7px !important;
+  }
+
+  .form-buttons button,
+  .vehicle-actions button,
+  .report-actions button {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .delete-button {
+    min-height: 42px;
+    padding: 9px 11px;
+  }
+
+  .users-toolbar,
+  .provozovna-bar {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  /* ----- seznamy vozů / admin ----- */
+  .vehicle-header {
+    display: none !important;
+  }
+
+  .vehicle-row {
+    grid-template-columns: 60px minmax(0, 1fr) !important;
+    gap: 7px 10px !important;
+    margin-bottom: 8px;
+    padding: 12px !important;
+    border: 1px solid #e4e9f0;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .vehicle-row > * {
+    min-width: 0;
+    margin: 0 !important;
+  }
+
+  .vehicle-row > span:nth-child(n+3) {
+    grid-column: 2;
+  }
+
+  .vehicle-status {
+    width: fit-content;
+    max-width: 100%;
+    font-size: 9px !important;
+    line-height: 1.2;
+  }
+
+  .admin-vehicle-card {
+    grid-template-columns: 52px minmax(0, 1fr) !important;
+    gap: 9px !important;
+    margin-bottom: 8px;
+    padding: 12px !important;
+    border: 1px solid #e4e9f0;
+    border-radius: 12px;
+  }
+
+  .admin-vehicle-card .vehicle-number {
+    width: 48px;
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .admin-vehicle-card .vehicle-status,
+  .admin-vehicle-card .vehicle-actions {
+    grid-column: 1 / -1;
+  }
+
+  .vehicle-main strong {
+    font-size: 12px;
+  }
+
+  .vehicle-main small {
+    font-size: 9px;
+    overflow-wrap: anywhere;
+  }
+
+  /* ----- obecné listy ----- */
+  .simple-list-item {
+    gap: 9px !important;
+    padding: 11px !important;
+    border-radius: 10px;
+  }
+
+  .simple-list-item strong {
+    font-size: 12px;
+  }
+
+  .simple-list-item div,
+  .simple-list-item small {
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
+
+  .user-card,
+  .report-card,
+  .course-admin-item {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 12px !important;
+  }
+
+  /* ----- Výpravy ----- */
+  .departures-toolbar {
+    gap: 10px;
+    padding: 10px !important;
+  }
+
+  .departures-tabs {
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+  }
+
+  .departures-tabs button {
+    min-height: 40px;
+    padding: 7px 10px;
+    scroll-snap-align: start;
+    font-size: 10px;
+  }
+
+  .departures-month-control {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 6px;
+  }
+
+  .departures-month-control input {
+    width: 100%;
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .departures-selected-branch {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    margin-bottom: 9px;
+  }
+
+  .departures-selected-branch > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .departures-selected-branch > div {
+    min-width: 0 !important;
+    padding: 8px 10px;
+  }
+
+  .departures-mobile-hint {
+    display: block;
+    margin: -3px 0 7px;
+    color: #748094;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .departures-table-wrap {
+    max-width: calc(100vw - 24px);
+    border-radius: 10px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .departures-month-table thead th {
+    width: 52px;
+    min-width: 52px;
+    height: 44px;
+    font-size: 8px;
+  }
+
+  .departures-month-table thead th strong {
+    font-size: 11px;
+  }
+
+  .departures-vehicle-column {
+    width: 112px !important;
+    min-width: 112px !important;
+    max-width: 112px !important;
+    padding: 7px !important;
+    box-shadow: 3px 0 7px rgba(15,23,42,.07);
+  }
+
+  .departures-vehicle-column strong {
+    font-size: 11px;
+  }
+
+  .departures-vehicle-column small {
+    font-size: 7px;
+  }
+
+  .departure-cell {
+    width: 52px;
+    min-width: 52px;
+    max-width: 52px;
+    height: 50px;
+    padding: 2px;
+  }
+
+  .departure-cell-content {
+    min-height: 42px;
+  }
+
+  .departure-cell-content strong {
+    max-width: 48px;
+    font-size: 8px;
+  }
+
+  .departure-cell-empty {
+    font-size: 16px;
+  }
+
+  .departure-missing-cell {
+    width: 52px !important;
+    min-width: 52px !important;
+    max-width: 52px !important;
+  }
+
+  .departure-missing-names {
+    max-height: 70px;
+  }
+
+  .departure-missing-names span {
+    font-size: 6px;
+  }
+
+  /* ----- modály jako mobilní sheet ----- */
+  .departure-modal-backdrop,
+  .stk-dashboard-modal-backdrop {
+    align-items: end !important;
+    padding: 0 !important;
+  }
+
+  .departure-modal,
+  .stk-dashboard-modal {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: 92dvh !important;
+    padding: 16px 13px calc(16px + env(safe-area-inset-bottom)) !important;
+    border-radius: 18px 18px 0 0 !important;
+    box-shadow: 0 -16px 50px rgba(15,23,42,.22) !important;
+  }
+
+  .departure-modal-head,
+  .stk-dashboard-modal-head {
+    margin-bottom: 12px;
+  }
+
+  .departure-modal-head h2,
+  .stk-dashboard-modal-head h2 {
+    font-size: 18px;
+  }
+
+  .departure-course-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+
+  .departure-course-picker button {
+    min-height: 42px;
+    padding: 7px;
+    font-size: 10px;
+  }
+
+  .departure-course-group {
+    padding: 8px !important;
+  }
+
+  .departure-modal-actions {
+    position: sticky;
+    bottom: -16px;
+    z-index: 2;
+    margin: 12px -13px -16px;
+    padding: 10px 13px calc(10px + env(safe-area-inset-bottom));
+    background: #fff;
+  }
+
+  .stk-dashboard-item {
+    gap: 8px;
+    padding: 11px;
+  }
+
+  /* ----- tabulky mimo Výpravy ----- */
+  .table-scroll {
+    max-width: calc(100vw - 24px);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table {
+    min-width: 720px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 9px;
+    font-size: 10px;
+  }
+
+  /* ----- detail vozu ----- */
+  .vehicle-extra-panel {
+    margin-top: 15px !important;
+    padding-top: 13px !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .stats,
+  .admin-user-stats {
+    grid-template-columns: 1fr !important;
+  }
+
+  .content {
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+
+  .departures-table-wrap,
+  .table-scroll {
+    max-width: calc(100vw - 18px);
+  }
+
+  .departures-vehicle-column {
+    width: 102px !important;
+    min-width: 102px !important;
+    max-width: 102px !important;
+  }
+
+  .departure-cell,
+  .departures-month-table thead th,
+  .departure-missing-cell {
+    width: 49px !important;
+    min-width: 49px !important;
+    max-width: 49px !important;
   }
 }
 
