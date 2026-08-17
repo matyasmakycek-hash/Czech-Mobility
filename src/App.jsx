@@ -5991,8 +5991,36 @@ function Departures({ role, onOpenVehicle }) {
   });
 
   useEffect(() => {
-    if (!selectedProvozovna && provozovny.length > 0) {
-      setSelectedProvozovna(String(provozovny[0].id));
+    if (selectedProvozovna) return;
+
+    function normalizeBranchName(value) {
+      return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+    }
+
+    const allowed = provozovny.filter((provozovna) => {
+      const name = normalizeBranchName(provozovna.nazev);
+
+      return (
+        name === "400" ||
+        name === "breclavsko" ||
+        name.startsWith("brno") ||
+        name === "bukovec" ||
+        name.includes("wroclaw")
+      );
+    });
+
+    const preferred =
+      allowed.find(
+        (provozovna) =>
+          normalizeBranchName(provozovna.nazev) === "400"
+      ) || allowed[0];
+
+    if (preferred) {
+      setSelectedProvozovna(String(preferred.id));
     }
   }, [provozovny, selectedProvozovna]);
 
@@ -6086,6 +6114,26 @@ function Departures({ role, onOpenVehicle }) {
     provozovny.find(
       (item) => String(item.id) === String(selectedProvozovna)
     ) || null;
+
+  function normalizeBranchName(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  const departureProvozovny = provozovny.filter((provozovna) => {
+    const name = normalizeBranchName(provozovna.nazev);
+
+    return (
+      name === "400" ||
+      name === "breclavsko" ||
+      name.startsWith("brno") ||
+      name === "bukovec" ||
+      name.includes("wroclaw")
+    );
+  });
 
   const visibleVehicles = vehicles.filter(
     (vehicle) =>
@@ -6299,7 +6347,7 @@ function Departures({ role, onOpenVehicle }) {
 
       <div className="departures-toolbar panel">
         <div className="departures-branches departures-tabs">
-          {provozovny.map((provozovna) => (
+          {departureProvozovny.map((provozovna) => (
             <button
               type="button"
               key={provozovna.id}
