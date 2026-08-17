@@ -6315,6 +6315,80 @@ function Departures({ role, onOpenVehicle }) {
     );
   }
 
+  function getDepartureCourseGroups(courseRows) {
+    const groups = [
+      {
+        key: "liberec",
+        title: "ČSAD Liberec",
+        test: (name) =>
+          ["210/X1", "211.01", "304.01", "305.01", "309.01", "310.01"].includes(name),
+      },
+      {
+        key: "mhdcl",
+        title: "MHDCL",
+        test: (name) => /^MHDCL/i.test(name),
+      },
+      {
+        key: "ceska-lipa",
+        title: "ČSAD Česká Lípa",
+        test: (name) =>
+          ["51.01", "52.01", "53.01", "54.01", "55.01", "56.01", "57.01", "58.01", "59.01"].includes(name),
+      },
+      {
+        key: "stredni-cechy",
+        title: "Střední Čechy",
+        test: (name) => /^349\d+$/i.test(name),
+      },
+      {
+        key: "smluvni",
+        title: "Smluvní doprava",
+        test: (name) => /^S1\./i.test(name),
+      },
+      {
+        key: "nad",
+        title: "NAD",
+        test: (name) => /^(XR|XS|XL)/i.test(name),
+      },
+    ];
+
+    const result = groups.map((group) => ({
+      ...group,
+      courses: courseRows
+        .filter((course) => group.test(String(course.nazev || "").trim()))
+        .sort((a, b) =>
+          String(a.nazev).localeCompare(String(b.nazev), "cs", {
+            numeric: true,
+            sensitivity: "base",
+          })
+        ),
+    }));
+
+    const usedIds = new Set(
+      result.flatMap((group) => group.courses.map((course) => String(course.id)))
+    );
+
+    const otherCourses = courseRows
+      .filter((course) => !usedIds.has(String(course.id)))
+      .sort((a, b) =>
+        String(a.nazev).localeCompare(String(b.nazev), "cs", {
+          numeric: true,
+          sensitivity: "base",
+        })
+      );
+
+    if (otherCourses.length > 0) {
+      result.push({
+        key: "ostatni",
+        title: "Ostatní",
+        courses: otherCourses,
+      });
+    }
+
+    return result.filter((group) => group.courses.length > 0);
+  }
+
+  const departureCourseGroups = getDepartureCourseGroups(visibleCourses);
+
   return (
     <div className="departures-page">
       <div className="topbar">
@@ -6607,25 +6681,38 @@ function Departures({ role, onOpenVehicle }) {
                     Pro tuto provozovnu zatím nejsou přidané žádné kurzy.
                   </div>
                 ) : (
-                  <div className="departure-course-picker">
-                    {visibleCourses.map((course) => (
-                      <button
-                        key={course.id}
-                        type="button"
-                        className={
-                          String(cellForm.kurz_id) === String(course.id)
-                            ? "active"
-                            : ""
-                        }
-                        onClick={() =>
-                          setCellForm({
-                            ...cellForm,
-                            kurz_id: String(course.id),
-                          })
-                        }
+                  <div className="departure-course-groups">
+                    {departureCourseGroups.map((group) => (
+                      <div
+                        className="departure-course-group"
+                        key={group.key}
                       >
-                        {course.nazev}
-                      </button>
+                        <div className="departure-course-group-title">
+                          {group.title}
+                        </div>
+
+                        <div className="departure-course-picker">
+                          {group.courses.map((course) => (
+                            <button
+                              key={course.id}
+                              type="button"
+                              className={
+                                String(cellForm.kurz_id) === String(course.id)
+                                  ? "active"
+                                  : ""
+                              }
+                              onClick={() =>
+                                setCellForm({
+                                  ...cellForm,
+                                  kurz_id: String(course.id),
+                                })
+                              }
+                            >
+                              {course.nazev}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -10557,6 +10644,43 @@ thead .departures-vehicle-column {
   outline: 2px solid #2563eb;
   outline-offset: 4px;
   border-radius: 4px;
+}
+
+
+/* =========================================================
+   VÝPRAVY - SKUPINY POŘADÍ
+========================================================= */
+.departure-course-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  margin-top: 6px;
+}
+
+.departure-course-group {
+  padding: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 11px;
+  background: #fafcff;
+}
+
+.departure-course-group-title {
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.departure-course-group .departure-course-picker {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .departure-course-group {
+    padding: 8px;
+  }
 }
 
 `;
