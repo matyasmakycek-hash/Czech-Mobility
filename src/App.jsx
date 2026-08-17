@@ -7429,6 +7429,16 @@ function App() {
   const [showStkSoon, setShowStkSoon] = useState(false);
   const [dashboardSlide, setDashboardSlide] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+
+    const savedTheme = window.localStorage.getItem("cm-theme");
+
+    if (savedTheme === "dark") return true;
+    if (savedTheme === "light") return false;
+
+    return false;
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRegister, setShowRegister] =
     useState(false);
@@ -7512,6 +7522,24 @@ function App() {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [page]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      "cm-theme",
+      darkMode ? "dark" : "light"
+    );
+
+    document.body.classList.toggle("cm-dark", darkMode);
+    document.documentElement.style.colorScheme =
+      darkMode ? "dark" : "light";
+
+    return () => {
+      document.body.classList.remove("cm-dark");
+      document.documentElement.style.colorScheme = "";
+    };
+  }, [darkMode]);
 
 
   async function loadUnreadNotifications(targetUser = user) {
@@ -7733,7 +7761,7 @@ function App() {
     <>
       <style>{styles}</style>
 
-      <div className="app">
+      <div className={`app ${darkMode ? "dark-mode" : "light-mode"}`}>
         <header className="mobile-app-bar">
           <div className="mobile-app-brand">
             <div className="mobile-app-logo"><img src="/cm-logo.png" alt="CM" /></div>
@@ -7743,15 +7771,35 @@ function App() {
             </div>
           </div>
 
-          <button
-            type="button"
-            className="mobile-menu-button"
-            onClick={() => setMobileMenuOpen((old) => !old)}
-            aria-label={mobileMenuOpen ? "Zavřít menu" : "Otevřít menu"}
-            aria-expanded={mobileMenuOpen}
-          >
-            {mobileMenuOpen ? "✕" : "☰"}
-          </button>
+          <div className="mobile-app-actions">
+            <button
+              type="button"
+              className="mobile-theme-button"
+              onClick={() => setDarkMode((old) => !old)}
+              aria-label={
+                darkMode
+                  ? "Přepnout na světlý režim"
+                  : "Přepnout na tmavý režim"
+              }
+              title={
+                darkMode
+                  ? "Světlý režim"
+                  : "Tmavý režim"
+              }
+            >
+              {darkMode ? "☀" : "☾"}
+            </button>
+
+            <button
+              type="button"
+              className="mobile-menu-button"
+              onClick={() => setMobileMenuOpen((old) => !old)}
+              aria-label={mobileMenuOpen ? "Zavřít menu" : "Otevřít menu"}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? "✕" : "☰"}
+            </button>
+          </div>
         </header>
 
         {mobileMenuOpen && (
@@ -7991,6 +8039,46 @@ function App() {
               </button>
             )}
           </nav>
+
+          <div className="theme-switch-wrap">
+            <button
+              type="button"
+              className="theme-switch"
+              onClick={() => setDarkMode((old) => !old)}
+              aria-pressed={darkMode}
+              title={
+                darkMode
+                  ? "Přepnout na světlý režim"
+                  : "Přepnout na tmavý režim"
+              }
+            >
+              <span className="theme-switch-icon">
+                {darkMode ? "☀" : "☾"}
+              </span>
+
+              <span className="theme-switch-copy">
+                <strong>
+                  {darkMode
+                    ? "Světlý režim"
+                    : "Tmavý režim"}
+                </strong>
+                <small>
+                  {darkMode
+                    ? "Přepnout vzhled na světlý"
+                    : "Přepnout vzhled na tmavý"}
+                </small>
+              </span>
+
+              <span
+                className={`theme-switch-track ${
+                  darkMode ? "on" : ""
+                }`}
+                aria-hidden="true"
+              >
+                <span className="theme-switch-thumb" />
+              </span>
+            </button>
+          </div>
 
           <div className="user-box">
             <div className="avatar">
@@ -13511,6 +13599,328 @@ thead .departures-vehicle-column {
   height: 90%;
   display: block;
   object-fit: contain;
+}
+
+
+/* =========================================================
+   PŘEPÍNATELNÝ DARK MODE
+========================================================= */
+.theme-switch-wrap {
+  margin-top: auto;
+  padding: 10px 5px 8px;
+  border-top: 1px solid #273245;
+}
+
+.theme-switch {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 11px;
+  background: rgba(255,255,255,.045);
+  color: #fff;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.theme-switch:hover {
+  background: rgba(255,255,255,.08);
+}
+
+.theme-switch-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,.09);
+  font-size: 14px;
+}
+
+.theme-switch-copy {
+  min-width: 0;
+}
+
+.theme-switch-copy strong,
+.theme-switch-copy small {
+  display: block;
+}
+
+.theme-switch-copy strong {
+  color: #f8fafc;
+  font-size: 10px;
+}
+
+.theme-switch-copy small {
+  margin-top: 2px;
+  color: #8290a6;
+  font-size: 7px;
+}
+
+.theme-switch-track {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex: 0 0 34px;
+  border-radius: 999px;
+  background: #39465a;
+  transition: .2s ease;
+}
+
+.theme-switch-track.on {
+  background: #2563eb;
+}
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.24);
+  transition: transform .2s ease;
+}
+
+.theme-switch-track.on .theme-switch-thumb {
+  transform: translateX(15px);
+}
+
+.user-box {
+  margin-top: 0;
+}
+
+.mobile-app-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mobile-theme-button {
+  display: none;
+}
+
+/* ---------- DARK: hlavní plochy ---------- */
+body.cm-dark {
+  background: #080d16;
+  color: #e7edf7;
+}
+
+.app.dark-mode {
+  background: #080d16;
+  color: #e7edf7;
+}
+
+.app.dark-mode .content {
+  background: #0a101b;
+  color: #e7edf7;
+}
+
+.app.dark-mode .topbar h1,
+.app.dark-mode h1,
+.app.dark-mode h2,
+.app.dark-mode h3,
+.app.dark-mode h4,
+.app.dark-mode strong {
+  color: #f4f7fb;
+}
+
+.app.dark-mode .topbar p,
+.app.dark-mode .muted {
+  color: #8f9bad;
+}
+
+/* ---------- DARK: panely, karty, seznamy ---------- */
+.app.dark-mode .panel,
+.app.dark-mode .stat,
+.app.dark-mode .admin-user-stat,
+.app.dark-mode .member-summary-bar > div,
+.app.dark-mode .member-stat-card,
+.app.dark-mode .member-card,
+.app.dark-mode .simple-list-item,
+.app.dark-mode .notification-card,
+.app.dark-mode .course-admin-item,
+.app.dark-mode .course-day-section,
+.app.dark-mode .assignment-request-card,
+.app.dark-mode .vehicle-card,
+.app.dark-mode .admin-vehicle-card,
+.app.dark-mode .report-card,
+.app.dark-mode .user-card,
+.app.dark-mode .audit-log-item {
+  background: #111927;
+  color: #e7edf7;
+  border-color: #263245;
+  box-shadow: 0 5px 18px rgba(0,0,0,.16);
+}
+
+.app.dark-mode .simple-list-item.unread,
+.app.dark-mode .notification-card.unread {
+  background: #132038;
+}
+
+.app.dark-mode .course-day-section {
+  background: #0e1724;
+}
+
+.app.dark-mode .course-day-section.workday {
+  border-left-color: #4d8dff;
+}
+
+.app.dark-mode .course-day-section.weekend {
+  border-left-color: #f59e0b;
+}
+
+/* ---------- DARK: text ---------- */
+.app.dark-mode .member-summary-bar span,
+.app.dark-mode .member-stat-card span,
+.app.dark-mode .member-card-stat span,
+.app.dark-mode .member-report-card small,
+.app.dark-mode .notification-message,
+.app.dark-mode .notification-card small,
+.app.dark-mode .audit-log-detail,
+.app.dark-mode .audit-log-meta,
+.app.dark-mode .audit-log-item time,
+.app.dark-mode .course-admin-item span {
+  color: #94a2b8;
+}
+
+/* ---------- DARK: formuláře ---------- */
+.app.dark-mode input,
+.app.dark-mode select,
+.app.dark-mode textarea {
+  background: #0b1320;
+  color: #eef3fa;
+  border-color: #2a374b;
+  color-scheme: dark;
+}
+
+.app.dark-mode input::placeholder,
+.app.dark-mode textarea::placeholder {
+  color: #64748b;
+}
+
+.app.dark-mode input:focus,
+.app.dark-mode select:focus,
+.app.dark-mode textarea:focus {
+  border-color: #4d8dff;
+  outline-color: #4d8dff;
+}
+
+/* ---------- DARK: tabulky ---------- */
+.app.dark-mode .data-table,
+.app.dark-mode table {
+  color: #dce5f2;
+}
+
+.app.dark-mode .data-table th,
+.app.dark-mode .data-table td,
+.app.dark-mode table th,
+.app.dark-mode table td {
+  border-color: #263245;
+}
+
+.app.dark-mode .data-table th,
+.app.dark-mode table th {
+  background: #111927;
+  color: #b8c4d6;
+}
+
+/* ---------- DARK: běžná tlačítka / sekundární prvky ---------- */
+.app.dark-mode .secondary-button,
+.app.dark-mode .logout {
+  background: #1b2637;
+  color: #e7edf7;
+  border-color: #314057;
+}
+
+.app.dark-mode .secondary-button:hover {
+  background: #243249;
+}
+
+.app.dark-mode .empty {
+  color: #8190a5;
+}
+
+/* ---------- DARK: modaly ---------- */
+.app.dark-mode .modal,
+.app.dark-mode .modal-card,
+.app.dark-mode .departure-modal,
+.app.dark-mode .stk-dashboard-modal,
+.app.dark-mode .notification-editor,
+.app.dark-mode .vehicle-detail-modal {
+  background: #101827;
+  color: #e7edf7;
+  border-color: #2a374b;
+}
+
+/* Dashboard s fotografiemi zůstává fotografický */
+.app.dark-mode .dashboard-photo-page,
+.app.dark-mode .dashboard-photo-hero {
+  color: #fff;
+}
+
+/* Login / registrace podle body class */
+body.cm-dark .auth-card,
+body.cm-dark .login-card,
+body.cm-dark .register-card {
+  background: #111927;
+  color: #e7edf7;
+  border-color: #263245;
+}
+
+body.cm-dark .login-page,
+body.cm-dark .register-page,
+body.cm-dark .auth-page {
+  background: #080d16;
+}
+
+body.cm-dark .register-link {
+  color: #8fb4ff;
+}
+
+/* ---------- MOBIL ---------- */
+@media (max-width: 700px) {
+  .mobile-theme-button {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #dfe6ef;
+    border-radius: 10px;
+    background: #fff;
+    color: #172033;
+    font-size: 17px;
+    cursor: pointer;
+  }
+
+  body.cm-dark .mobile-app-bar {
+    background: rgba(10,16,27,.97);
+    border-bottom-color: #263245;
+  }
+
+  body.cm-dark .mobile-app-brand strong {
+    color: #f4f7fb;
+  }
+
+  body.cm-dark .mobile-app-brand span {
+    color: #8492a8;
+  }
+
+  body.cm-dark .mobile-theme-button,
+  body.cm-dark .mobile-menu-button {
+    background: #172233;
+    color: #f4f7fb;
+    border-color: #2b394e;
+  }
+
+  .theme-switch-wrap {
+    margin-top: 10px;
+  }
 }
 
 `;
