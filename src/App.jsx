@@ -328,6 +328,19 @@ function useProvozovny() {
   };
 }
 
+const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN"];
+
+function getMainProvozovny(provozovny = []) {
+  return MAIN_PROVOZOVNA_CODES
+    .map((code) =>
+      provozovny.find(
+        (provozovna) =>
+          String(provozovna.kod || "").toUpperCase().trim() === code
+      )
+    )
+    .filter(Boolean);
+}
+
 function ProvozovnaSelect({
   value,
   onChange,
@@ -335,6 +348,8 @@ function ProvozovnaSelect({
   label = "Provozovna",
   required = false,
 }) {
+  const visibleProvozovny = getMainProvozovny(provozovny);
+
   return (
     <div>
       <label>{label}</label>
@@ -346,7 +361,7 @@ function ProvozovnaSelect({
       >
         <option value="">Vyber provozovnu</option>
 
-        {provozovny.map((provozovna) => (
+        {visibleProvozovny.map((provozovna) => (
           <option
             key={provozovna.id}
             value={provozovna.id}
