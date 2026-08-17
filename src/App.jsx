@@ -14164,6 +14164,331 @@ body.cm-dark .register-link {
   }
 }
 
+
+/* =========================================================
+   DARK MODE V2 - ŽÁDNÉ BÍLÉ PANELY
+========================================================= */
+
+/* ---------- ŽÁDOST O PŘIDĚLENÍ VOZIDLA ---------- */
+.app.dark-mode .request-user,
+.app.dark-mode .request-card,
+.app.dark-mode .request-card-main,
+.app.dark-mode .request-card-side {
+  background: #111927 !important;
+  border-color: #29364a !important;
+  color: #e7edf7 !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22) !important;
+}
+
+.app.dark-mode .request-hero h1,
+.app.dark-mode .request-card-heading h2,
+.app.dark-mode .request-field label,
+.app.dark-mode .request-vehicle-name,
+.app.dark-mode .request-empty-state strong,
+.app.dark-mode .request-history-top strong {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .request-hero p,
+.app.dark-mode .request-card-heading p,
+.app.dark-mode .request-user small,
+.app.dark-mode .request-hint,
+.app.dark-mode .request-vehicle-meta,
+.app.dark-mode .request-empty-state,
+.app.dark-mode .request-empty-state span,
+.app.dark-mode .request-history-top small {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .request-step {
+  background: #172a4a !important;
+  color: #8fb4ff !important;
+}
+
+.app.dark-mode .request-select,
+.app.dark-mode .request-textarea {
+  background: #091220 !important;
+  color: #eef4fb !important;
+  border-color: #314056 !important;
+}
+
+.app.dark-mode .request-select:focus,
+.app.dark-mode .request-textarea:focus {
+  background: #0c1726 !important;
+  border-color: #4d8dff !important;
+}
+
+.app.dark-mode .request-select-arrow {
+  color: #8492a8 !important;
+}
+
+.app.dark-mode .request-vehicle-preview {
+  background: linear-gradient(135deg, #121e30, #0e1827) !important;
+  border-color: #2d3d54 !important;
+}
+
+.app.dark-mode .request-vehicle-icon {
+  background: #172a4a !important;
+}
+
+.app.dark-mode .request-history-item {
+  background: #0e1724 !important;
+  border-color: #28364a !important;
+}
+
+.app.dark-mode .request-history-note {
+  color: #b7c2d2 !important;
+  border-top-color: #29364a !important;
+}
+
+.app.dark-mode .request-history-status {
+  background: #1d293a !important;
+  color: #c3cfdf !important;
+}
+
+.app.dark-mode .request-alert-error {
+  background: #2a151b !important;
+  border-color: #65323a !important;
+  color: #fda4af !important;
+}
+
+.app.dark-mode .request-alert-success {
+  background: #10251b !important;
+  border-color: #27583d !important;
+  color: #86efac !important;
+}
+
+/* ---------- NOTIFIKACE - ODESÍLACÍ FORMULÁŘ ---------- */
+.app.dark-mode .notification-compose-card {
+  background: #111927 !important;
+  border-color: #29364a !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.22) !important;
+}
+
+.app.dark-mode .notification-compose-heading h2,
+.app.dark-mode .notification-field label,
+.app.dark-mode .notification-upload-top strong,
+.app.dark-mode .notification-confirm-switch strong {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .notification-compose-heading p,
+.app.dark-mode .notification-upload-top span,
+.app.dark-mode .notification-confirm-switch small,
+.app.dark-mode .notification-section-heading p {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .notification-compose-icon {
+  background: #172a4a !important;
+}
+
+.app.dark-mode .notification-field input,
+.app.dark-mode .notification-field select,
+.app.dark-mode .notification-field textarea {
+  background: #091220 !important;
+  color: #eef4fb !important;
+  border-color: #314056 !important;
+}
+
+.app.dark-mode .notification-field input:focus,
+.app.dark-mode .notification-field select:focus,
+.app.dark-mode .notification-field textarea:focus {
+  background: #0c1726 !important;
+  border-color: #4d8dff !important;
+}
+
+.app.dark-mode .notification-confirm-switch,
+.app.dark-mode .notification-upload-box,
+.app.dark-mode .notification-edit-box {
+  background: #0e1724 !important;
+  border-color: #2c3a4f !important;
+}
+
+.app.dark-mode .notification-file-button {
+  background: #172233 !important;
+  color: #e7edf7 !important;
+  border-color: #35445a !important;
+}
+
+.app.dark-mode .notification-image-preview {
+  background: #0b1320 !important;
+  border-color: #2b394d !important;
+}
+
+.app.dark-mode .notification-admin-actions,
+.app.dark-mode .notification-edit-actions,
+.app.dark-mode .notification-confirm-area {
+  border-top-color: #29364a !important;
+}
+
+.app.dark-mode .notification-card {
+  background: #111927 !important;
+  border-color: #29364a !important;
+}
+
+.app.dark-mode .notification-card.unread {
+  background: linear-gradient(135deg, #13223a, #101927) !important;
+}
+
+/* ---------- ADMIN - ŽÁDOSTI O PŘIDĚLENÍ ---------- */
+.app.dark-mode .assignment-admin-card {
+  background: #111927 !important;
+  border-color: #29364a !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,.23) !important;
+}
+
+.app.dark-mode .assignment-admin-card-head {
+  background: linear-gradient(135deg, #141f30 0%, #101927 100%) !important;
+  border-bottom-color: #29364a !important;
+}
+
+.app.dark-mode .assignment-admin-bus-icon {
+  background: #172a4a !important;
+}
+
+.app.dark-mode .assignment-admin-title h3,
+.app.dark-mode .assignment-admin-info strong,
+.app.dark-mode .assignment-admin-note p,
+.app.dark-mode .assignment-admin-empty strong {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .assignment-admin-title > span,
+.app.dark-mode .assignment-admin-title p,
+.app.dark-mode .assignment-admin-info span,
+.app.dark-mode .assignment-admin-note > span,
+.app.dark-mode .assignment-admin-status-control label {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .assignment-admin-info-grid {
+  background: #29364a !important;
+  border-bottom-color: #29364a !important;
+}
+
+.app.dark-mode .assignment-admin-info {
+  background: #0f1826 !important;
+}
+
+.app.dark-mode .assignment-admin-note {
+  background: #0d1623 !important;
+  border-color: #29364a !important;
+}
+
+.app.dark-mode .assignment-status-select {
+  background: #091220 !important;
+  color: #eef4fb !important;
+  border-color: #314056 !important;
+}
+
+.app.dark-mode .assignment-admin-empty {
+  background: #111927 !important;
+  color: #8e9cb0 !important;
+  border-color: #29364a !important;
+}
+
+.app.dark-mode .assignment-delete-button {
+  background: #2a151b !important;
+  color: #fda4af !important;
+  border-color: #65323a !important;
+}
+
+.app.dark-mode .assignment-delete-button:hover:not(:disabled) {
+  background: #371a21 !important;
+}
+
+/* ---------- KURZY ---------- */
+.app.dark-mode .course-admin-item.inactive {
+  background: #0d1521 !important;
+}
+
+.app.dark-mode .course-admin-item > div:first-child strong {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .course-active-badge.inactive {
+  background: #263245 !important;
+  color: #a8b5c7 !important;
+}
+
+/* ---------- STK MODAL ---------- */
+.app.dark-mode .stk-dashboard-modal {
+  background: #101827 !important;
+  color: #e7edf7 !important;
+}
+
+.app.dark-mode .stk-dashboard-modal-head h2 {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .stk-dashboard-modal-head p {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .stk-dashboard-modal-close {
+  background: #172233 !important;
+  color: #cbd5e1 !important;
+  border-color: #35445a !important;
+}
+
+.app.dark-mode .stk-dashboard-item {
+  background: #111927 !important;
+  border-color: #29364a !important;
+  color: #e7edf7 !important;
+}
+
+.app.dark-mode .stk-dashboard-item:hover {
+  background: #16243a !important;
+  border-color: #4d8dff !important;
+}
+
+.app.dark-mode .stk-dashboard-vehicle strong,
+.app.dark-mode .stk-dashboard-date strong {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .stk-dashboard-vehicle span,
+.app.dark-mode .stk-dashboard-vehicle small,
+.app.dark-mode .stk-dashboard-date span,
+.app.dark-mode .stk-dashboard-date small {
+  color: #8e9cb0 !important;
+}
+
+/* ---------- OBECNÉ BÍLÉ PLOCHY UVNITŘ DARK REŽIMU ---------- */
+.app.dark-mode .search,
+.app.dark-mode .course-admin-filters,
+.app.dark-mode .vehicle-extra-panel {
+  border-color: #29364a !important;
+}
+
+.app.dark-mode hr {
+  border-color: #29364a !important;
+}
+
+/* scrollbary */
+body.cm-dark * {
+  scrollbar-color: #334155 #0b1320;
+}
+
+body.cm-dark *::-webkit-scrollbar-track {
+  background: #0b1320;
+}
+
+body.cm-dark *::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 999px;
+}
+
+/* mobilní spodní modaly a sticky akce */
+@media (max-width: 700px) {
+  .app.dark-mode .request-card,
+  .app.dark-mode .notification-compose-card,
+  .app.dark-mode .assignment-admin-card {
+    background: #111927 !important;
+  }
+}
+
 `;
 
 export default App;
