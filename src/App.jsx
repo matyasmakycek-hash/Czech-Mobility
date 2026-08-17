@@ -13079,6 +13079,7 @@ thead .departures-vehicle-column {
   background-position: center;
   opacity: 0;
   transform: scale(1.035);
+  filter: brightness(1.20) saturate(1.08);
   transition:
     opacity 1.25s ease,
     transform 9s ease;
@@ -13095,15 +13096,15 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       90deg,
-      rgba(4, 10, 22, .82) 0%,
-      rgba(4, 10, 22, .54) 45%,
-      rgba(4, 10, 22, .28) 100%
+      rgba(4, 10, 22, .48) 0%,
+      rgba(4, 10, 22, .24) 45%,
+      rgba(4, 10, 22, .08) 100%
     ),
     linear-gradient(
       0deg,
-      rgba(4, 10, 22, .86) 0%,
+      rgba(4, 10, 22, .55) 0%,
       transparent 48%,
-      rgba(4, 10, 22, .26) 100%
+      rgba(4, 10, 22, .12) 100%
     );
 }
 
@@ -13141,7 +13142,7 @@ thead .departures-vehicle-column {
   font-size: clamp(34px, 4.7vw, 72px);
   line-height: .98;
   letter-spacing: -.045em;
-  text-shadow: 0 3px 22px rgba(0,0,0,.35);
+  text-shadow: 0 3px 18px rgba(0,0,0,.65);
 }
 
 .dashboard-hero-head p {
@@ -13198,14 +13199,14 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       145deg,
-      rgba(255,255,255,.17),
-      rgba(255,255,255,.075)
+      rgba(10,18,34,.30),
+      rgba(10,18,34,.16)
     );
   box-shadow:
-    0 12px 34px rgba(0,0,0,.17),
-    inset 0 1px 0 rgba(255,255,255,.12);
-  backdrop-filter: blur(15px) saturate(1.15);
-  -webkit-backdrop-filter: blur(15px) saturate(1.15);
+    0 10px 28px rgba(0,0,0,.14),
+    inset 0 1px 0 rgba(255,255,255,.10);
+  backdrop-filter: blur(6px) saturate(1.08);
+  -webkit-backdrop-filter: blur(6px) saturate(1.08);
   display: flex;
   flex-direction: column;
   font-family: inherit;
@@ -13225,8 +13226,8 @@ thead .departures-vehicle-column {
   background:
     linear-gradient(
       145deg,
-      rgba(255,255,255,.23),
-      rgba(255,255,255,.10)
+      rgba(10,18,34,.38),
+      rgba(10,18,34,.20)
     );
 }
 
@@ -13350,9 +13351,9 @@ thead .departures-vehicle-column {
     background:
       linear-gradient(
         0deg,
-        rgba(4,10,22,.93) 0%,
-        rgba(4,10,22,.58) 58%,
-        rgba(4,10,22,.42) 100%
+        rgba(4,10,22,.68) 0%,
+        rgba(4,10,22,.32) 58%,
+        rgba(4,10,22,.20) 100%
       );
   }
 
