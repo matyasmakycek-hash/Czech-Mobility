@@ -1648,6 +1648,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
           {vehicleDetailFields.map(([field, label]) => (
             <div
               key={field}
+              className="vehicle-detail-field-card"
               style={{
                 padding: 16,
                 border: "1px solid #e5e7eb",
@@ -1656,6 +1657,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
               }}
             >
               <div
+                className="vehicle-detail-field-label"
                 style={{
                   fontSize: 12,
                   fontWeight: 700,
@@ -1737,6 +1739,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
         </div>
 
         <div
+          className="vehicle-detail-note"
           style={{
             marginTop: 18,
             padding: 14,
@@ -14486,6 +14489,125 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .app.dark-mode .notification-compose-card,
   .app.dark-mode .assignment-admin-card {
     background: #111927 !important;
+  }
+}
+
+
+/* =========================================================
+   DARK MODE V3 - DETAIL VOZU + VÝKAZY
+========================================================= */
+
+/* ---------- DETAIL VOZU ---------- */
+.app.dark-mode .vehicle-detail-field-card {
+  background: #0f1826 !important;
+  border-color: #2b394d !important;
+  color: #eef4fb !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+.app.dark-mode .vehicle-detail-field-label {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .vehicle-detail-field-card > div:not(.vehicle-detail-field-label):not(.stk-status-note) {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .vehicle-detail-note {
+  background: #0d1623 !important;
+  color: #8e9cb0 !important;
+  border: 1px solid #29364a !important;
+}
+
+.app.dark-mode .vehicle-detail-note strong {
+  color: #c9d5e5 !important;
+}
+
+.app.dark-mode .vehicle-extra-panel {
+  border-top-color: #29364a !important;
+}
+
+.app.dark-mode .vehicle-extra-panel h2 {
+  color: #f1f5f9 !important;
+}
+
+/* ---------- FORMULÁŘE VÝKAZŮ / OBECNÉ CRUD FORMULÁŘE ---------- */
+.app.dark-mode .crud-form,
+.app.dark-mode .user-create-box {
+  background: #0f1826 !important;
+  color: #e7edf7 !important;
+  border-color: #29364a !important;
+  box-shadow: 0 7px 22px rgba(0,0,0,.16);
+}
+
+.app.dark-mode .crud-form h3,
+.app.dark-mode .user-create-box h3,
+.app.dark-mode .crud-form label,
+.app.dark-mode .user-create-box label {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .crud-form .form-grid input,
+.app.dark-mode .crud-form .form-grid select,
+.app.dark-mode .crud-form .form-grid textarea,
+.app.dark-mode .user-create-box .form-grid input,
+.app.dark-mode .user-create-box .form-grid select,
+.app.dark-mode .user-create-box .form-grid textarea {
+  background: #091220 !important;
+  color: #eef4fb !important;
+  border-color: #314056 !important;
+}
+
+.app.dark-mode .crud-form .form-grid input::placeholder,
+.app.dark-mode .crud-form .form-grid textarea::placeholder,
+.app.dark-mode .user-create-box .form-grid input::placeholder,
+.app.dark-mode .user-create-box .form-grid textarea::placeholder {
+  color: #64748b !important;
+}
+
+.app.dark-mode .crud-form .form-grid input:focus,
+.app.dark-mode .crud-form .form-grid select:focus,
+.app.dark-mode .crud-form .form-grid textarea:focus,
+.app.dark-mode .user-create-box .form-grid input:focus,
+.app.dark-mode .user-create-box .form-grid select:focus,
+.app.dark-mode .user-create-box .form-grid textarea:focus {
+  background: #0c1726 !important;
+  border-color: #4d8dff !important;
+}
+
+.app.dark-mode .crud-form select:disabled,
+.app.dark-mode .crud-form input:disabled,
+.app.dark-mode .user-create-box select:disabled,
+.app.dark-mode .user-create-box input:disabled {
+  background: #17202d !important;
+  color: #6f7d91 !important;
+  border-color: #29364a !important;
+  opacity: 1 !important;
+}
+
+/* report panel pod formulářem */
+.app.dark-mode .report-list,
+.app.dark-mode .reports-list {
+  color: #e7edf7 !important;
+}
+
+.app.dark-mode .report-card {
+  background: #111927 !important;
+  border-color: #29364a !important;
+}
+
+.app.dark-mode .report-card small {
+  color: #8e9cb0 !important;
+}
+
+.app.dark-mode .report-card strong {
+  color: #eef4fb !important;
+}
+
+@media (max-width: 700px) {
+  .app.dark-mode .vehicle-detail-field-card,
+  .app.dark-mode .crud-form {
+    background: #0f1826 !important;
   }
 }
 
