@@ -6956,7 +6956,144 @@ function Departures({ role, onOpenVehicle }) {
   );
 }
 
-function AuditLog(){const [rows,setRows]=useState([]);useEffect(()=>{supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(200).then(({data})=>setRows(data||[]))},[]);return <div><div className="topbar"><div><h1>Audit log</h1><p>Historie administrativních změn</p></div></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>{r.akce}</strong><div>{r.entita} {r.entita_id||""} · {r.detail||""}</div></div><small>{new Date(r.created_at).toLocaleString("cs-CZ")}</small></div>)}</div></div>}
+function AuditLog() {
+  const [rows, setRows] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function loadAudit() {
+    setLoading(true);
+    setError("");
+
+    const [auditResult, profileResult] = await Promise.all([
+      supabase
+        .from("audit_log")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200),
+
+      supabase
+        .from("profiles")
+        .select("id,jmeno"),
+    ]);
+
+    if (auditResult.error) {
+      console.error("AUDIT LOG ERROR:", auditResult.error);
+      setError(auditResult.error.message);
+      setRows([]);
+    } else {
+      setRows(auditResult.data || []);
+    }
+
+    if (!profileResult.error) {
+      setProfiles(profileResult.data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadAudit();
+  }, []);
+
+  function actorName(id) {
+    if (!id) return "Systém / administrátor";
+
+    return (
+      profiles.find(
+        (profile) => String(profile.id) === String(id)
+      )?.jmeno || "Uživatel"
+    );
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Audit log</h1>
+          <p>Historie administrativních změn</p>
+        </div>
+
+        <div className="profile-badge">
+          {rows.length} ZÁZNAMŮ
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Audit log se nepodařilo načíst:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      <div className="panel">
+        <div className="users-toolbar">
+          <div>
+            <h2>Historie změn</h2>
+            <p className="muted">
+              Automatické záznamy administrativních akcí.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={loadAudit}
+            disabled={loading}
+          >
+            {loading ? "Načítám..." : "↻ Obnovit"}
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="empty">
+            Načítání audit logu...
+          </div>
+        ) : !error && rows.length === 0 ? (
+          <div className="empty">
+            Zatím tu nejsou žádné auditní záznamy.
+          </div>
+        ) : (
+          <div className="audit-log-list">
+            {rows.map((row) => (
+              <div className="audit-log-item" key={row.id}>
+                <div className="audit-log-icon">🕘</div>
+
+                <div className="audit-log-main">
+                  <strong>{row.akce}</strong>
+
+                  <div className="audit-log-detail">
+                    {row.detail || "Bez detailu"}
+                  </div>
+
+                  <div className="audit-log-meta">
+                    <span>{actorName(row.uzivatel_id)}</span>
+                    <span>
+                      {row.entita}
+                      {row.entita_id
+                        ? ` #${row.entita_id}`
+                        : ""}
+                    </span>
+                  </div>
+                </div>
+
+                <time>
+                  {row.created_at
+                    ? new Date(
+                        row.created_at
+                      ).toLocaleString("cs-CZ")
+                    : "-"}
+                </time>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -12073,6 +12210,87 @@ thead .departures-vehicle-column {
     width: 49px !important;
     min-width: 49px !important;
     max-width: 49px !important;
+  }
+}
+
+
+/* =========================================================
+   AUDIT LOG
+========================================================= */
+.audit-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.audit-log-item {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 12px 13px;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.audit-log-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #f1f5f9;
+  font-size: 15px;
+}
+
+.audit-log-main {
+  min-width: 0;
+}
+
+.audit-log-main > strong {
+  display: block;
+  color: #172033;
+  font-size: 12px;
+}
+
+.audit-log-detail {
+  margin-top: 3px;
+  color: #596579;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.audit-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 5px;
+  color: #8a95a5;
+  font-size: 9px;
+}
+
+.audit-log-item time {
+  color: #7b8798;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .audit-log-item {
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .audit-log-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .audit-log-item time {
+    grid-column: 2;
+    white-space: normal;
   }
 }
 
