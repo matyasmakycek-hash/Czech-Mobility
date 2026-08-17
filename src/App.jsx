@@ -5579,7 +5579,1169 @@ function VehicleFaults({ user, role }) {
  return <div><div className="topbar"><div><h1>Závady vozů</h1><p>Evidence a řešení závad</p></div></div>{error&&<div className="error-box">{error}</div>}<div className="panel"><h2>Nahlásit závadu</h2><form onSubmit={add} className="form-grid"><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vyber vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>Vůz {v.cislo}</option>)}</select><input placeholder="Název závady" value={form.nazev} onChange={e=>setForm({...form,nazev:e.target.value})} required/><select value={form.zavaznost} onChange={e=>setForm({...form,zavaznost:e.target.value})}><option>BĚŽNÁ</option><option>VÁŽNÁ</option><option>KRITICKÁ</option></select><input placeholder="Popis" value={form.popis} onChange={e=>setForm({...form,popis:e.target.value})}/><button className="primary-button">Nahlásit</button></form></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>Vůz {vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id} · {r.nazev}</strong><div>{r.zavaznost} · {r.popis||"Bez popisu"}</div></div>{manage?<select value={r.stav} onChange={e=>status(r,e.target.value)}><option>NOVÁ</option><option>ŘEŠÍ SE</option><option>OPRAVENO</option></select>:<strong>{r.stav}</strong>}</div>)}</div></div>
 }
 
-function Departures({ role }) { const manage=canManageVehicles(role); const [rows,setRows]=useState([]),[vehicles,setVehicles]=useState([]),[drivers,setDrivers]=useState([]),[form,setForm]=useState({datum:new Date().toISOString().slice(0,10),linka:"",poradi:"",vuz_id:"",ridic_id:"",zacatek:"",konec:"",poznamka:""}); async function load(){const [a,b,c]=await Promise.all([supabase.from("vypravy").select("*").order("datum",{ascending:false}),supabase.from("vozy").select("id,cislo,ridic_1,ridic_2"),supabase.from("profiles").select("id,jmeno").eq("role","ridic")]);setRows(a.data||[]);setVehicles(b.data||[]);setDrivers(c.data||[])} useEffect(()=>{load()},[]); async function add(e){e.preventDefault();await supabase.from("vypravy").insert({...form,vuz_id:Number(form.vuz_id),ridic_id:form.ridic_id||null});load()} return <div><div className="topbar"><div><h1>Výpravy</h1><p>Tabulka výprav vozů a řidičů</p></div></div>{manage&&<div className="panel"><form className="form-grid" onSubmit={add}><input type="date" value={form.datum} onChange={e=>setForm({...form,datum:e.target.value})} required/><input placeholder="Linka" value={form.linka} onChange={e=>setForm({...form,linka:e.target.value})} required/><input placeholder="Pořadí" value={form.poradi} onChange={e=>setForm({...form,poradi:e.target.value})}/><select value={form.vuz_id} onChange={e=>setForm({...form,vuz_id:e.target.value})} required><option value="">Vůz</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.cislo}</option>)}</select><select value={form.ridic_id} onChange={e=>setForm({...form,ridic_id:e.target.value})}><option value="">Řidič</option>{drivers.map(d=><option key={d.id} value={d.id}>{d.jmeno}</option>)}</select><input type="time" value={form.zacatek} onChange={e=>setForm({...form,zacatek:e.target.value})}/><input type="time" value={form.konec} onChange={e=>setForm({...form,konec:e.target.value})}/><input placeholder="Poznámka" value={form.poznamka} onChange={e=>setForm({...form,poznamka:e.target.value})}/><button className="primary-button">Přidat výpravu</button></form></div>}<div className="panel table-scroll"><table className="data-table"><thead><tr><th>Datum</th><th>Linka</th><th>Pořadí</th><th>Vůz</th><th>Řidič</th><th>Začátek</th><th>Konec</th><th>Poznámka</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.datum}</td><td>{r.linka}</td><td>{r.poradi||"-"}</td><td>{vehicles.find(v=>v.id===r.vuz_id)?.cislo||r.vuz_id}</td><td>{drivers.find(d=>d.id===r.ridic_id)?.jmeno||"-"}</td><td>{r.zacatek||"-"}</td><td>{r.konec||"-"}</td><td>{r.poznamka||"-"}</td></tr>)}</tbody></table></div></div> }
+
+function AdminCourses() {
+  const { provozovny } = useProvozovny();
+
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filterProvozovna, setFilterProvozovna] = useState("");
+  const [form, setForm] = useState({
+    nazev: "",
+    provozovna_id: "",
+  });
+
+  async function loadCourses() {
+    setLoading(true);
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("kurzy")
+      .select("id, nazev, provozovna_id, aktivni, created_at")
+      .order("nazev", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setCourses([]);
+    } else {
+      setCourses(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
+  function resetForm() {
+    setEditing(null);
+    setForm({ nazev: "", provozovna_id: "" });
+  }
+
+  async function saveCourse(e) {
+    e.preventDefault();
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const name = form.nazev.trim();
+
+    if (!name || !form.provozovna_id) {
+      setError("Vyplň název kurzu a provozovnu.");
+      setSaving(false);
+      return;
+    }
+
+    const payload = {
+      nazev: name,
+      provozovna_id: Number(form.provozovna_id),
+      aktivni: true,
+    };
+
+    const result = editing
+      ? await supabase
+          .from("kurzy")
+          .update(payload)
+          .eq("id", editing.id)
+      : await supabase.from("kurzy").insert(payload);
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(editing ? "Kurz byl upraven." : "Kurz byl přidán.");
+    resetForm();
+    await loadCourses();
+    setSaving(false);
+  }
+
+  async function toggleCourse(course) {
+    setError("");
+    setSuccess("");
+
+    const { error: updateError } = await supabase
+      .from("kurzy")
+      .update({ aktivni: !course.aktivni })
+      .eq("id", course.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setSuccess(course.aktivni ? "Kurz byl deaktivován." : "Kurz byl aktivován.");
+    await loadCourses();
+  }
+
+  async function deleteCourse(course) {
+    if (
+      !window.confirm(
+        `Opravdu chceš smazat kurz ${course.nazev}?`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error: deleteError } = await supabase
+      .from("kurzy")
+      .delete()
+      .eq("id", course.id);
+
+    if (deleteError) {
+      setError(
+        deleteError.message.includes("foreign key")
+          ? "Kurz už je použitý ve výpravách. Místo smazání ho deaktivuj."
+          : deleteError.message
+      );
+      return;
+    }
+
+    setSuccess("Kurz byl smazán.");
+    await loadCourses();
+  }
+
+  function getProvozovnaName(id) {
+    return (
+      provozovny.find(
+        (provozovna) => String(provozovna.id) === String(id)
+      )?.nazev || "-"
+    );
+  }
+
+  const query = search.trim().toLowerCase();
+
+  const filtered = courses.filter((course) => {
+    if (
+      filterProvozovna &&
+      String(course.provozovna_id) !== String(filterProvozovna)
+    ) {
+      return false;
+    }
+
+    if (!query) return true;
+
+    return `${course.nazev} ${getProvozovnaName(
+      course.provozovna_id
+    )}`
+      .toLowerCase()
+      .includes(query);
+  });
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>Kurzy</h1>
+          <p>Číselník kurzů podle provozoven</p>
+        </div>
+
+        <div className="profile-badge">
+          {courses.length} KURZŮ
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="course-admin-layout">
+        <div className="panel">
+          <h2>{editing ? "✏️ Upravit kurz" : "➕ Přidat kurz"}</h2>
+
+          <form onSubmit={saveCourse}>
+            <div className="form-grid">
+              <div>
+                <label>Název kurzu</label>
+                <input
+                  value={form.nazev}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      nazev: e.target.value,
+                    })
+                  }
+                  placeholder="Např. 53.01, MHDCL1, 349101..."
+                  required
+                />
+              </div>
+
+              <div>
+                <label>Provozovna</label>
+                <select
+                  value={form.provozovna_id}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      provozovna_id: e.target.value,
+                    })
+                  }
+                  required
+                >
+                  <option value="">Vyber provozovnu</option>
+                  {provozovny.map((provozovna) => (
+                    <option
+                      key={provozovna.id}
+                      value={provozovna.id}
+                    >
+                      {provozovna.nazev}
+                      {provozovna.kod
+                        ? ` (${provozovna.kod})`
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-buttons">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={saving}
+              >
+                {saving
+                  ? "Ukládám..."
+                  : editing
+                  ? "💾 Uložit změny"
+                  : "➕ Přidat kurz"}
+              </button>
+
+              {editing && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={resetForm}
+                >
+                  Zrušit úpravy
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="panel">
+          <div className="users-toolbar">
+            <div>
+              <h2>Seznam kurzů</h2>
+              <p className="muted">
+                Kurz se ve Výpravách nabídne pouze u své provozovny.
+              </p>
+            </div>
+          </div>
+
+          <div className="course-admin-filters">
+            <input
+              className="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔎 Hledat kurz..."
+            />
+
+            <select
+              value={filterProvozovna}
+              onChange={(e) =>
+                setFilterProvozovna(e.target.value)
+              }
+            >
+              <option value="">Všechny provozovny</option>
+              {provozovny.map((provozovna) => (
+                <option
+                  key={provozovna.id}
+                  value={provozovna.id}
+                >
+                  {provozovna.nazev}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {loading ? (
+            <div className="empty">Načítání kurzů...</div>
+          ) : filtered.length === 0 ? (
+            <div className="empty">Žádné kurzy.</div>
+          ) : (
+            <div className="course-admin-list">
+              {filtered.map((course) => (
+                <div
+                  className={`course-admin-item ${
+                    course.aktivni ? "" : "inactive"
+                  }`}
+                  key={course.id}
+                >
+                  <div>
+                    <strong>{course.nazev}</strong>
+                    <span>
+                      {getProvozovnaName(
+                        course.provozovna_id
+                      )}
+                    </span>
+                  </div>
+
+                  <span
+                    className={`course-active-badge ${
+                      course.aktivni ? "active" : "inactive"
+                    }`}
+                  >
+                    {course.aktivni ? "AKTIVNÍ" : "NEAKTIVNÍ"}
+                  </span>
+
+                  <div className="course-admin-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setEditing(course);
+                        setForm({
+                          nazev: course.nazev,
+                          provozovna_id:
+                            course.provozovna_id || "",
+                        });
+                        window.scrollTo({
+                          top: 0,
+                          behavior: "smooth",
+                        });
+                      }}
+                    >
+                      ✏️ Upravit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => toggleCourse(course)}
+                    >
+                      {course.aktivni
+                        ? "⏸ Deaktivovat"
+                        : "▶ Aktivovat"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() => deleteCourse(course)}
+                    >
+                      🗑️ Smazat
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Departures({ role }) {
+  const manage = canManageVehicles(role);
+  const { provozovny } = useProvozovny();
+
+  const now = new Date();
+
+  const [selectedProvozovna, setSelectedProvozovna] =
+    useState("");
+  const [selectedMonth, setSelectedMonth] = useState(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}`
+  );
+
+  const [rows, setRows] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [courses, setCourses] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [editor, setEditor] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [cellForm, setCellForm] = useState({
+    kurz_id: "",
+    ridic_id: "",
+    poznamka: "",
+  });
+
+  useEffect(() => {
+    if (!selectedProvozovna && provozovny.length > 0) {
+      setSelectedProvozovna(String(provozovny[0].id));
+    }
+  }, [provozovny, selectedProvozovna]);
+
+  async function loadReferences() {
+    const [vehicleResult, driverResult, courseResult] =
+      await Promise.all([
+        supabase
+          .from("vozy")
+          .select(
+            "id,cislo,vyrobce,typ,provozovna_id"
+          )
+          .order("cislo", { ascending: true }),
+
+        supabase
+          .from("profiles")
+          .select("id,jmeno,role")
+          .eq("role", ROLE_RIDIC)
+          .order("jmeno", { ascending: true }),
+
+        supabase
+          .from("kurzy")
+          .select(
+            "id,nazev,provozovna_id,aktivni"
+          )
+          .order("nazev", { ascending: true }),
+      ]);
+
+    if (vehicleResult.error) {
+      setError(vehicleResult.error.message);
+      setVehicles([]);
+    } else {
+      setVehicles(vehicleResult.data || []);
+    }
+
+    if (driverResult.error) {
+      setError((old) => old || driverResult.error.message);
+      setDrivers([]);
+    } else {
+      setDrivers(driverResult.data || []);
+    }
+
+    if (courseResult.error) {
+      setError((old) => old || courseResult.error.message);
+      setCourses([]);
+    } else {
+      setCourses(courseResult.data || []);
+    }
+  }
+
+  async function loadMonth() {
+    if (!selectedProvozovna || !selectedMonth) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    const [yearText, monthText] =
+      selectedMonth.split("-");
+    const year = Number(yearText);
+    const month = Number(monthText);
+
+    const from = `${year}-${String(month).padStart(
+      2,
+      "0"
+    )}-01`;
+
+    const lastDay = new Date(year, month, 0).getDate();
+
+    const to = `${year}-${String(month).padStart(
+      2,
+      "0"
+    )}-${String(lastDay).padStart(2, "0")}`;
+
+    const { data, error: loadError } = await supabase
+      .from("vypravy")
+      .select("*")
+      .eq(
+        "provozovna_id",
+        Number(selectedProvozovna)
+      )
+      .gte("datum", from)
+      .lte("datum", to)
+      .order("datum", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setRows([]);
+    } else {
+      setRows(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadReferences();
+  }, []);
+
+  useEffect(() => {
+    loadMonth();
+  }, [selectedProvozovna, selectedMonth]);
+
+  const [yearText, monthText] =
+    selectedMonth.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const daysInMonth = new Date(
+    year,
+    month,
+    0
+  ).getDate();
+
+  const days = Array.from(
+    { length: daysInMonth },
+    (_, index) => index + 1
+  );
+
+  const selectedProvozovnaRow =
+    provozovny.find(
+      (item) =>
+        String(item.id) === String(selectedProvozovna)
+    ) || null;
+
+  const visibleVehicles = vehicles.filter(
+    (vehicle) =>
+      String(vehicle.provozovna_id) ===
+      String(selectedProvozovna)
+  );
+
+  const visibleCourses = courses.filter(
+    (course) =>
+      course.aktivni &&
+      String(course.provozovna_id) ===
+        String(selectedProvozovna)
+  );
+
+  function isoDate(day) {
+    return `${year}-${String(month).padStart(
+      2,
+      "0"
+    )}-${String(day).padStart(2, "0")}`;
+  }
+
+  function getEntry(vehicleId, day) {
+    const date = isoDate(day);
+
+    return rows.find(
+      (row) =>
+        String(row.vuz_id) === String(vehicleId) &&
+        row.datum === date
+    );
+  }
+
+  function getCourse(row) {
+    if (!row) return null;
+
+    return courses.find(
+      (course) =>
+        String(course.id) === String(row.kurz_id)
+    );
+  }
+
+  function getDriver(row) {
+    if (!row?.ridic_id) return null;
+
+    return drivers.find(
+      (driver) =>
+        String(driver.id) === String(row.ridic_id)
+    );
+  }
+
+  function dayInfo(day) {
+    const date = new Date(
+      year,
+      month - 1,
+      day
+    );
+
+    const weekdayIndex = date.getDay();
+    const names = [
+      "Ne",
+      "Po",
+      "Út",
+      "St",
+      "Čt",
+      "Pá",
+      "So",
+    ];
+
+    const today = new Date();
+    const isToday =
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate();
+
+    return {
+      name: names[weekdayIndex],
+      weekend:
+        weekdayIndex === 0 || weekdayIndex === 6,
+      today: isToday,
+    };
+  }
+
+  function openEditor(vehicle, day) {
+    if (!manage) return;
+
+    const row = getEntry(vehicle.id, day);
+
+    setError("");
+    setSuccess("");
+
+    setEditor({
+      vehicle,
+      day,
+      date: isoDate(day),
+      row: row || null,
+    });
+
+    setCellForm({
+      kurz_id: row?.kurz_id
+        ? String(row.kurz_id)
+        : "",
+      ridic_id: row?.ridic_id || "",
+      poznamka: row?.poznamka || "",
+    });
+  }
+
+  function closeEditor() {
+    setEditor(null);
+    setCellForm({
+      kurz_id: "",
+      ridic_id: "",
+      poznamka: "",
+    });
+  }
+
+  async function saveEntry(e) {
+    e.preventDefault();
+
+    if (!editor || !cellForm.kurz_id) {
+      setError("Vyber kurz.");
+      return;
+    }
+
+    const course = courses.find(
+      (item) =>
+        String(item.id) ===
+        String(cellForm.kurz_id)
+    );
+
+    if (!course) {
+      setError("Vybraný kurz nebyl nalezen.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      datum: editor.date,
+      provozovna_id: Number(
+        selectedProvozovna
+      ),
+      vuz_id: Number(editor.vehicle.id),
+      kurz_id: Number(cellForm.kurz_id),
+
+      // Zachováme kompatibilitu s původním sloupcem linka.
+      linka: course.nazev,
+
+      ridic_id: cellForm.ridic_id || null,
+      poznamka:
+        cellForm.poznamka.trim() || null,
+    };
+
+    const result = editor.row
+      ? await supabase
+          .from("vypravy")
+          .update(payload)
+          .eq("id", editor.row.id)
+      : await supabase
+          .from("vypravy")
+          .insert(payload);
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editor.row
+        ? "Výprava byla upravena."
+        : "Výprava byla uložena."
+    );
+
+    closeEditor();
+    await loadMonth();
+    setSaving(false);
+  }
+
+  async function deleteEntry() {
+    if (!editor?.row) return;
+
+    if (
+      !window.confirm(
+        `Opravdu chceš smazat výpravu vozu ${editor.vehicle.cislo} dne ${editor.date}?`
+      )
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const { error: deleteError } =
+      await supabase
+        .from("vypravy")
+        .delete()
+        .eq("id", editor.row.id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess("Výprava byla smazána.");
+    closeEditor();
+    await loadMonth();
+    setSaving(false);
+  }
+
+  function changeMonth(offset) {
+    const date = new Date(
+      year,
+      month - 1 + offset,
+      1
+    );
+
+    setSelectedMonth(
+      `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`
+    );
+  }
+
+  return (
+    <div className="departures-page">
+      <div className="topbar">
+        <div>
+          <div className="departures-eyebrow">
+            VÝPRAVOVÝ PLÁN
+          </div>
+          <h1>Výpravy</h1>
+          <p>
+            Měsíční přehled vozů, kurzů a řidičů
+          </p>
+        </div>
+
+        <div className="profile-badge">
+          {selectedProvozovnaRow?.nazev ||
+            "PROVOZOVNA"}
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-box">
+          <strong>Chyba:</strong>
+          <br />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="success-box">
+          {success}
+        </div>
+      )}
+
+      <div className="departures-toolbar panel">
+        <div className="departures-branches">
+          {provozovny.map((provozovna) => (
+            <button
+              type="button"
+              key={provozovna.id}
+              className={
+                String(provozovna.id) ===
+                String(selectedProvozovna)
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setSelectedProvozovna(
+                  String(provozovna.id)
+                )
+              }
+            >
+              {provozovna.nazev}
+            </button>
+          ))}
+        </div>
+
+        <div className="departures-month-control">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => changeMonth(-1)}
+          >
+            ‹
+          </button>
+
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) =>
+              setSelectedMonth(e.target.value)
+            }
+          />
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => changeMonth(1)}
+          >
+            ›
+          </button>
+        </div>
+      </div>
+
+      {!selectedProvozovna ? (
+        <div className="empty">
+          Vyber provozovnu.
+        </div>
+      ) : loading ? (
+        <div className="empty">
+          Načítání výprav...
+        </div>
+      ) : visibleVehicles.length === 0 ? (
+        <div className="empty">
+          Tato provozovna nemá přiřazené žádné
+          vozy.
+        </div>
+      ) : (
+        <div className="departures-table-wrap">
+          <table className="departures-month-table">
+            <thead>
+              <tr>
+                <th className="departures-vehicle-column">
+                  Vůz
+                </th>
+
+                {days.map((day) => {
+                  const info = dayInfo(day);
+
+                  return (
+                    <th
+                      key={day}
+                      className={[
+                        info.weekend
+                          ? "weekend"
+                          : "",
+                        info.today ? "today" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      <span>{info.name}</span>
+                      <strong>{day}</strong>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+
+            <tbody>
+              {visibleVehicles.map((vehicle) => (
+                <tr key={vehicle.id}>
+                  <td className="departures-vehicle-column">
+                    <strong>
+                      {vehicle.cislo}
+                    </strong>
+                    <small>
+                      {vehicle.vyrobce || ""}{" "}
+                      {vehicle.typ || ""}
+                    </small>
+                  </td>
+
+                  {days.map((day) => {
+                    const info = dayInfo(day);
+                    const row = getEntry(
+                      vehicle.id,
+                      day
+                    );
+                    const course =
+                      getCourse(row);
+                    const driver =
+                      getDriver(row);
+
+                    return (
+                      <td
+                        key={day}
+                        className={[
+                          "departure-cell",
+                          info.weekend
+                            ? "weekend"
+                            : "",
+                          info.today
+                            ? "today"
+                            : "",
+                          row ? "filled" : "",
+                          manage
+                            ? "editable"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        onClick={() =>
+                          openEditor(
+                            vehicle,
+                            day
+                          )
+                        }
+                        title={
+                          row
+                            ? `${
+                                course?.nazev ||
+                                row.linka ||
+                                "Výprava"
+                              }${
+                                driver?.jmeno
+                                  ? ` · ${driver.jmeno}`
+                                  : ""
+                              }`
+                            : manage
+                            ? "Klikni pro přidání výpravy"
+                            : ""
+                        }
+                      >
+                        {row ? (
+                          <div className="departure-cell-content">
+                            <strong>
+                              {course?.nazev ||
+                                row.linka ||
+                                "-"}
+                            </strong>
+
+                            {driver?.jmeno && (
+                              <small>
+                                {driver.jmeno}
+                              </small>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="departure-cell-empty">
+                            {manage ? "+" : ""}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {manage &&
+        selectedProvozovna &&
+        visibleCourses.length === 0 && (
+          <div className="departures-warning">
+            Pro provozovnu{" "}
+            <strong>
+              {selectedProvozovnaRow?.nazev}
+            </strong>{" "}
+            zatím nejsou žádné aktivní kurzy.
+            Přidej je v Administraci → Kurzy.
+          </div>
+        )}
+
+      {editor && (
+        <div
+          className="departure-modal-backdrop"
+          onMouseDown={(e) => {
+            if (
+              e.target === e.currentTarget &&
+              !saving
+            ) {
+              closeEditor();
+            }
+          }}
+        >
+          <div className="departure-modal">
+            <div className="departure-modal-head">
+              <div>
+                <span>
+                  {selectedProvozovnaRow?.nazev}
+                </span>
+                <h2>
+                  Vůz {editor.vehicle.cislo}
+                </h2>
+                <p>
+                  {new Date(
+                    `${editor.date}T00:00:00`
+                  ).toLocaleDateString(
+                    "cs-CZ",
+                    {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    }
+                  )}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="departure-modal-close"
+                onClick={closeEditor}
+                disabled={saving}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={saveEntry}>
+              <div className="notification-field">
+                <label>Provozovna</label>
+                <input
+                  value={
+                    selectedProvozovnaRow?.nazev ||
+                    ""
+                  }
+                  disabled
+                />
+              </div>
+
+              <div className="notification-field">
+                <label>Kurz</label>
+                <select
+                  value={cellForm.kurz_id}
+                  onChange={(e) =>
+                    setCellForm({
+                      ...cellForm,
+                      kurz_id:
+                        e.target.value,
+                    })
+                  }
+                  required
+                >
+                  <option value="">
+                    Vyber kurz...
+                  </option>
+
+                  {visibleCourses.map(
+                    (course) => (
+                      <option
+                        key={course.id}
+                        value={course.id}
+                      >
+                        {course.nazev}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div className="notification-field">
+                <label>Řidič</label>
+                <select
+                  value={cellForm.ridic_id}
+                  onChange={(e) =>
+                    setCellForm({
+                      ...cellForm,
+                      ridic_id:
+                        e.target.value,
+                    })
+                  }
+                >
+                  <option value="">
+                    Bez řidiče
+                  </option>
+
+                  {drivers.map((driver) => (
+                    <option
+                      key={driver.id}
+                      value={driver.id}
+                    >
+                      {driver.jmeno}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="notification-field">
+                <label>Poznámka</label>
+                <textarea
+                  rows={4}
+                  value={cellForm.poznamka}
+                  onChange={(e) =>
+                    setCellForm({
+                      ...cellForm,
+                      poznamka:
+                        e.target.value,
+                    })
+                  }
+                  placeholder="Volitelná poznámka..."
+                />
+              </div>
+
+              <div className="departure-modal-actions">
+                {editor.row && (
+                  <button
+                    type="button"
+                    className="delete-button"
+                    onClick={deleteEntry}
+                    disabled={saving}
+                  >
+                    🗑️ Smazat
+                  </button>
+                )}
+
+                <div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={closeEditor}
+                    disabled={saving}
+                  >
+                    Zrušit
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={saving}
+                  >
+                    {saving
+                      ? "Ukládám..."
+                      : "💾 Uložit"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AuditLog(){const [rows,setRows]=useState([]);useEffect(()=>{supabase.from("audit_log").select("*").order("created_at",{ascending:false}).limit(200).then(({data})=>setRows(data||[]))},[]);return <div><div className="topbar"><div><h1>Audit log</h1><p>Historie administrativních změn</p></div></div><div className="panel simple-list">{rows.map(r=><div className="simple-list-item" key={r.id}><div><strong>{r.akce}</strong><div>{r.entita} {r.entita_id||""} · {r.detail||""}</div></div><small>{new Date(r.created_at).toLocaleString("cs-CZ")}</small></div>)}</div></div>}
 
@@ -5902,6 +7064,22 @@ function App() {
               </button>
             )}
 
+            {manageVehicles && (
+              <button
+                className={
+                  page === "adminCourses"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage("adminCourses")
+                }
+              >
+                <span>🧭</span>
+                Kurzy
+              </button>
+            )}
+
 
             {manageVehicles && (
               <button
@@ -6074,6 +7252,11 @@ function App() {
           {page === "adminVehicles" &&
             manageVehicles && (
               <AdminVehicles />
+            )}
+
+          {page === "adminCourses" &&
+            manageVehicles && (
+              <AdminCourses />
             )}
 
           {page === "adminVehicleRequests" &&
@@ -8687,6 +9870,455 @@ button {
 
 .notification-recipient-summary strong {
   color: #344056;
+}
+
+
+/* =========================================================
+   ADMIN KURZY
+========================================================= */
+.course-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.course-admin-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .45fr);
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.course-admin-filters .search {
+  margin: 0;
+}
+
+.course-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.course-admin-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.course-admin-item.inactive {
+  opacity: .65;
+  background: #f8fafc;
+}
+
+.course-admin-item > div:first-child {
+  min-width: 0;
+}
+
+.course-admin-item > div:first-child strong,
+.course-admin-item > div:first-child span {
+  display: block;
+}
+
+.course-admin-item > div:first-child strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.course-admin-item > div:first-child span {
+  margin-top: 3px;
+  color: #7a8496;
+  font-size: 11px;
+}
+
+.course-active-badge {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.course-active-badge.active {
+  background: #dcfce7;
+  color: #18733a;
+}
+
+.course-active-badge.inactive {
+  background: #e5e7eb;
+  color: #64748b;
+}
+
+.course-admin-actions {
+  display: flex;
+  gap: 7px;
+}
+
+/* =========================================================
+   VÝPRAVY - MĚSÍČNÍ TABULKA
+========================================================= */
+.departures-page {
+  min-width: 0;
+}
+
+.departures-eyebrow {
+  margin-bottom: 7px;
+  color: #2f6fed;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.departures-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.departures-branches {
+  min-width: 0;
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.departures-branches button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid #d9e1ec;
+  border-radius: 9px;
+  background: #fff;
+  color: #536176;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.departures-branches button.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.departures-month-control {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.departures-month-control input {
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #d7dee9;
+  border-radius: 9px;
+  background: #fff;
+  color: #253047;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.departures-month-control .secondary-button {
+  min-width: 38px;
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 20px;
+}
+
+.departures-table-wrap {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid #d8e0ea;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 7px 20px rgba(23,32,51,.04);
+}
+
+.departures-month-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.departures-month-table th,
+.departures-month-table td {
+  border-right: 1px solid #dbe2eb;
+  border-bottom: 1px solid #dbe2eb;
+}
+
+.departures-month-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  width: 66px;
+  min-width: 66px;
+  height: 50px;
+  padding: 5px 3px;
+  background: #eef3f8;
+  color: #526072;
+  text-align: center;
+  font-size: 10px;
+}
+
+.departures-month-table thead th span,
+.departures-month-table thead th strong {
+  display: block;
+}
+
+.departures-month-table thead th strong {
+  margin-top: 3px;
+  color: #172033;
+  font-size: 13px;
+}
+
+.departures-month-table th.weekend,
+.departures-month-table td.weekend {
+  background: #fff7ed;
+}
+
+.departures-month-table th.today {
+  background: #dbeafe;
+}
+
+.departures-month-table td.today {
+  box-shadow: inset 2px 0 #3b82f6, inset -2px 0 #3b82f6;
+}
+
+.departures-vehicle-column {
+  position: sticky !important;
+  left: 0;
+  z-index: 3;
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px;
+  padding: 9px 10px !important;
+  background: #f8fafc !important;
+  text-align: left !important;
+}
+
+thead .departures-vehicle-column {
+  z-index: 6 !important;
+  background: #e8eef5 !important;
+}
+
+.departures-vehicle-column strong,
+.departures-vehicle-column small {
+  display: block;
+}
+
+.departures-vehicle-column strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.departures-vehicle-column small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #8791a1;
+  font-size: 9px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.departure-cell {
+  width: 66px;
+  min-width: 66px;
+  max-width: 66px;
+  height: 57px;
+  padding: 3px;
+  background: #fff;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.departure-cell.editable {
+  cursor: pointer;
+}
+
+.departure-cell.editable:hover {
+  background: #f0f6ff;
+}
+
+.departure-cell.filled {
+  background: #f2f8ff;
+}
+
+.departure-cell-content {
+  display: flex;
+  min-height: 45px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.departure-cell-content strong {
+  max-width: 60px;
+  overflow: hidden;
+  color: #172033;
+  font-size: 10px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.departure-cell-content small {
+  max-width: 58px;
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 7px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.departure-cell-empty {
+  color: #b8c1cd;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.departures-warning {
+  margin-top: 13px;
+  padding: 12px 14px;
+  border: 1px solid #f0d69f;
+  border-radius: 11px;
+  background: #fffbeb;
+  color: #855d18;
+  font-size: 12px;
+}
+
+.departure-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15,23,42,.48);
+  backdrop-filter: blur(2px);
+}
+
+.departure-modal {
+  width: min(100%, 520px);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 25px 80px rgba(15,23,42,.28);
+}
+
+.departure-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 17px;
+}
+
+.departure-modal-head span {
+  color: #2f6fed;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.departure-modal-head h2 {
+  margin: 4px 0 0;
+  color: #172033;
+  font-size: 20px;
+}
+
+.departure-modal-head p {
+  margin: 4px 0 0;
+  color: #7a8496;
+  font-size: 11px;
+}
+
+.departure-modal-close {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid #dbe2eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.departure-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #edf1f5;
+}
+
+.departure-modal-actions > div {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .course-admin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .departures-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .departures-month-control {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .course-admin-filters,
+  .course-admin-item {
+    grid-template-columns: 1fr;
+  }
+
+  .course-admin-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .course-admin-actions button {
+    width: 100%;
+  }
+
+  .departure-modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .departure-modal-actions > div {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .departure-modal-actions button {
+    width: 100%;
+  }
 }
 
 `;
