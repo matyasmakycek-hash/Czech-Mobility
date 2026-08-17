@@ -6119,6 +6119,8 @@ function Departures({ role, onOpenVehicle }) {
     return String(value || "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
+      .replace(/ł/g, "l")
+      .replace(/Ł/g, "l")
       .toLowerCase()
       .trim();
   }
