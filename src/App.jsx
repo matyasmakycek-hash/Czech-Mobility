@@ -4475,12 +4475,454 @@ function Members({ user }) {
 /* =========================================================
    NOVÉ MODULY: NOTIFIKACE, ODEVZDÁNÍ, ZÁVADY, VÝPRAVY, AUDIT
 ========================================================= */
-function Notifications({ user }) {
-  const [items,setItems]=useState([]); const [error,setError]=useState("");
-  async function load(){ const {data,error}=await supabase.from("notifications").select("*").eq("uzivatel_id",user.id).order("created_at",{ascending:false}); if(error)setError(error.message); else setItems(data||[]); }
-  useEffect(()=>{load();},[user.id]);
-  async function markAll(){ await supabase.from("notifications").update({precteno:true}).eq("uzivatel_id",user.id).eq("precteno",false); load(); }
-  return <div><div className="topbar"><div><h1>Notifikace</h1><p>Změny žádostí a důležité události</p></div><button className="secondary-button" onClick={markAll}>Označit vše jako přečtené</button></div>{error&&<div className="error-box">{error}</div>}<div className="panel simple-list">{items.length===0?<div className="empty">Žádné notifikace.</div>:items.map(n=><div className={`simple-list-item ${n.precteno?"":"unread"}`} key={n.id}><div><strong>{n.typ}</strong><div>{n.zprava}</div></div><small>{new Date(n.created_at).toLocaleString("cs-CZ")}</small></div>)}</div></div>;
+function Notifications({ user, role }) {
+  const manage = canManageVehicles(role);
+
+  const [items, setItems] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const [recipientId, setRecipientId] = useState("");
+  const [notificationType, setNotificationType] = useState("OBECNÁ");
+  const [message, setMessage] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+
+  async function load() {
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("uzivatel_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (loadError) {
+      setError(loadError.message);
+      setItems([]);
+      return;
+    }
+
+    setItems(data || []);
+  }
+
+  async function loadProfiles() {
+    if (!manage) {
+      setProfiles([]);
+      return;
+    }
+
+    const { data, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, jmeno, role")
+      .order("jmeno", { ascending: true });
+
+    if (profilesError) {
+      setError(profilesError.message);
+      setProfiles([]);
+      return;
+    }
+
+    setProfiles(data || []);
+  }
+
+  useEffect(() => {
+    load();
+  }, [user.id]);
+
+  useEffect(() => {
+    loadProfiles();
+  }, [manage]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview]);
+
+  async function markAll() {
+    setError("");
+
+    const { error: markError } = await supabase
+      .from("notifications")
+      .update({ precteno: true })
+      .eq("uzivatel_id", user.id)
+      .eq("precteno", false);
+
+    if (markError) {
+      setError(markError.message);
+      return;
+    }
+
+    await load();
+  }
+
+  function chooseImage(event) {
+    setError("");
+
+    const file = event.target.files?.[0] || null;
+
+    if (!file) {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      setImageFile(null);
+      setImagePreview("");
+      return;
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
+      event.target.value = "";
+      setError("Fotka musí být JPG, PNG nebo WebP.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      event.target.value = "";
+      setError("Fotka může mít maximálně 5 MB.");
+      return;
+    }
+
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  function removeSelectedImage() {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview("");
+  }
+
+  async function uploadNotificationImage() {
+    if (!imageFile) {
+      return { publicUrl: null, path: null };
+    }
+
+    const extension =
+      imageFile.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") ||
+      "jpg";
+
+    const path = `${user.id}/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 10)}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("notification-images")
+      .upload(path, imageFile, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: imageFile.type,
+      });
+
+    if (uploadError) {
+      throw new Error(`Nahrání fotky selhalo: ${uploadError.message}`);
+    }
+
+    const { data } = supabase.storage
+      .from("notification-images")
+      .getPublicUrl(path);
+
+    if (!data?.publicUrl) {
+      throw new Error("Nepodařilo se získat veřejnou URL nahrané fotky.");
+    }
+
+    return {
+      publicUrl: data.publicUrl,
+      path,
+    };
+  }
+
+  async function sendNotification(event) {
+    event.preventDefault();
+
+    setError("");
+    setSuccess("");
+
+    if (!manage) {
+      setError("K odesílání notifikací nemáš oprávnění.");
+      return;
+    }
+
+    if (!recipientId) {
+      setError("Vyber příjemce.");
+      return;
+    }
+
+    const cleanMessage = message.trim();
+
+    if (!cleanMessage) {
+      setError("Napiš zprávu notifikace.");
+      return;
+    }
+
+    setSending(true);
+
+    let uploadedPath = null;
+
+    try {
+      const { publicUrl, path } = await uploadNotificationImage();
+      uploadedPath = path;
+
+      const recipients =
+        recipientId === "__all__"
+          ? profiles.map((profile) => profile.id)
+          : [recipientId];
+
+      if (recipients.length === 0) {
+        throw new Error("Nebyl nalezen žádný příjemce.");
+      }
+
+      const payload = recipients.map((id) => ({
+        uzivatel_id: id,
+        typ: notificationType.trim() || "OBECNÁ",
+        zprava: cleanMessage,
+        image_url: publicUrl,
+        precteno: false,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("notifications")
+        .insert(payload);
+
+      if (insertError) {
+        if (uploadedPath) {
+          await supabase.storage
+            .from("notification-images")
+            .remove([uploadedPath]);
+        }
+
+        throw new Error(`Odeslání notifikace selhalo: ${insertError.message}`);
+      }
+
+      setSuccess(
+        recipientId === "__all__"
+          ? `Notifikace byla odeslána ${recipients.length} uživatelům.`
+          : "Notifikace byla odeslána."
+      );
+
+      setRecipientId("");
+      setNotificationType("OBECNÁ");
+      setMessage("");
+      removeSelectedImage();
+
+      await load();
+    } catch (sendError) {
+      setError(sendError?.message || "Notifikaci se nepodařilo odeslat.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="notifications-page">
+      <div className="topbar">
+        <div>
+          <div className="notifications-eyebrow">CENTRUM OZNÁMENÍ</div>
+          <h1>Notifikace</h1>
+          <p>Změny žádostí a důležité události.</p>
+        </div>
+
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={markAll}
+        >
+          ✓ Označit vše jako přečtené
+        </button>
+      </div>
+
+      {error && (
+        <div className="request-alert request-alert-error">
+          <span className="request-alert-icon">!</span>
+          <div>
+            <strong>Chyba</strong>
+            <div>{error}</div>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="request-alert request-alert-success">
+          <span className="request-alert-icon">✓</span>
+          <div>
+            <strong>Hotovo</strong>
+            <div>{success}</div>
+          </div>
+        </div>
+      )}
+
+      {manage && (
+        <div className="notification-compose-card">
+          <div className="notification-compose-heading">
+            <div>
+              <span className="notification-compose-icon">🔔</span>
+              <div>
+                <h2>Odeslat notifikaci</h2>
+                <p>
+                  Admin a dispečer mohou poslat zprávu jednomu uživateli nebo všem.
+                  Fotka je volitelná.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={sendNotification}>
+            <div className="notification-compose-grid">
+              <div className="notification-field">
+                <label>Příjemce</label>
+                <select
+                  value={recipientId}
+                  onChange={(e) => setRecipientId(e.target.value)}
+                  required
+                >
+                  <option value="">Vyber příjemce…</option>
+                  <option value="__all__">📢 Všichni uživatelé</option>
+
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.jmeno || profile.id} — {getRoleName(profile.role)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="notification-field">
+                <label>Typ notifikace</label>
+                <input
+                  type="text"
+                  value={notificationType}
+                  onChange={(e) => setNotificationType(e.target.value)}
+                  placeholder="Např. DŮLEŽITÉ OZNÁMENÍ"
+                  maxLength={80}
+                />
+              </div>
+            </div>
+
+            <div className="notification-field">
+              <label>Zpráva</label>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Napiš text notifikace…"
+                rows={5}
+                required
+              />
+            </div>
+
+            <div className="notification-upload-box">
+              <div className="notification-upload-top">
+                <div>
+                  <strong>📷 Fotka</strong>
+                  <span>JPG, PNG nebo WebP · maximálně 5 MB</span>
+                </div>
+
+                <label className="notification-file-button">
+                  Vybrat fotku
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={chooseImage}
+                  />
+                </label>
+              </div>
+
+              {imagePreview && (
+                <div className="notification-image-preview-wrap">
+                  <img
+                    src={imagePreview}
+                    alt="Náhled vybrané fotky"
+                    className="notification-image-preview"
+                  />
+
+                  <button
+                    type="button"
+                    className="notification-remove-image"
+                    onClick={removeSelectedImage}
+                  >
+                    ✕ Odebrat fotku
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="notification-compose-actions">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={sending}
+              >
+                {sending ? "Odesílám…" : "📨 Odeslat notifikaci"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      <div className="notifications-list">
+        {items.length === 0 ? (
+          <div className="notification-empty">
+            <div>🔔</div>
+            <strong>Žádné notifikace</strong>
+            <span>Až se něco stane, zobrazí se to tady.</span>
+          </div>
+        ) : (
+          items.map((notification) => (
+            <article
+              className={`notification-card ${
+                notification.precteno ? "" : "unread"
+              }`}
+              key={notification.id}
+            >
+              <div className="notification-card-header">
+                <div>
+                  <span className="notification-type">
+                    {notification.typ || "OZNÁMENÍ"}
+                  </span>
+
+                  <small>
+                    {notification.created_at
+                      ? new Date(notification.created_at).toLocaleString("cs-CZ")
+                      : "—"}
+                  </small>
+                </div>
+
+                {!notification.precteno && (
+                  <span className="notification-unread-badge">NOVÉ</span>
+                )}
+              </div>
+
+              <div className="notification-message">
+                {notification.zprava}
+              </div>
+
+              {notification.image_url && (
+                <a
+                  href={notification.image_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="notification-image-link"
+                  title="Otevřít fotku v plné velikosti"
+                >
+                  <img
+                    src={notification.image_url}
+                    alt="Fotka v notifikaci"
+                    className="notification-image"
+                    loading="lazy"
+                  />
+                </a>
+              )}
+            </article>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 function VehicleReleaseRequests({ user, profile, adminMode=false }) {
@@ -4984,7 +5426,7 @@ function App() {
             />
           )}
 
-          {page === "notifications" && <Notifications user={user} />}
+          {page === "notifications" && <Notifications user={user} role={role} />}
           {page === "releaseRequests" && <VehicleReleaseRequests user={user} profile={profile} />}
           {page === "faults" && <VehicleFaults user={user} role={role} />}
           {page === "adminReleaseRequests" && manageVehicles && <VehicleReleaseRequests user={user} profile={profile} adminMode />}
@@ -7050,6 +7492,329 @@ button {
 
   .assignment-delete-button {
     width: 100%;
+  }
+}
+
+
+/* =========================================================
+   NOTIFIKACE + FOTKY
+========================================================= */
+.notifications-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.notifications-eyebrow {
+  margin-bottom: 7px;
+  color: #2f6fed;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.notification-compose-card {
+  margin-bottom: 20px;
+  padding: 22px;
+  border: 1px solid #dfe6ef;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(23, 32, 51, .055);
+}
+
+.notification-compose-heading {
+  margin-bottom: 18px;
+}
+
+.notification-compose-heading > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.notification-compose-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf1ff;
+  font-size: 19px;
+}
+
+.notification-compose-heading h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 18px;
+}
+
+.notification-compose-heading p {
+  margin: 5px 0 0;
+  color: #7a8496;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.notification-compose-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.notification-field {
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.notification-field label {
+  display: block;
+  margin-bottom: 7px;
+  color: #344056;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.notification-field input,
+.notification-field select,
+.notification-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d7dee9;
+  border-radius: 11px;
+  background: #fbfcfe;
+  color: #172033;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+}
+
+.notification-field input,
+.notification-field select {
+  min-height: 42px;
+  padding: 9px 11px;
+}
+
+.notification-field textarea {
+  display: block;
+  min-height: 115px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.notification-field input:focus,
+.notification-field select:focus,
+.notification-field textarea:focus {
+  border-color: #6d94e8;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, .08);
+}
+
+.notification-upload-box {
+  margin-top: 2px;
+  padding: 15px;
+  border: 1px dashed #ccd6e5;
+  border-radius: 13px;
+  background: #f9fbfe;
+}
+
+.notification-upload-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.notification-upload-top strong {
+  display: block;
+  color: #2c374b;
+  font-size: 13px;
+}
+
+.notification-upload-top span {
+  display: block;
+  margin-top: 3px;
+  color: #8590a2;
+  font-size: 11px;
+}
+
+.notification-file-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.notification-file-button input {
+  display: none;
+}
+
+.notification-image-preview-wrap {
+  margin-top: 14px;
+}
+
+.notification-image-preview {
+  display: block;
+  width: min(100%, 520px);
+  max-height: 320px;
+  object-fit: cover;
+  border: 1px solid #e1e7ef;
+  border-radius: 13px;
+  background: #eef2f7;
+}
+
+.notification-remove-image {
+  margin-top: 9px;
+  border: 0;
+  background: transparent;
+  color: #b42323;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.notification-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.notification-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid #e1e7ef;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 7px 22px rgba(23, 32, 51, .045);
+}
+
+.notification-card.unread {
+  border-left: 4px solid #2f6fed;
+  background: linear-gradient(135deg, #ffffff, #f7faff);
+}
+
+.notification-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 11px;
+}
+
+.notification-card-header small {
+  display: block;
+  margin-top: 4px;
+  color: #8b95a6;
+  font-size: 10px;
+}
+
+.notification-type {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: #2f6fed;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.notification-unread-badge {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #18733a;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.notification-message {
+  color: #344056;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notification-image-link {
+  display: block;
+  margin-top: 14px;
+  border-radius: 13px;
+  overflow: hidden;
+  background: #eef2f7;
+}
+
+.notification-image {
+  display: block;
+  width: 100%;
+  max-height: 430px;
+  object-fit: contain;
+  background: #eef2f7;
+}
+
+.notification-empty {
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px;
+  border: 1px solid #e1e7ef;
+  border-radius: 16px;
+  background: #fff;
+  color: #7d8798;
+  text-align: center;
+}
+
+.notification-empty > div {
+  font-size: 28px;
+}
+
+.notification-empty strong {
+  color: #2b364a;
+}
+
+@media (max-width: 700px) {
+  .notification-compose-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .notification-upload-top {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-file-button {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .notification-compose-actions .primary-button {
+    width: 100%;
+  }
+
+  .notification-card {
+    padding: 15px;
   }
 }
 
