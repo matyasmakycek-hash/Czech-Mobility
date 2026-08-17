@@ -5769,6 +5769,10 @@ function AdminCourses() {
   const [form, setForm] = useState({
     nazev: "",
     provozovna_id: "",
+    typ_dne: "",
+    typ_vozu: "",
+    zacatek: "",
+    konec: "",
   });
 
   async function loadCourses() {
@@ -5777,7 +5781,7 @@ function AdminCourses() {
 
     const { data, error: loadError } = await supabase
       .from("kurzy")
-      .select("id, nazev, provozovna_id, aktivni, created_at")
+      .select("id, nazev, provozovna_id, aktivni, typ_dne, typ_vozu, zacatek, konec, created_at")
       .order("nazev", { ascending: true });
 
     if (loadError) {
@@ -5796,7 +5800,7 @@ function AdminCourses() {
 
   function resetForm() {
     setEditing(null);
-    setForm({ nazev: "", provozovna_id: "" });
+    setForm({ nazev: "", provozovna_id: "", typ_dne: "", typ_vozu: "", zacatek: "", konec: "" });
   }
 
   async function saveCourse(e) {
@@ -5818,6 +5822,10 @@ function AdminCourses() {
       nazev: name,
       provozovna_id: Number(form.provozovna_id),
       aktivni: true,
+      typ_dne: form.typ_dne || null,
+      typ_vozu: form.typ_vozu || null,
+      zacatek: form.zacatek || null,
+      konec: form.konec || null,
     };
 
     const result = editing
@@ -5984,6 +5992,68 @@ function AdminCourses() {
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label>Typ dne</label>
+                <select
+                  value={form.typ_dne}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      typ_dne: e.target.value,
+                    })
+                  }
+                >
+                  <option value="">Všechny dny</option>
+                  <option value="PD">Pracovní den</option>
+                  <option value="VIKEND">Víkend</option>
+                </select>
+              </div>
+
+              <div>
+                <label>Typ vozu</label>
+                <select
+                  value={form.typ_vozu}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      typ_vozu: e.target.value,
+                    })
+                  }
+                >
+                  <option value="">Bez omezení</option>
+                  <option value="SOLO">Sólo</option>
+                  <option value="KLOUB">Kloub</option>
+                </select>
+              </div>
+
+              <div>
+                <label>Začátek</label>
+                <input
+                  type="time"
+                  value={form.zacatek || ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      zacatek: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div>
+                <label>Konec</label>
+                <input
+                  type="time"
+                  value={form.konec || ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      konec: e.target.value,
+                    })
+                  }
+                />
+              </div>
             </div>
 
             <div className="form-buttons">
@@ -6064,9 +6134,16 @@ function AdminCourses() {
                   <div>
                     <strong>{course.nazev}</strong>
                     <span>
-                      {getProvozovnaName(
-                        course.provozovna_id
-                      )}
+                      {getProvozovnaName(course.provozovna_id)}
+                      {course.typ_dne
+                        ? ` · ${course.typ_dne === "PD" ? "Pracovní den" : "Víkend"}`
+                        : ""}
+                      {course.typ_vozu
+                        ? ` · ${course.typ_vozu === "SOLO" ? "Sólo" : "Kloub"}`
+                        : ""}
+                      {course.zacatek || course.konec
+                        ? ` · ${course.zacatek ? String(course.zacatek).slice(0, 5) : "—"}–${course.konec ? String(course.konec).slice(0, 5) : "—"}`
+                        : ""}
                     </span>
                   </div>
 
@@ -6088,6 +6165,14 @@ function AdminCourses() {
                           nazev: course.nazev,
                           provozovna_id:
                             course.provozovna_id || "",
+                          typ_dne: course.typ_dne || "",
+                          typ_vozu: course.typ_vozu || "",
+                          zacatek: course.zacatek
+                            ? String(course.zacatek).slice(0, 5)
+                            : "",
+                          konec: course.konec
+                            ? String(course.konec).slice(0, 5)
+                            : "",
                         });
                         window.scrollTo({
                           top: 0,
@@ -6200,7 +6285,7 @@ function Departures({ role, onOpenVehicle }) {
 
       supabase
         .from("kurzy")
-        .select("id,nazev,provozovna_id,aktivni")
+        .select("id,nazev,provozovna_id,aktivni,typ_dne,typ_vozu,zacatek,konec")
         .order("nazev", { ascending: true }),
     ]);
 
@@ -6313,6 +6398,19 @@ function Departures({ role, onOpenVehicle }) {
       String(course.provozovna_id) === String(selectedProvozovna)
   );
 
+  function coursesForDay(day) {
+    const date = new Date(year, month - 1, day);
+    const weekday = date.getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+
+    return visibleCourses.filter((course) => {
+      if (!course.typ_dne) return true;
+      if (course.typ_dne === "VIKEND") return isWeekend;
+      if (course.typ_dne === "PD") return !isWeekend;
+      return true;
+    });
+  }
+
   function isoDate(day) {
     return `${year}-${String(month).padStart(2, "0")}-${String(
       day
@@ -6367,6 +6465,7 @@ function Departures({ role, onOpenVehicle }) {
       day,
       date: isoDate(day),
       row: row || null,
+      courses: coursesForDay(day),
     });
 
     setCellForm({
@@ -6481,6 +6580,40 @@ function Departures({ role, onOpenVehicle }) {
   }
 
   function getDepartureCourseGroups(courseRows) {
+    const hasVehicleType = courseRows.some((course) => course.typ_vozu);
+
+    if (hasVehicleType) {
+      const typeGroups = [
+        {
+          key: "solo",
+          title: "Sólo",
+          courses: courseRows.filter((course) => course.typ_vozu === "SOLO"),
+        },
+        {
+          key: "kloub",
+          title: "Kloub",
+          courses: courseRows.filter((course) => course.typ_vozu === "KLOUB"),
+        },
+        {
+          key: "ostatni",
+          title: "Ostatní",
+          courses: courseRows.filter((course) => !course.typ_vozu),
+        },
+      ];
+
+      return typeGroups
+        .map((group) => ({
+          ...group,
+          courses: group.courses.sort((a, b) =>
+            String(a.nazev).localeCompare(String(b.nazev), "cs", {
+              numeric: true,
+              sensitivity: "base",
+            })
+          ),
+        }))
+        .filter((group) => group.courses.length > 0);
+    }
+
     const groups = [
       {
         key: "liberec",
@@ -6552,7 +6685,9 @@ function Departures({ role, onOpenVehicle }) {
     return result.filter((group) => group.courses.length > 0);
   }
 
-  const departureCourseGroups = getDepartureCourseGroups(visibleCourses);
+  const departureCourseGroups = getDepartureCourseGroups(
+    editor?.courses || visibleCourses
+  );
 
   function getMissingCoursesForDay(day) {
     const date = isoDate(day);
@@ -6943,7 +7078,7 @@ function Departures({ role, onOpenVehicle }) {
               <div className="notification-field">
                 <label>Výprava / pořadí</label>
 
-                {visibleCourses.length === 0 ? (
+                {(editor.courses || []).length === 0 ? (
                   <div className="departure-course-empty">
                     Pro tuto provozovnu zatím nejsou přidané žádné kurzy.
                   </div>
@@ -6975,7 +7110,18 @@ function Departures({ role, onOpenVehicle }) {
                                 })
                               }
                             >
-                              {course.nazev}
+                              <strong>{course.nazev}</strong>
+                              {(course.zacatek || course.konec) && (
+                                <small>
+                                  {course.zacatek
+                                    ? String(course.zacatek).slice(0, 5)
+                                    : "—"}
+                                  {" – "}
+                                  {course.konec
+                                    ? String(course.konec).slice(0, 5)
+                                    : "—"}
+                                </small>
+                              )}
                             </button>
                           ))}
                         </div>
@@ -7025,7 +7171,7 @@ function Departures({ role, onOpenVehicle }) {
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={saving || visibleCourses.length === 0}
+                    disabled={saving || (editor.courses || []).length === 0}
                   >
                     {saving
                       ? "Ukládám..."
@@ -12528,6 +12674,26 @@ thead .departures-vehicle-column {
     height: 22px;
     font-size: 10px;
   }
+}
+
+
+/* =========================================================
+   KURZY - TYP DNE / VOZU / ČASY
+========================================================= */
+.departure-course-picker button strong,
+.departure-course-picker button small {
+  display: block;
+}
+
+.departure-course-picker button strong {
+  font-size: 10px;
+}
+
+.departure-course-picker button small {
+  margin-top: 3px;
+  opacity: .72;
+  font-size: 8px;
+  font-weight: 700;
 }
 
 `;
