@@ -6395,11 +6395,29 @@ function Departures({ role }) {
             <tbody>
               {visibleVehicles.map((vehicle) => (
                 <tr key={vehicle.id}>
-                  <td className="departures-vehicle-column">
+                  <td className="departures-vehicle-column departures-vehicle-with-courses">
                     <strong>{vehicle.cislo}</strong>
                     <small>
                       {vehicle.vyrobce || ""} {vehicle.typ || ""}
                     </small>
+
+                    <div className="vehicle-course-chips">
+                      {visibleCourses.length === 0 ? (
+                        <span className="vehicle-course-chip empty">
+                          Bez kurzů
+                        </span>
+                      ) : (
+                        visibleCourses.map((course) => (
+                          <span
+                            key={course.id}
+                            className="vehicle-course-chip"
+                            title={`Výprava / pořadí ${course.nazev}`}
+                          >
+                            {course.nazev}
+                          </span>
+                        ))
+                      )}
+                    </div>
                   </td>
 
                   {days.map((day) => {
@@ -6530,29 +6548,34 @@ function Departures({ role }) {
 
               <div className="notification-field">
                 <label>Výprava / pořadí</label>
-                <select
-                  value={cellForm.kurz_id}
-                  onChange={(e) =>
-                    setCellForm({
-                      ...cellForm,
-                      kurz_id: e.target.value,
-                    })
-                  }
-                  required
-                >
-                  <option value="">
-                    Vyber výpravu...
-                  </option>
 
-                  {visibleCourses.map((course) => (
-                    <option
-                      key={course.id}
-                      value={course.id}
-                    >
-                      {course.nazev}
-                    </option>
-                  ))}
-                </select>
+                {visibleCourses.length === 0 ? (
+                  <div className="departure-course-empty">
+                    Pro tuto provozovnu zatím nejsou přidané žádné kurzy.
+                  </div>
+                ) : (
+                  <div className="departure-course-picker">
+                    {visibleCourses.map((course) => (
+                      <button
+                        key={course.id}
+                        type="button"
+                        className={
+                          String(cellForm.kurz_id) === String(course.id)
+                            ? "active"
+                            : ""
+                        }
+                        onClick={() =>
+                          setCellForm({
+                            ...cellForm,
+                            kurz_id: String(course.id),
+                          })
+                        }
+                      >
+                        {course.nazev}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="notification-field">
@@ -10336,6 +10359,95 @@ thead .departures-vehicle-column {
 
   .departures-selected-branch > div {
     min-width: 0;
+  }
+}
+
+
+/* =========================================================
+   VÝPRAVY V5 - KURZY VIDITELNÉ U KAŽDÉHO VOZU
+========================================================= */
+.departures-vehicle-with-courses {
+  width: 210px !important;
+  min-width: 210px !important;
+  max-width: 210px !important;
+}
+
+.vehicle-course-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 7px;
+}
+
+.vehicle-course-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 5px;
+  border: 1px solid #dbe5f2;
+  border-radius: 5px;
+  background: #f3f7fd;
+  color: #34527c;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.vehicle-course-chip.empty {
+  background: #f8fafc;
+  color: #98a2b2;
+}
+
+.departure-course-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.departure-course-picker button {
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid #d7dfeb;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #344155;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.departure-course-picker button:hover {
+  border-color: #8eb3f7;
+  background: #f1f6ff;
+}
+
+.departure-course-picker button.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(37,99,235,.18);
+}
+
+.departure-course-empty {
+  padding: 12px;
+  border: 1px dashed #d6dde8;
+  border-radius: 9px;
+  background: #fafbfc;
+  color: #8c96a6;
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .departures-vehicle-with-courses {
+    width: 175px !important;
+    min-width: 175px !important;
+    max-width: 175px !important;
+  }
+
+  .departure-course-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
