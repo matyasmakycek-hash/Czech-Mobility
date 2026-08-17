@@ -13923,6 +13923,247 @@ body.cm-dark .register-link {
   }
 }
 
+
+/* =========================================================
+   DARK MODE - VÝPRAVY KOMPLETNĚ TMAVÉ
+========================================================= */
+.app.dark-mode .departures-toolbar {
+  background: #101927 !important;
+  border-color: #253247 !important;
+}
+
+.app.dark-mode .departures-tabs {
+  border-bottom-color: #2a374b !important;
+}
+
+.app.dark-mode .departures-branches button {
+  background: #162133 !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+.app.dark-mode .departures-branches button:hover {
+  background: #1d2b40 !important;
+}
+
+.app.dark-mode .departures-branches button.active {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #3b82f6 !important;
+}
+
+.app.dark-mode .departures-selected-branch {
+  background: #263245 !important;
+  border-color: #263245 !important;
+}
+
+.app.dark-mode .departures-selected-branch > div,
+.app.dark-mode .departures-selected-branch > div:first-child {
+  background: #111927 !important;
+}
+
+.app.dark-mode .departures-selected-branch span {
+  color: #8290a5 !important;
+}
+
+.app.dark-mode .departures-selected-branch strong {
+  color: #edf3fb !important;
+}
+
+.app.dark-mode .departures-table-wrap {
+  background: #0c1421 !important;
+  border-color: #2a374b !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+}
+
+.app.dark-mode .departures-month-table {
+  background: #0c1421 !important;
+  color: #dbe5f2 !important;
+}
+
+.app.dark-mode .departures-month-table th,
+.app.dark-mode .departures-month-table td {
+  border-right-color: #314056 !important;
+  border-bottom-color: #314056 !important;
+}
+
+.app.dark-mode .departures-month-table thead th {
+  background: #151f2f !important;
+  color: #94a3b8 !important;
+}
+
+.app.dark-mode .departures-month-table thead th strong {
+  color: #f1f5f9 !important;
+}
+
+/* víkend je stále rozpoznatelný, ale tmavý */
+.app.dark-mode .departures-month-table th.weekend,
+.app.dark-mode .departures-month-table td.weekend {
+  background: #1c1a19 !important;
+}
+
+/* dnešní den */
+.app.dark-mode .departures-month-table th.today {
+  background: #172a4a !important;
+  color: #bfdbfe !important;
+}
+
+.app.dark-mode .departures-month-table td.today {
+  box-shadow:
+    inset 2px 0 #3b82f6,
+    inset -2px 0 #3b82f6 !important;
+}
+
+/* sticky sloupec s vozy */
+.app.dark-mode .departures-vehicle-column {
+  background: #111927 !important;
+  border-right-color: #3a4960 !important;
+}
+
+.app.dark-mode thead .departures-vehicle-column {
+  background: #172233 !important;
+}
+
+.app.dark-mode .departures-vehicle-column strong,
+.app.dark-mode .departures-vehicle-column button,
+.app.dark-mode .departures-vehicle-link {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .departures-vehicle-column small {
+  color: #8290a5 !important;
+}
+
+/* jednotlivé buňky */
+.app.dark-mode .departure-cell {
+  background: #0f1724 !important;
+  color: #dce6f3 !important;
+}
+
+.app.dark-mode .departure-cell.weekend {
+  background: #1c1a19 !important;
+}
+
+.app.dark-mode .departure-cell.editable:hover {
+  background: #182740 !important;
+}
+
+.app.dark-mode .departure-cell.filled {
+  background: #13243c !important;
+}
+
+.app.dark-mode .departure-cell.filled.weekend {
+  background: #26231f !important;
+}
+
+.app.dark-mode .departure-cell-content strong {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .departure-cell-content small {
+  color: #94a3b8 !important;
+}
+
+.app.dark-mode .departure-cell-empty {
+  color: #536177 !important;
+}
+
+/* kontrola nevypravených */
+.app.dark-mode .departure-missing-row td {
+  border-top-color: #7f3038 !important;
+}
+
+.app.dark-mode .departure-missing-label {
+  background: #2a151b !important;
+  color: #fda4af !important;
+}
+
+.app.dark-mode .departure-missing-label strong {
+  color: #fda4af !important;
+}
+
+.app.dark-mode .departure-missing-cell.has-missing {
+  background: #271419 !important;
+}
+
+.app.dark-mode .departure-missing-cell.all-dispatched {
+  background: #10251b !important;
+}
+
+.app.dark-mode .departure-missing-names span {
+  background: rgba(255,255,255,.06) !important;
+  color: #fda4af !important;
+}
+
+.app.dark-mode .departure-missing-summary {
+  background: #21151a !important;
+  border-color: #63323a !important;
+}
+
+.app.dark-mode .departure-missing-summary > div:first-child strong {
+  color: #fda4af !important;
+}
+
+.app.dark-mode .departure-missing-summary > div:first-child span {
+  color: #c98d95 !important;
+}
+
+.app.dark-mode .departure-missing-summary-stats span {
+  background: #3a1d24 !important;
+  color: #fda4af !important;
+}
+
+/* modal Výpravy */
+.app.dark-mode .departure-day-type-banner {
+  background: #131d2c !important;
+  border-color: #2b3a50 !important;
+}
+
+.app.dark-mode .departure-day-type-banner span {
+  color: #8290a5 !important;
+}
+
+.app.dark-mode .departure-day-type-banner strong {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .departure-course-group {
+  background: #111927 !important;
+  border-color: #28364a !important;
+}
+
+.app.dark-mode .departure-course-group h4 {
+  color: #e7edf7 !important;
+}
+
+.app.dark-mode .departure-course-picker button {
+  background: #172233 !important;
+  color: #dce6f3 !important;
+  border-color: #314056 !important;
+}
+
+.app.dark-mode .departure-course-picker button:hover {
+  background: #1f3048 !important;
+}
+
+.app.dark-mode .departure-course-picker button.selected,
+.app.dark-mode .departure-course-picker button.active {
+  background: #1d4ed8 !important;
+  color: #fff !important;
+  border-color: #3b82f6 !important;
+}
+
+.app.dark-mode .departure-modal-actions {
+  background: #101827 !important;
+  border-top-color: #263245 !important;
+}
+
+@media (max-width: 700px) {
+  .app.dark-mode .departure-modal-actions {
+    background: #101827 !important;
+  }
+}
+
 `;
 
 export default App;
