@@ -6972,6 +6972,8 @@ function App() {
 
   const [page, setPage] = useState("dashboard");
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
+  const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
+  const [showStkSoon, setShowStkSoon] = useState(false);
   const [showRegister, setShowRegister] =
     useState(false);
 
@@ -7006,14 +7008,18 @@ function App() {
         .eq("stav", "ČEKÁ NA VYŘÍZENÍ"),
       supabase
         .from("vozy")
-        .select("*", { count: "exact", head: true })
+        .select("id,cislo,vyrobce,typ,spz,stk")
         .not("stk", "is", null)
         .gte("stk", today)
-        .lte("stk", stkLimit),
+        .lte("stk", stkLimit)
+        .order("stk", { ascending: true }),
     ]);
 
     if (stk.error) {
       console.error("STK DASHBOARD ERROR:", stk.error);
+      setStkSoonVehicles([]);
+    } else {
+      setStkSoonVehicles(stk.data || []);
     }
 
     setDashboardStats({
@@ -7023,7 +7029,7 @@ function App() {
       provozovny: p.count || 0,
       zavady: z.count || 0,
       cekajiciZadosti: q.count || 0,
-      stkBrzy: stk.count || 0,
+      stkBrzy: stk.error ? 0 : (stk.data || []).length,
     });
   }
 
@@ -7449,8 +7455,106 @@ function App() {
   <div className="stat"><span>Provozovny</span><strong>{dashboardStats.provozovny}</strong></div>
   <div className="stat"><span>Aktivní závady</span><strong>{dashboardStats.zavady}</strong></div>
   <div className="stat"><span>Čekající žádosti</span><strong>{dashboardStats.cekajiciZadosti}</strong></div>
-  <div className="stat"><span>STK končí do 30 dní</span><strong>{dashboardStats.stkBrzy}</strong></div>
+  <button
+    type="button"
+    className="stat stat-clickable"
+    onClick={() => setShowStkSoon(true)}
+    title="Zobrazit vozy, kterým končí STK do 30 dní"
+  >
+    <span>STK končí do 30 dní</span>
+    <strong>{dashboardStats.stkBrzy}</strong>
+    <small>Zobrazit vozy →</small>
+  </button>
 </div>
+
+              {showStkSoon && (
+                <div
+                  className="stk-dashboard-modal-backdrop"
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setShowStkSoon(false);
+                    }
+                  }}
+                >
+                  <div className="stk-dashboard-modal">
+                    <div className="stk-dashboard-modal-head">
+                      <div>
+                        <span>STK</span>
+                        <h2>Vozy se STK do 30 dní</h2>
+                        <p>
+                          {stkSoonVehicles.length === 0
+                            ? "Žádnému vozu nyní STK do 30 dní nekončí."
+                            : `${stkSoonVehicles.length} ${
+                                stkSoonVehicles.length === 1 ? "vůz" : "vozů"
+                              } vyžaduje kontrolu.`}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="stk-dashboard-modal-close"
+                        onClick={() => setShowStkSoon(false)}
+                        aria-label="Zavřít"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {stkSoonVehicles.length === 0 ? (
+                      <div className="empty">
+                        Žádné STK v následujících 30 dnech.
+                      </div>
+                    ) : (
+                      <div className="stk-dashboard-list">
+                        {stkSoonVehicles.map((vehicle) => {
+                          const status = getStkStatus(vehicle.stk);
+
+                          return (
+                            <button
+                              key={vehicle.id}
+                              type="button"
+                              className="stk-dashboard-item"
+                              onClick={() => {
+                                setShowStkSoon(false);
+                                setVehicleToOpen(vehicle.id);
+                                setPage("vehicles");
+                              }}
+                            >
+                              <div className="stk-dashboard-vehicle">
+                                <strong>Vůz {vehicle.cislo ?? "-"}</strong>
+                                <span>
+                                  {vehicle.vyrobce || "-"} {vehicle.typ || ""}
+                                </span>
+                                {vehicle.spz && <small>SPZ: {vehicle.spz}</small>}
+                              </div>
+
+                              <div className="stk-dashboard-date">
+                                <span>STK do</span>
+                                <strong>{formatStkForDisplay(vehicle.stk)}</strong>
+                                {status && (
+                                  <small className={`stk-dashboard-days ${status.type}`}>
+                                    {status.text}
+                                  </small>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="stk-dashboard-modal-footer">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setShowStkSoon(false)}
+                      >
+                        Zavřít
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="panel">
                 <h2>
@@ -11083,6 +11187,205 @@ thead .departures-vehicle-column {
 .stk-status-note.expired {
   background: #fee2e2;
   color: #991b1b;
+}
+
+
+/* =========================================================
+   DASHBOARD - KLIKACÍ STK DO 30 DNŮ
+========================================================= */
+.stat-clickable {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.stat-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15,23,42,.09);
+}
+
+.stat-clickable:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.stat-clickable small {
+  display: block;
+  margin-top: 8px;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.stk-dashboard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15,23,42,.48);
+  backdrop-filter: blur(2px);
+}
+
+.stk-dashboard-modal {
+  width: min(100%, 680px);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 25px 80px rgba(15,23,42,.28);
+}
+
+.stk-dashboard-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.stk-dashboard-modal-head > div > span {
+  color: #d97706;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.stk-dashboard-modal-head h2 {
+  margin: 4px 0 0;
+  color: #172033;
+}
+
+.stk-dashboard-modal-head p {
+  margin: 5px 0 0;
+  color: #7a8496;
+  font-size: 11px;
+}
+
+.stk-dashboard-modal-close {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid #dbe2eb;
+  border-radius: 9px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.stk-dashboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stk-dashboard-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid #e1e7ef;
+  border-radius: 11px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stk-dashboard-item:hover {
+  border-color: #93b4f5;
+  background: #f8fbff;
+}
+
+.stk-dashboard-vehicle strong,
+.stk-dashboard-vehicle span,
+.stk-dashboard-vehicle small,
+.stk-dashboard-date span,
+.stk-dashboard-date strong,
+.stk-dashboard-date small {
+  display: block;
+}
+
+.stk-dashboard-vehicle strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.stk-dashboard-vehicle span {
+  margin-top: 3px;
+  color: #667085;
+  font-size: 10px;
+}
+
+.stk-dashboard-vehicle small {
+  margin-top: 3px;
+  color: #98a2b3;
+  font-size: 9px;
+}
+
+.stk-dashboard-date {
+  min-width: 155px;
+  text-align: right;
+}
+
+.stk-dashboard-date > span {
+  color: #98a2b3;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.stk-dashboard-date > strong {
+  margin-top: 2px;
+  color: #172033;
+  font-size: 13px;
+}
+
+.stk-dashboard-days {
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.stk-dashboard-days.soon {
+  color: #b45309;
+}
+
+.stk-dashboard-days.expired {
+  color: #b91c1c;
+}
+
+.stk-dashboard-days.ok {
+  color: #15803d;
+}
+
+.stk-dashboard-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #edf1f5;
+}
+
+@media (max-width: 600px) {
+  .stk-dashboard-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .stk-dashboard-date {
+    min-width: 0;
+    text-align: left;
+  }
 }
 
 `;
