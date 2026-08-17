@@ -5953,12 +5953,14 @@ function AdminCourses() {
 
 
 
+
 function Departures({ role }) {
   const manage = canManageVehicles(role);
   const { provozovny } = useProvozovny();
 
   const now = new Date();
 
+  const [selectedProvozovna, setSelectedProvozovna] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   );
@@ -5974,9 +5976,15 @@ function Departures({ role }) {
   const [editor, setEditor] = useState(null);
   const [saving, setSaving] = useState(false);
   const [cellForm, setCellForm] = useState({
-    vuz_id: "",
+    kurz_id: "",
     poznamka: "",
   });
+
+  useEffect(() => {
+    if (!selectedProvozovna && provozovny.length > 0) {
+      setSelectedProvozovna(String(provozovny[0].id));
+    }
+  }, [provozovny, selectedProvozovna]);
 
   async function loadReferences() {
     setError("");
@@ -6009,7 +6017,7 @@ function Departures({ role }) {
   }
 
   async function loadMonth() {
-    if (!selectedMonth) {
+    if (!selectedProvozovna || !selectedMonth) {
       setRows([]);
       setLoading(false);
       return;
@@ -6031,6 +6039,7 @@ function Departures({ role }) {
     const { data, error: loadError } = await supabase
       .from("vypravy")
       .select("*")
+      .eq("provozovna_id", Number(selectedProvozovna))
       .gte("datum", from)
       .lte("datum", to)
       .order("datum", { ascending: true });
@@ -6051,7 +6060,7 @@ function Departures({ role }) {
 
   useEffect(() => {
     loadMonth();
-  }, [selectedMonth]);
+  }, [selectedProvozovna, selectedMonth]);
 
   const [yearText, monthText] = selectedMonth.split("-");
   const year = Number(yearText);
@@ -6063,42 +6072,43 @@ function Departures({ role }) {
     (_, index) => index + 1
   );
 
+  const selectedProvozovnaRow =
+    provozovny.find(
+      (item) => String(item.id) === String(selectedProvozovna)
+    ) || null;
+
+  const visibleVehicles = vehicles.filter(
+    (vehicle) =>
+      String(vehicle.provozovna_id) === String(selectedProvozovna)
+  );
+
+  const visibleCourses = courses.filter(
+    (course) =>
+      course.aktivni &&
+      String(course.provozovna_id) === String(selectedProvozovna)
+  );
+
   function isoDate(day) {
     return `${year}-${String(month).padStart(2, "0")}-${String(
       day
     ).padStart(2, "0")}`;
   }
 
-  function coursesForProvozovna(provozovnaId) {
-    return courses.filter(
-      (course) =>
-        course.aktivni &&
-        String(course.provozovna_id) === String(provozovnaId)
-    );
-  }
-
-  function vehiclesForProvozovna(provozovnaId) {
-    return vehicles.filter(
-      (vehicle) =>
-        String(vehicle.provozovna_id) === String(provozovnaId)
-    );
-  }
-
-  function getEntry(courseId, day) {
+  function getEntry(vehicleId, day) {
     const date = isoDate(day);
 
     return rows.find(
       (row) =>
-        String(row.kurz_id) === String(courseId) &&
+        String(row.vuz_id) === String(vehicleId) &&
         row.datum === date
     );
   }
 
-  function getVehicle(row) {
-    if (!row?.vuz_id) return null;
+  function getCourse(row) {
+    if (!row) return null;
 
-    return vehicles.find(
-      (vehicle) => String(vehicle.id) === String(row.vuz_id)
+    return courses.find(
+      (course) => String(course.id) === String(row.kurz_id)
     );
   }
 
@@ -6119,24 +6129,23 @@ function Departures({ role }) {
     };
   }
 
-  function openEditor(provozovna, course, day) {
+  function openEditor(vehicle, day) {
     if (!manage) return;
 
-    const row = getEntry(course.id, day);
+    const row = getEntry(vehicle.id, day);
 
     setError("");
     setSuccess("");
 
     setEditor({
-      provozovna,
-      course,
+      vehicle,
       day,
       date: isoDate(day),
       row: row || null,
     });
 
     setCellForm({
-      vuz_id: row?.vuz_id ? String(row.vuz_id) : "",
+      kurz_id: row?.kurz_id ? String(row.kurz_id) : "",
       poznamka: row?.poznamka || "",
     });
   }
@@ -6144,7 +6153,7 @@ function Departures({ role }) {
   function closeEditor() {
     setEditor(null);
     setCellForm({
-      vuz_id: "",
+      kurz_id: "",
       poznamka: "",
     });
   }
@@ -6152,8 +6161,17 @@ function Departures({ role }) {
   async function saveEntry(e) {
     e.preventDefault();
 
-    if (!editor || !cellForm.vuz_id) {
-      setError("Vyber vůz.");
+    if (!editor || !cellForm.kurz_id) {
+      setError("Vyber výpravu / pořadí.");
+      return;
+    }
+
+    const course = courses.find(
+      (item) => String(item.id) === String(cellForm.kurz_id)
+    );
+
+    if (!course) {
+      setError("Vybraná výprava nebyla nalezena.");
       return;
     }
 
@@ -6163,17 +6181,11 @@ function Departures({ role }) {
 
     const payload = {
       datum: editor.date,
-      provozovna_id: Number(editor.provozovna.id),
-      kurz_id: Number(editor.course.id),
-      vuz_id: Number(cellForm.vuz_id),
-
-      // Původní sloupec linka necháváme kvůli kompatibilitě.
-      // Hodnota je zde název pořadí.
-      linka: editor.course.nazev,
-
-      // Řidič se ve Výpravách nepoužívá.
+      provozovna_id: Number(selectedProvozovna),
+      vuz_id: Number(editor.vehicle.id),
+      kurz_id: Number(course.id),
+      linka: course.nazev,
       ridic_id: null,
-
       poznamka: cellForm.poznamka.trim() || null,
     };
 
@@ -6192,8 +6204,8 @@ function Departures({ role }) {
 
     setSuccess(
       editor.row
-        ? "Přiřazení vozu bylo upraveno."
-        : "Vůz byl přiřazen."
+        ? "Výprava vozu byla upravena."
+        : "Výprava byla přiřazena k vozu."
     );
 
     closeEditor();
@@ -6206,7 +6218,7 @@ function Departures({ role }) {
 
     if (
       !window.confirm(
-        `Opravdu chceš zrušit přiřazení vozu k pořadí ${editor.course.nazev} dne ${editor.date}?`
+        `Opravdu chceš zrušit výpravu vozu ${editor.vehicle.cislo} dne ${editor.date}?`
       )
     ) {
       return;
@@ -6227,7 +6239,7 @@ function Departures({ role }) {
       return;
     }
 
-    setSuccess("Přiřazení vozu bylo zrušeno.");
+    setSuccess("Výprava byla z vozu odebrána.");
     closeEditor();
     await loadMonth();
     setSaving(false);
@@ -6243,8 +6255,6 @@ function Departures({ role }) {
     );
   }
 
-  const totalOrders = courses.filter((course) => course.aktivni).length;
-
   return (
     <div className="departures-page">
       <div className="topbar">
@@ -6254,12 +6264,12 @@ function Departures({ role }) {
           </div>
           <h1>Výpravy</h1>
           <p>
-            Provozovny, pořadí a přiřazení vozů podle jednotlivých dnů
+            Vozy provozovny a jejich výpravy podle jednotlivých dnů
           </p>
         </div>
 
         <div className="profile-badge">
-          {totalOrders} POŘADÍ
+          {visibleVehicles.length} VOZŮ
         </div>
       </div>
 
@@ -6278,11 +6288,23 @@ function Departures({ role }) {
       )}
 
       <div className="departures-toolbar panel">
-        <div className="departures-toolbar-title">
-          <strong>Měsíční výprava</strong>
-          <span>
-            Kliknutím do políčka přiřadíš vůz ke konkrétnímu pořadí.
-          </span>
+        <div className="departures-branches departures-tabs">
+          {provozovny.map((provozovna) => (
+            <button
+              type="button"
+              key={provozovna.id}
+              className={
+                String(provozovna.id) === String(selectedProvozovna)
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setSelectedProvozovna(String(provozovna.id))
+              }
+            >
+              {provozovna.nazev}
+            </button>
+          ))}
         </div>
 
         <div className="departures-month-control">
@@ -6310,17 +6332,43 @@ function Departures({ role }) {
         </div>
       </div>
 
-      {loading ? (
+      {selectedProvozovnaRow && (
+        <div className="departures-selected-branch">
+          <div>
+            <span>PROVOZOVNA</span>
+            <strong>{selectedProvozovnaRow.nazev}</strong>
+          </div>
+
+          <div>
+            <span>VOZY</span>
+            <strong>{visibleVehicles.length}</strong>
+          </div>
+
+          <div>
+            <span>VÝPRAVY / POŘADÍ</span>
+            <strong>{visibleCourses.length}</strong>
+          </div>
+        </div>
+      )}
+
+      {!selectedProvozovna ? (
+        <div className="empty">Vyber provozovnu.</div>
+      ) : loading ? (
+        <div className="empty">Načítání výprav...</div>
+      ) : visibleVehicles.length === 0 ? (
         <div className="empty">
-          Načítání výprav...
+          Provozovna{" "}
+          <strong>{selectedProvozovnaRow?.nazev}</strong>{" "}
+          zatím nemá přiřazené žádné vozy. Přiřaď je v
+          Administraci vozů.
         </div>
       ) : (
         <div className="departures-table-wrap">
           <table className="departures-month-table">
             <thead>
               <tr>
-                <th className="departures-vehicle-column departures-course-column">
-                  Pořadí
+                <th className="departures-vehicle-column">
+                  Vůz
                 </th>
 
                 {days.map((day) => {
@@ -6345,113 +6393,72 @@ function Departures({ role }) {
             </thead>
 
             <tbody>
-              {provozovny.map((provozovna) => {
-                const branchCourses = coursesForProvozovna(
-                  provozovna.id
-                );
+              {visibleVehicles.map((vehicle) => (
+                <tr key={vehicle.id}>
+                  <td className="departures-vehicle-column">
+                    <strong>{vehicle.cislo}</strong>
+                    <small>
+                      {vehicle.vyrobce || ""} {vehicle.typ || ""}
+                    </small>
+                  </td>
 
-                return (
-                  <>
-                    <tr
-                      key={`branch-${provozovna.id}`}
-                      className="departure-branch-row"
-                    >
+                  {days.map((day) => {
+                    const info = dayInfo(day);
+                    const row = getEntry(vehicle.id, day);
+                    const course = getCourse(row);
+
+                    return (
                       <td
-                        colSpan={days.length + 1}
-                        className="departure-branch-title"
+                        key={day}
+                        className={[
+                          "departure-cell",
+                          info.weekend ? "weekend" : "",
+                          info.today ? "today" : "",
+                          row ? "filled" : "",
+                          manage ? "editable" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        onClick={() => openEditor(vehicle, day)}
+                        title={
+                          row
+                            ? `${course?.nazev || row.linka || "Výprava"}`
+                            : manage
+                            ? "Klikni pro přiřazení výpravy"
+                            : ""
+                        }
                       >
-                        <strong>{provozovna.nazev}</strong>
-                        <span>
-                          {branchCourses.length} pořadí
-                        </span>
+                        {row ? (
+                          <div className="departure-cell-content">
+                            <strong>
+                              {course?.nazev || row.linka || "-"}
+                            </strong>
+                          </div>
+                        ) : (
+                          <span className="departure-cell-empty">
+                            {manage ? "+" : ""}
+                          </span>
+                        )}
                       </td>
-                    </tr>
-
-                    {branchCourses.length === 0 ? (
-                      <tr
-                        key={`empty-${provozovna.id}`}
-                        className="departure-branch-empty-row"
-                      >
-                        <td
-                          colSpan={days.length + 1}
-                          className="departure-branch-empty"
-                        >
-                          Zatím nejsou přidaná žádná pořadí.
-                        </td>
-                      </tr>
-                    ) : (
-                      branchCourses.map((course) => (
-                        <tr key={course.id}>
-                          <td className="departures-vehicle-column departures-course-column">
-                            <strong>{course.nazev}</strong>
-                          </td>
-
-                          {days.map((day) => {
-                            const info = dayInfo(day);
-                            const row = getEntry(course.id, day);
-                            const vehicle = getVehicle(row);
-
-                            return (
-                              <td
-                                key={day}
-                                className={[
-                                  "departure-cell",
-                                  info.weekend ? "weekend" : "",
-                                  info.today ? "today" : "",
-                                  row ? "filled" : "",
-                                  manage ? "editable" : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                onClick={() =>
-                                  openEditor(
-                                    provozovna,
-                                    course,
-                                    day
-                                  )
-                                }
-                                title={
-                                  row
-                                    ? `Pořadí ${course.nazev} · vůz ${
-                                        vehicle?.cislo || row.vuz_id
-                                      }`
-                                    : manage
-                                    ? `Pořadí ${course.nazev} – klikni pro přiřazení vozu`
-                                    : ""
-                                }
-                              >
-                                {row ? (
-                                  <div className="departure-cell-content">
-                                    <strong>
-                                      {vehicle?.cislo || row.vuz_id}
-                                    </strong>
-
-                                    {(vehicle?.vyrobce ||
-                                      vehicle?.typ) && (
-                                      <small>
-                                        {vehicle?.vyrobce || ""}{" "}
-                                        {vehicle?.typ || ""}
-                                      </small>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="departure-cell-empty">
-                                    {manage ? "+" : ""}
-                                  </span>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))
-                    )}
-                  </>
-                );
-              })}
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {manage &&
+        selectedProvozovna &&
+        visibleCourses.length === 0 && (
+          <div className="departures-warning">
+            Pro provozovnu{" "}
+            <strong>{selectedProvozovnaRow?.nazev}</strong>{" "}
+            nejsou zatím přidané žádné výpravy / pořadí.
+            Přidej je v Administraci → Kurzy.
+          </div>
+        )}
 
       {editor && (
         <div
@@ -6468,8 +6475,10 @@ function Departures({ role }) {
           <div className="departure-modal">
             <div className="departure-modal-head">
               <div>
-                <span>{editor.provozovna.nazev}</span>
-                <h2>Pořadí {editor.course.nazev}</h2>
+                <span>
+                  {selectedProvozovnaRow?.nazev}
+                </span>
+                <h2>Vůz {editor.vehicle.cislo}</h2>
                 <p>
                   {new Date(
                     `${editor.date}T00:00:00`
@@ -6496,61 +6505,55 @@ function Departures({ role }) {
               <div className="notification-field">
                 <label>Provozovna</label>
                 <input
-                  value={editor.provozovna.nazev}
-                  disabled
-                />
-              </div>
-
-              <div className="notification-field">
-                <label>Pořadí</label>
-                <input
-                  value={editor.course.nazev}
+                  value={
+                    selectedProvozovnaRow?.nazev || ""
+                  }
                   disabled
                 />
               </div>
 
               <div className="notification-field">
                 <label>Vůz</label>
+                <input
+                  value={`${editor.vehicle.cislo}${
+                    editor.vehicle.vyrobce
+                      ? ` – ${editor.vehicle.vyrobce}`
+                      : ""
+                  }${
+                    editor.vehicle.typ
+                      ? ` ${editor.vehicle.typ}`
+                      : ""
+                  }`}
+                  disabled
+                />
+              </div>
+
+              <div className="notification-field">
+                <label>Výprava / pořadí</label>
                 <select
-                  value={cellForm.vuz_id}
+                  value={cellForm.kurz_id}
                   onChange={(e) =>
                     setCellForm({
                       ...cellForm,
-                      vuz_id: e.target.value,
+                      kurz_id: e.target.value,
                     })
                   }
                   required
                 >
                   <option value="">
-                    Vyber vůz...
+                    Vyber výpravu...
                   </option>
 
-                  {vehiclesForProvozovna(
-                    editor.provozovna.id
-                  ).map((vehicle) => (
+                  {visibleCourses.map((course) => (
                     <option
-                      key={vehicle.id}
-                      value={vehicle.id}
+                      key={course.id}
+                      value={course.id}
                     >
-                      {vehicle.cislo}
-                      {vehicle.vyrobce
-                        ? ` – ${vehicle.vyrobce}`
-                        : ""}
-                      {vehicle.typ
-                        ? ` ${vehicle.typ}`
-                        : ""}
+                      {course.nazev}
                     </option>
                   ))}
                 </select>
               </div>
-
-              {vehiclesForProvozovna(editor.provozovna.id)
-                .length === 0 && (
-                <div className="departures-warning">
-                  Této provozovně zatím nejsou přiřazené žádné
-                  vozy. Nejdřív je přiřaď v administraci vozů.
-                </div>
-              )}
 
               <div className="notification-field">
                 <label>Poznámka</label>
@@ -6575,7 +6578,7 @@ function Departures({ role }) {
                     onClick={deleteEntry}
                     disabled={saving}
                   >
-                    🗑️ Zrušit přiřazení
+                    🗑️ Odebrat výpravu
                   </button>
                 )}
 
@@ -6592,15 +6595,11 @@ function Departures({ role }) {
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={
-                      saving ||
-                      vehiclesForProvozovna(editor.provozovna.id)
-                        .length === 0
-                    }
+                    disabled={saving || visibleCourses.length === 0}
                   >
                     {saving
                       ? "Ukládám..."
-                      : "💾 Přiřadit vůz"}
+                      : "💾 Uložit výpravu"}
                   </button>
                 </div>
               </div>
@@ -10269,6 +10268,74 @@ thead .departures-vehicle-column {
 @media (max-width: 900px) {
   .departures-toolbar-title span {
     max-width: 520px;
+  }
+}
+
+
+/* =========================================================
+   VÝPRAVY V4 - PROVOZOVNY V ZÁLOŽKÁCH, ŘÁDKY = VOZY
+========================================================= */
+.departures-tabs {
+  padding-bottom: 0;
+  border-bottom: 1px solid #e3e8ef;
+}
+
+.departures-tabs button {
+  border-radius: 9px 9px 0 0;
+  border-bottom: 0;
+}
+
+.departures-tabs button.active {
+  box-shadow: inset 0 -3px rgba(255,255,255,.7);
+}
+
+.departures-selected-branch {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid #dce4ee;
+  border-radius: 11px;
+  background: #dce4ee;
+}
+
+.departures-selected-branch > div {
+  min-width: 120px;
+  padding: 9px 13px;
+  background: #fff;
+}
+
+.departures-selected-branch > div:first-child {
+  flex: 1;
+  background: #f3f7fc;
+}
+
+.departures-selected-branch span,
+.departures-selected-branch strong {
+  display: block;
+}
+
+.departures-selected-branch span {
+  color: #8a95a5;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.departures-selected-branch strong {
+  margin-top: 3px;
+  color: #1f2a3d;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .departures-selected-branch {
+    flex-direction: column;
+  }
+
+  .departures-selected-branch > div {
+    min-width: 0;
   }
 }
 
