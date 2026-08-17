@@ -5922,6 +5922,97 @@ function AdminCourses() {
       .includes(query);
   });
 
+  const filteredWorkdayCourses = filtered.filter(
+    (course) => course.typ_dne === "PD"
+  );
+
+  const filteredWeekendCourses = filtered.filter(
+    (course) => course.typ_dne === "VIKEND"
+  );
+
+  const filteredOtherCourses = filtered.filter(
+    (course) => !course.typ_dne
+  );
+
+  function renderCourseItem(course) {
+    return (
+      <div
+        className={`course-admin-item ${
+          course.aktivni ? "" : "inactive"
+        }`}
+        key={course.id}
+      >
+        <div>
+          <strong>{course.nazev}</strong>
+          <span>
+            {getProvozovnaName(course.provozovna_id)}
+            {course.typ_vozu
+              ? ` · ${course.typ_vozu === "SOLO" ? "Sólo" : "Kloub"}`
+              : ""}
+            {course.zacatek || course.konec
+              ? ` · ${course.zacatek ? String(course.zacatek).slice(0, 5) : "—"}–${course.konec ? String(course.konec).slice(0, 5) : "—"}`
+              : ""}
+          </span>
+        </div>
+
+        <span
+          className={`course-active-badge ${
+            course.aktivni ? "active" : "inactive"
+          }`}
+        >
+          {course.aktivni ? "AKTIVNÍ" : "NEAKTIVNÍ"}
+        </span>
+
+        <div className="course-admin-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setEditing(course);
+              setForm({
+                nazev: course.nazev,
+                provozovna_id:
+                  course.provozovna_id || "",
+                typ_dne: course.typ_dne || "",
+                typ_vozu: course.typ_vozu || "",
+                zacatek: course.zacatek
+                  ? String(course.zacatek).slice(0, 5)
+                  : "",
+                konec: course.konec
+                  ? String(course.konec).slice(0, 5)
+                  : "",
+              });
+              window.scrollTo({
+                top: 0,
+                behavior: "smooth",
+              });
+            }}
+          >
+            ✏️ Upravit
+          </button>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => toggleCourse(course)}
+          >
+            {course.aktivni
+              ? "⏸ Deaktivovat"
+              : "▶ Aktivovat"}
+          </button>
+
+          <button
+            type="button"
+            className="delete-button"
+            onClick={() => deleteCourse(course)}
+          >
+            🗑️ Smazat
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -6123,86 +6214,53 @@ function AdminCourses() {
           ) : filtered.length === 0 ? (
             <div className="empty">Žádné kurzy.</div>
           ) : (
-            <div className="course-admin-list">
-              {filtered.map((course) => (
-                <div
-                  className={`course-admin-item ${
-                    course.aktivni ? "" : "inactive"
-                  }`}
-                  key={course.id}
-                >
-                  <div>
-                    <strong>{course.nazev}</strong>
-                    <span>
-                      {getProvozovnaName(course.provozovna_id)}
-                      {course.typ_dne
-                        ? ` · ${course.typ_dne === "PD" ? "Pracovní den" : "Víkend"}`
-                        : ""}
-                      {course.typ_vozu
-                        ? ` · ${course.typ_vozu === "SOLO" ? "Sólo" : "Kloub"}`
-                        : ""}
-                      {course.zacatek || course.konec
-                        ? ` · ${course.zacatek ? String(course.zacatek).slice(0, 5) : "—"}–${course.konec ? String(course.konec).slice(0, 5) : "—"}`
-                        : ""}
-                    </span>
+            <div className="course-day-sections">
+              {filteredWorkdayCourses.length > 0 && (
+                <section className="course-day-section workday">
+                  <div className="course-day-section-title">
+                    <div>
+                      <strong>Pracovní den</strong>
+                      <span>{filteredWorkdayCourses.length} kurzů</span>
+                    </div>
+                    <span className="course-day-chip">PD</span>
                   </div>
 
-                  <span
-                    className={`course-active-badge ${
-                      course.aktivni ? "active" : "inactive"
-                    }`}
-                  >
-                    {course.aktivni ? "AKTIVNÍ" : "NEAKTIVNÍ"}
-                  </span>
-
-                  <div className="course-admin-actions">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => {
-                        setEditing(course);
-                        setForm({
-                          nazev: course.nazev,
-                          provozovna_id:
-                            course.provozovna_id || "",
-                          typ_dne: course.typ_dne || "",
-                          typ_vozu: course.typ_vozu || "",
-                          zacatek: course.zacatek
-                            ? String(course.zacatek).slice(0, 5)
-                            : "",
-                          konec: course.konec
-                            ? String(course.konec).slice(0, 5)
-                            : "",
-                        });
-                        window.scrollTo({
-                          top: 0,
-                          behavior: "smooth",
-                        });
-                      }}
-                    >
-                      ✏️ Upravit
-                    </button>
-
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => toggleCourse(course)}
-                    >
-                      {course.aktivni
-                        ? "⏸ Deaktivovat"
-                        : "▶ Aktivovat"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="delete-button"
-                      onClick={() => deleteCourse(course)}
-                    >
-                      🗑️ Smazat
-                    </button>
+                  <div className="course-admin-list">
+                    {filteredWorkdayCourses.map(renderCourseItem)}
                   </div>
-                </div>
-              ))}
+                </section>
+              )}
+
+              {filteredWeekendCourses.length > 0 && (
+                <section className="course-day-section weekend">
+                  <div className="course-day-section-title">
+                    <div>
+                      <strong>Víkend</strong>
+                      <span>{filteredWeekendCourses.length} kurzů</span>
+                    </div>
+                    <span className="course-day-chip">VÍKEND</span>
+                  </div>
+
+                  <div className="course-admin-list">
+                    {filteredWeekendCourses.map(renderCourseItem)}
+                  </div>
+                </section>
+              )}
+
+              {filteredOtherCourses.length > 0 && (
+                <section className="course-day-section">
+                  <div className="course-day-section-title">
+                    <div>
+                      <strong>Bez omezení dne</strong>
+                      <span>{filteredOtherCourses.length} kurzů</span>
+                    </div>
+                  </div>
+
+                  <div className="course-admin-list">
+                    {filteredOtherCourses.map(renderCourseItem)}
+                  </div>
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -7075,6 +7133,17 @@ function Departures({ role, onOpenVehicle }) {
                 />
               </div>
 
+              <div className="departure-day-type-banner">
+                <span>Typ dne</span>
+                <strong>
+                  {(() => {
+                    const d = new Date(`${editor.date}T00:00:00`);
+                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    return isWeekend ? "Víkend" : "Pracovní den";
+                  })()}
+                </strong>
+              </div>
+
               <div className="notification-field">
                 <label>Výprava / pořadí</label>
 
@@ -7326,6 +7395,16 @@ function AuditLog() {
   );
 }
 
+const DASHBOARD_IMAGES = [
+  "/dashboard/dashboard-1.webp",
+  "/dashboard/dashboard-2.webp",
+  "/dashboard/dashboard-3.webp",
+  "/dashboard/dashboard-4.webp",
+  "/dashboard/dashboard-5.webp",
+  "/dashboard/dashboard-6.webp",
+  "/dashboard/dashboard-7.webp",
+];
+
 function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -7348,6 +7427,7 @@ function App() {
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
   const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
   const [showStkSoon, setShowStkSoon] = useState(false);
+  const [dashboardSlide, setDashboardSlide] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRegister, setShowRegister] =
@@ -7414,6 +7494,20 @@ function App() {
       loadDashboardStats();
     }
   }, [page, user]);
+
+  useEffect(() => {
+    if (page !== "dashboard" || DASHBOARD_IMAGES.length < 2) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setDashboardSlide(
+        (current) => (current + 1) % DASHBOARD_IMAGES.length
+      );
+    }, 8000);
+
+    return () => window.clearInterval(timer);
+  }, [page]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -7930,51 +8024,211 @@ function App() {
 
         <main className="content">
           {page === "dashboard" && (
-            <>
-              <div className="topbar">
-                <div>
-                  <h1>Dashboard</h1>
-
-                  <p>
-                    Informační systém Czech Mobility
-                  </p>
+            <div className="dashboard-photo-page">
+              <section className="dashboard-photo-hero">
+                <div className="dashboard-slides" aria-hidden="true">
+                  {DASHBOARD_IMAGES.map((image, index) => (
+                    <div
+                      key={image}
+                      className={`dashboard-slide ${
+                        index === dashboardSlide ? "active" : ""
+                      }`}
+                      style={{ backgroundImage: `url("${image}")` }}
+                    />
+                  ))}
                 </div>
 
-                <div className="profile-badge">
-                  {roleName}
+                <div className="dashboard-photo-shade" />
+
+                <div className="dashboard-hero-content">
+                  <header className="dashboard-hero-head">
+                    <div>
+                      <span className="dashboard-hero-kicker">
+                        CZECH MOBILITY · VDP SYSTÉM
+                      </span>
+
+                      <h1>
+                        {profile?.jmeno
+                          ? `Vítej, ${profile.jmeno}`
+                          : "Dashboard"}
+                      </h1>
+
+                      <p>
+                        {new Date().toLocaleDateString("cs-CZ", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                        {" · "}
+                        {roleName}
+                      </p>
+                    </div>
+
+                    <div className="dashboard-hero-live">
+                      <span className="dashboard-live-dot" />
+                      ŽIVÝ PŘEHLED
+                    </div>
+                  </header>
+
+                  <div className="dashboard-glass-stats">
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setPage("departures")}
+                    >
+                      <span className="dashboard-glass-icon">◈</span>
+                      <span className="dashboard-glass-label">
+                        Dnešní výpravy
+                      </span>
+                      <strong>{dashboardStats.vypravy}</strong>
+                      <small>Otevřít výpravy →</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setShowStkSoon(true)}
+                    >
+                      <span className="dashboard-glass-icon">✓</span>
+                      <span className="dashboard-glass-label">
+                        STK do 30 dní
+                      </span>
+                      <strong>{dashboardStats.stkBrzy}</strong>
+                      <small>Zobrazit vozy →</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() =>
+                        setPage(
+                          manageVehicles
+                            ? "adminVehicleRequests"
+                            : "vehicleRequest"
+                        )
+                      }
+                    >
+                      <span className="dashboard-glass-icon">⌛</span>
+                      <span className="dashboard-glass-label">
+                        Čekající žádosti
+                      </span>
+                      <strong>{dashboardStats.cekajiciZadosti}</strong>
+                      <small>Zobrazit žádosti →</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setPage("faults")}
+                    >
+                      <span className="dashboard-glass-icon">⚠</span>
+                      <span className="dashboard-glass-label">
+                        Aktivní závady
+                      </span>
+                      <strong>{dashboardStats.zavady}</strong>
+                      <small>Zobrazit závady →</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setPage("vehicles")}
+                    >
+                      <span className="dashboard-glass-icon">▣</span>
+                      <span className="dashboard-glass-label">
+                        Aktivní vozy
+                      </span>
+                      <strong>{dashboardStats.aktivniVozy}</strong>
+                      <small>Otevřít vozy →</small>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setPage("vehicles")}
+                    >
+                      <span className="dashboard-glass-icon">#</span>
+                      <span className="dashboard-glass-label">
+                        Vozy celkem
+                      </span>
+                      <strong>{dashboardStats.vozyCelkem}</strong>
+                      <small>Otevřít vozový park →</small>
+                    </button>
+
+                    <div className="dashboard-glass-card">
+                      <span className="dashboard-glass-icon">⌂</span>
+                      <span className="dashboard-glass-label">
+                        Provozovny
+                      </span>
+                      <strong>{dashboardStats.provozovny}</strong>
+                      <small>Aktivní v systému</small>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="dashboard-glass-card clickable"
+                      onClick={() => setPage("notifications")}
+                    >
+                      <span className="dashboard-glass-icon">🔔</span>
+                      <span className="dashboard-glass-label">
+                        Nová oznámení
+                      </span>
+                      <strong>{unreadNotifications}</strong>
+                      <small>Otevřít notifikace →</small>
+                    </button>
+                  </div>
+
+                  <div className="dashboard-slider-bar">
+                    <button
+                      type="button"
+                      className="dashboard-slider-arrow"
+                      onClick={() =>
+                        setDashboardSlide(
+                          (current) =>
+                            (current - 1 + DASHBOARD_IMAGES.length) %
+                            DASHBOARD_IMAGES.length
+                        )
+                      }
+                      aria-label="Předchozí fotografie"
+                    >
+                      ‹
+                    </button>
+
+                    <div className="dashboard-slider-dots">
+                      {DASHBOARD_IMAGES.map((_, index) => (
+                        <button
+                          type="button"
+                          key={index}
+                          className={`dashboard-slider-dot ${
+                            index === dashboardSlide ? "active" : ""
+                          }`}
+                          onClick={() => setDashboardSlide(index)}
+                          aria-label={`Fotografie ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+
+                    <span className="dashboard-slider-count">
+                      {dashboardSlide + 1} / {DASHBOARD_IMAGES.length}
+                    </span>
+
+                    <button
+                      type="button"
+                      className="dashboard-slider-arrow"
+                      onClick={() =>
+                        setDashboardSlide(
+                          (current) =>
+                            (current + 1) % DASHBOARD_IMAGES.length
+                        )
+                      }
+                      aria-label="Další fotografie"
+                    >
+                      ›
+                    </button>
+                  </div>
                 </div>
-              </div>
-
-            <div className="stats">
-  <div className="stat">
-    <span>Dnešní výpravy</span>
-    <strong>{dashboardStats.vypravy}</strong>
-  </div>
-
-  <div className="stat">
-    <span>Aktivní vozy</span>
-    <strong>{dashboardStats.aktivniVozy}</strong>
-  </div>
-
-  <div className="stat">
-    <span>Vozy celkem</span>
-    <strong>{dashboardStats.vozyCelkem}</strong>
-  </div>
-
-  <div className="stat"><span>Provozovny</span><strong>{dashboardStats.provozovny}</strong></div>
-  <div className="stat"><span>Aktivní závady</span><strong>{dashboardStats.zavady}</strong></div>
-  <div className="stat"><span>Čekající žádosti</span><strong>{dashboardStats.cekajiciZadosti}</strong></div>
-  <button
-    type="button"
-    className="stat stat-clickable"
-    onClick={() => setShowStkSoon(true)}
-    title="Zobrazit vozy, kterým končí STK do 30 dní"
-  >
-    <span>STK končí do 30 dní</span>
-    <strong>{dashboardStats.stkBrzy}</strong>
-    <small>Zobrazit vozy →</small>
-  </button>
-</div>
+              </section>
 
               {showStkSoon && (
                 <div
@@ -8079,7 +8333,7 @@ function App() {
                   .
                 </p>
               </div>
-            </>
+            </div>
           )}
 
           {page === "departures" && (
@@ -12694,6 +12948,493 @@ thead .departures-vehicle-column {
   opacity: .72;
   font-size: 8px;
   font-weight: 700;
+}
+
+
+/* =========================================================
+   KURZY - PRACOVNÍ DEN / VÍKEND
+========================================================= */
+.course-day-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.course-day-section {
+  padding: 12px;
+  border: 1px solid #e1e7ef;
+  border-radius: 13px;
+  background: #fbfcfe;
+}
+
+.course-day-section.workday {
+  border-left: 4px solid #2563eb;
+}
+
+.course-day-section.weekend {
+  border-left: 4px solid #f59e0b;
+}
+
+.course-day-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.course-day-section-title > div strong,
+.course-day-section-title > div span {
+  display: block;
+}
+
+.course-day-section-title > div strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.course-day-section-title > div span {
+  margin-top: 2px;
+  color: #8490a2;
+  font-size: 9px;
+}
+
+.course-day-chip {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #475569;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.course-day-section.workday .course-day-chip {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.course-day-section.weekend .course-day-chip {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.departure-day-type-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.departure-day-type-banner span {
+  color: #7a8496;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.departure-day-type-banner strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .course-day-section {
+    padding: 9px;
+  }
+}
+
+
+/* =========================================================
+   DASHBOARD - FOTOGRAFICKÁ SLIDESHOW
+========================================================= */
+.dashboard-photo-page {
+  margin: -35px;
+  min-height: 100vh;
+}
+
+.dashboard-photo-hero {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #0b1220;
+  isolation: isolate;
+}
+
+.dashboard-slides,
+.dashboard-slide,
+.dashboard-photo-shade {
+  position: absolute;
+  inset: 0;
+}
+
+.dashboard-slide {
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transform: scale(1.035);
+  transition:
+    opacity 1.25s ease,
+    transform 9s ease;
+  will-change: opacity, transform;
+}
+
+.dashboard-slide.active {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.dashboard-photo-shade {
+  z-index: 1;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(4, 10, 22, .82) 0%,
+      rgba(4, 10, 22, .54) 45%,
+      rgba(4, 10, 22, .28) 100%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(4, 10, 22, .86) 0%,
+      transparent 48%,
+      rgba(4, 10, 22, .26) 100%
+    );
+}
+
+.dashboard-hero-content {
+  position: relative;
+  z-index: 2;
+  min-height: 100vh;
+  padding: clamp(34px, 5vw, 72px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+}
+
+.dashboard-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.dashboard-hero-kicker {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(255,255,255,.72);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+
+.dashboard-hero-head h1 {
+  margin: 0;
+  max-width: 760px;
+  color: #fff;
+  font-size: clamp(34px, 4.7vw, 72px);
+  line-height: .98;
+  letter-spacing: -.045em;
+  text-shadow: 0 3px 22px rgba(0,0,0,.35);
+}
+
+.dashboard-hero-head p {
+  margin: 13px 0 0;
+  color: rgba(255,255,255,.76);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.dashboard-hero-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
+  background: rgba(10,18,34,.36);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: rgba(255,255,255,.9);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .09em;
+  white-space: nowrap;
+}
+
+.dashboard-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 5px rgba(34,197,94,.16);
+}
+
+.dashboard-glass-stats {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+  margin: auto 0 20px;
+  padding-top: 60px;
+}
+
+.dashboard-glass-card {
+  appearance: none;
+  min-width: 0;
+  min-height: 145px;
+  padding: 16px;
+  text-align: left;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255,255,255,.17),
+      rgba(255,255,255,.075)
+    );
+  box-shadow:
+    0 12px 34px rgba(0,0,0,.17),
+    inset 0 1px 0 rgba(255,255,255,.12);
+  backdrop-filter: blur(15px) saturate(1.15);
+  -webkit-backdrop-filter: blur(15px) saturate(1.15);
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+}
+
+.dashboard-glass-card.clickable {
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    background .18s ease,
+    border-color .18s ease;
+}
+
+.dashboard-glass-card.clickable:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,.34);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255,255,255,.23),
+      rgba(255,255,255,.10)
+    );
+}
+
+.dashboard-glass-icon {
+  width: 29px;
+  height: 29px;
+  margin-bottom: 14px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 9px;
+  background: rgba(255,255,255,.12);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dashboard-glass-label {
+  color: rgba(255,255,255,.76);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.dashboard-glass-card strong {
+  display: block;
+  margin-top: 4px;
+  color: #fff;
+  font-size: clamp(27px, 3vw, 42px);
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+
+.dashboard-glass-card small {
+  margin-top: auto;
+  padding-top: 12px;
+  color: rgba(255,255,255,.58);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.dashboard-slider-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-slider-arrow {
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 50%;
+  background: rgba(10,18,34,.35);
+  color: #fff;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+  backdrop-filter: blur(10px);
+}
+
+.dashboard-slider-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-slider-dot {
+  appearance: none;
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.40);
+  cursor: pointer;
+  transition: width .2s ease, background .2s ease;
+}
+
+.dashboard-slider-dot.active {
+  width: 24px;
+  background: #fff;
+}
+
+.dashboard-slider-count {
+  color: rgba(255,255,255,.65);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+/* STK modal musí být nad slideshow */
+.stk-dashboard-modal-backdrop {
+  z-index: 2000 !important;
+}
+
+@media (max-width: 1050px) {
+  .dashboard-glass-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard-photo-page {
+    margin: -76px -12px -28px;
+    min-height: 100dvh;
+  }
+
+  .dashboard-photo-hero {
+    min-height: 100dvh;
+  }
+
+  .dashboard-hero-content {
+    min-height: 100dvh;
+    padding:
+      calc(60px + 20px)
+      13px
+      max(17px, env(safe-area-inset-bottom));
+  }
+
+  .dashboard-photo-shade {
+    background:
+      linear-gradient(
+        0deg,
+        rgba(4,10,22,.93) 0%,
+        rgba(4,10,22,.58) 58%,
+        rgba(4,10,22,.42) 100%
+      );
+  }
+
+  .dashboard-hero-head {
+    gap: 10px;
+  }
+
+  .dashboard-hero-head h1 {
+    font-size: clamp(29px, 9vw, 43px);
+  }
+
+  .dashboard-hero-head p {
+    max-width: 250px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .dashboard-hero-live {
+    padding: 7px 8px;
+    font-size: 7px;
+  }
+
+  .dashboard-glass-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+    margin: auto 0 14px !important;
+    padding-top: 30px;
+  }
+
+  .dashboard-glass-card {
+    min-height: 116px !important;
+    padding: 11px !important;
+    border-radius: 13px;
+  }
+
+  .dashboard-glass-icon {
+    width: 25px;
+    height: 25px;
+    margin-bottom: 8px;
+  }
+
+  .dashboard-glass-label {
+    font-size: 8px;
+  }
+
+  .dashboard-glass-card strong {
+    margin-top: 3px !important;
+    font-size: 27px !important;
+  }
+
+  .dashboard-glass-card small {
+    padding-top: 7px;
+    font-size: 7px;
+  }
+
+  .dashboard-slider-arrow {
+    width: 31px;
+    height: 31px;
+  }
+
+  .dashboard-slider-bar {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .dashboard-photo-page {
+    margin-left: -9px;
+    margin-right: -9px;
+  }
+
+  .dashboard-glass-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .dashboard-glass-card {
+    min-height: 110px !important;
+  }
+
+  .dashboard-hero-live {
+    display: none;
+  }
 }
 
 `;
