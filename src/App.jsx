@@ -4477,35 +4477,80 @@ function Members({ user }) {
 ========================================================= */
 function Notifications({ user, role }) {
   const manage = canManageVehicles(role);
+  const isDriver = role === ROLE_RIDIC;
 
   const [items, setItems] = useState([]);
+  const [sentItems, setSentItems] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [sending, setSending] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
   const [recipientId, setRecipientId] = useState("");
   const [notificationType, setNotificationType] = useState("OBECNÁ");
   const [message, setMessage] = useState("");
+  const [requiresConfirmation, setRequiresConfirmation] = useState(true);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
+
+  const [editingId, setEditingId] = useState(null);
+  const [editType, setEditType] = useState("OBECNÁ");
+  const [editMessage, setEditMessage] = useState("");
+  const [editRequiresConfirmation, setEditRequiresConfirmation] = useState(true);
+  const [editImageFile, setEditImageFile] = useState(null);
+  const [editImagePreview, setEditImagePreview] = useState("");
+  const [editRemoveImage, setEditRemoveImage] = useState(false);
+
+  const notificationTypes = [
+    "OBECNÁ",
+    "INFORMACE",
+    "DŮLEŽITÉ",
+    "UPOZORNĚNÍ",
+    "VOZIDLO",
+    "VÝPRAVA",
+  ];
+
+  function getProfile(id) {
+    return profiles.find((profile) => String(profile.id) === String(id));
+  }
 
   async function load() {
     setError("");
 
-    const { data, error: loadError } = await supabase
+    const ownQuery = supabase
       .from("notifications")
       .select("*")
       .eq("uzivatel_id", user.id)
       .order("created_at", { ascending: false });
 
-    if (loadError) {
-      setError(loadError.message);
+    const sentQuery = manage
+      ? supabase
+          .from("notifications")
+          .select("*")
+          .not("odesilatel_id", "is", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null });
+
+    const [ownResult, sentResult] = await Promise.all([ownQuery, sentQuery]);
+
+    if (ownResult.error) {
+      setError(ownResult.error.message);
       setItems([]);
-      return;
+    } else {
+      setItems(ownResult.data || []);
     }
 
-    setItems(data || []);
+    if (manage) {
+      if (sentResult.error) {
+        setError((old) => old || sentResult.error.message);
+        setSentItems([]);
+      } else {
+        setSentItems(sentResult.data || []);
+      }
+    } else {
+      setSentItems([]);
+    }
   }
 
   async function loadProfiles() {
@@ -4530,7 +4575,7 @@ function Notifications({ user, role }) {
 
   useEffect(() => {
     load();
-  }, [user.id]);
+  }, [user.id, manage]);
 
   useEffect(() => {
     loadProfiles();
@@ -4538,20 +4583,17 @@ function Notifications({ user, role }) {
 
   useEffect(() => {
     return () => {
-      if (imagePreview) {
-        URL.revokeObjectURL(imagePreview);
-      }
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+      if (editImagePreview) URL.revokeObjectURL(editImagePreview);
     };
-  }, [imagePreview]);
+  }, [imagePreview, editImagePreview]);
 
   async function markAll() {
     setError("");
 
-    const { error: markError } = await supabase
-      .from("notifications")
-      .update({ precteno: true })
-      .eq("uzivatel_id", user.id)
-      .eq("precteno", false);
+    const { error: markError } = await supabase.rpc(
+      "mark_my_notifications_read"
+    );
 
     if (markError) {
       setError(markError.message);
@@ -4559,6 +4601,47 @@ function Notifications({ user, role }) {
     }
 
     await load();
+  }
+
+  async function confirmNotification(notification) {
+    if (!isDriver) return;
+
+    setError("");
+    setSuccess("");
+    setBusyId(notification.id);
+
+    const { error: confirmError } = await supabase.rpc(
+      "confirm_notification",
+      {
+        p_notification_id: notification.id,
+      }
+    );
+
+    if (confirmError) {
+      setError(`Potvrzení se nepodařilo uložit: ${confirmError.message}`);
+      setBusyId(null);
+      return;
+    }
+
+    setSuccess("Zpráva byla potvrzena.");
+    await load();
+    setBusyId(null);
+  }
+
+  function validateImage(file) {
+    if (!file) return null;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
+      return "Fotka musí být JPG, PNG nebo WebP.";
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return "Fotka může mít maximálně 5 MB.";
+    }
+
+    return null;
   }
 
   function chooseImage(event) {
@@ -4573,17 +4656,11 @@ function Notifications({ user, role }) {
       return;
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const validationError = validateImage(file);
 
-    if (!allowedTypes.includes(file.type)) {
+    if (validationError) {
       event.target.value = "";
-      setError("Fotka musí být JPG, PNG nebo WebP.");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      event.target.value = "";
-      setError("Fotka může mít maximálně 5 MB.");
+      setError(validationError);
       return;
     }
 
@@ -4593,19 +4670,53 @@ function Notifications({ user, role }) {
     setImagePreview(URL.createObjectURL(file));
   }
 
+  function chooseEditImage(event) {
+    setError("");
+
+    const file = event.target.files?.[0] || null;
+
+    if (!file) {
+      if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+      setEditImageFile(null);
+      setEditImagePreview("");
+      return;
+    }
+
+    const validationError = validateImage(file);
+
+    if (validationError) {
+      event.target.value = "";
+      setError(validationError);
+      return;
+    }
+
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+
+    setEditImageFile(file);
+    setEditImagePreview(URL.createObjectURL(file));
+    setEditRemoveImage(false);
+  }
+
   function removeSelectedImage() {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImageFile(null);
     setImagePreview("");
   }
 
-  async function uploadNotificationImage() {
-    if (!imageFile) {
+  function resetEditImage() {
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(null);
+    setEditImagePreview("");
+    setEditRemoveImage(false);
+  }
+
+  async function uploadFile(file) {
+    if (!file) {
       return { publicUrl: null, path: null };
     }
 
     const extension =
-      imageFile.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") ||
+      file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") ||
       "jpg";
 
     const path = `${user.id}/${Date.now()}-${Math.random()
@@ -4614,10 +4725,10 @@ function Notifications({ user, role }) {
 
     const { error: uploadError } = await supabase.storage
       .from("notification-images")
-      .upload(path, imageFile, {
+      .upload(path, file, {
         cacheControl: "3600",
         upsert: false,
-        contentType: imageFile.type,
+        contentType: file.type,
       });
 
     if (uploadError) {
@@ -4636,6 +4747,36 @@ function Notifications({ user, role }) {
       publicUrl: data.publicUrl,
       path,
     };
+  }
+
+  function getStoragePathFromUrl(url) {
+    if (!url) return null;
+
+    const marker = "/notification-images/";
+    const index = String(url).indexOf(marker);
+
+    if (index === -1) return null;
+
+    return decodeURIComponent(String(url).slice(index + marker.length));
+  }
+
+  async function removeUnusedImage(imageUrl) {
+    if (!imageUrl) return;
+
+    const { count, error: countError } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("image_url", imageUrl);
+
+    if (countError || Number(count || 0) > 0) {
+      return;
+    }
+
+    const path = getStoragePathFromUrl(imageUrl);
+
+    if (path) {
+      await supabase.storage.from("notification-images").remove([path]);
+    }
   }
 
   async function sendNotification(event) {
@@ -4666,7 +4807,7 @@ function Notifications({ user, role }) {
     let uploadedPath = null;
 
     try {
-      const { publicUrl, path } = await uploadNotificationImage();
+      const { publicUrl, path } = await uploadFile(imageFile);
       uploadedPath = path;
 
       const recipients =
@@ -4680,10 +4821,14 @@ function Notifications({ user, role }) {
 
       const payload = recipients.map((id) => ({
         uzivatel_id: id,
-        typ: notificationType.trim() || "OBECNÁ",
+        odesilatel_id: user.id,
+        typ: notificationType || "OBECNÁ",
         zprava: cleanMessage,
         image_url: publicUrl,
         precteno: false,
+        vyzaduje_potvrzeni: requiresConfirmation,
+        potvrzeno: false,
+        potvrzeno_at: null,
       }));
 
       const { error: insertError } = await supabase
@@ -4709,6 +4854,7 @@ function Notifications({ user, role }) {
       setRecipientId("");
       setNotificationType("OBECNÁ");
       setMessage("");
+      setRequiresConfirmation(true);
       removeSelectedImage();
 
       await load();
@@ -4719,13 +4865,167 @@ function Notifications({ user, role }) {
     }
   }
 
+  function startEdit(notification) {
+    setError("");
+    setSuccess("");
+
+    resetEditImage();
+    setEditingId(notification.id);
+    setEditType(notification.typ || "OBECNÁ");
+    setEditMessage(notification.zprava || "");
+    setEditRequiresConfirmation(
+      notification.vyzaduje_potvrzeni !== false
+    );
+  }
+
+  function cancelEdit() {
+    resetEditImage();
+    setEditingId(null);
+    setEditType("OBECNÁ");
+    setEditMessage("");
+    setEditRequiresConfirmation(true);
+  }
+
+  async function saveEdit(notification) {
+    if (!manage) return;
+
+    const cleanMessage = editMessage.trim();
+
+    if (!cleanMessage) {
+      setError("Zpráva nesmí být prázdná.");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setBusyId(notification.id);
+
+    let newUploadedPath = null;
+    const oldImageUrl = notification.image_url || null;
+
+    try {
+      let nextImageUrl = oldImageUrl;
+
+      if (editImageFile) {
+        const uploaded = await uploadFile(editImageFile);
+        nextImageUrl = uploaded.publicUrl;
+        newUploadedPath = uploaded.path;
+      } else if (editRemoveImage) {
+        nextImageUrl = null;
+      }
+
+      const { error: updateError } = await supabase
+        .from("notifications")
+        .update({
+          typ: editType || "OBECNÁ",
+          zprava: cleanMessage,
+          image_url: nextImageUrl,
+          vyzaduje_potvrzeni: editRequiresConfirmation,
+          potvrzeno: false,
+          potvrzeno_at: null,
+          precteno: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", notification.id);
+
+      if (updateError) {
+        if (newUploadedPath) {
+          await supabase.storage
+            .from("notification-images")
+            .remove([newUploadedPath]);
+        }
+
+        throw new Error(`Úprava notifikace selhala: ${updateError.message}`);
+      }
+
+      if (oldImageUrl && oldImageUrl !== nextImageUrl) {
+        await removeUnusedImage(oldImageUrl);
+      }
+
+      setSuccess(
+        "Notifikace byla upravena. Původní potvrzení bylo vynulováno."
+      );
+      cancelEdit();
+      await load();
+    } catch (editError) {
+      setError(editError?.message || "Notifikaci se nepodařilo upravit.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteNotification(notification) {
+    if (!manage) return;
+
+    const recipient = getProfile(notification.uzivatel_id);
+
+    const confirmed = window.confirm(
+      `Opravdu chceš smazat notifikaci pro ${
+        recipient?.jmeno || notification.uzivatel_id
+      }?`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+    setBusyId(notification.id);
+
+    const imageUrl = notification.image_url || null;
+
+    const { error: deleteError } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notification.id);
+
+    if (deleteError) {
+      setError(`Smazání notifikace selhalo: ${deleteError.message}`);
+      setBusyId(null);
+      return;
+    }
+
+    if (imageUrl) {
+      await removeUnusedImage(imageUrl);
+    }
+
+    if (editingId === notification.id) {
+      cancelEdit();
+    }
+
+    setSuccess("Notifikace byla smazána.");
+    await load();
+    setBusyId(null);
+  }
+
+  function confirmationLabel(notification) {
+    const recipient = getProfile(notification.uzivatel_id);
+
+    if (!notification.vyzaduje_potvrzeni) {
+      return "Potvrzení se nevyžaduje";
+    }
+
+    if (recipient && recipient.role !== ROLE_RIDIC) {
+      return "Potvrzení jen pro řidiče";
+    }
+
+    if (notification.potvrzeno) {
+      return notification.potvrzeno_at
+        ? `Potvrzeno ${new Date(notification.potvrzeno_at).toLocaleString(
+            "cs-CZ"
+          )}`
+        : "Potvrzeno";
+    }
+
+    return "Čeká na potvrzení";
+  }
+
   return (
     <div className="notifications-page">
       <div className="topbar">
         <div>
           <div className="notifications-eyebrow">CENTRUM OZNÁMENÍ</div>
           <h1>Notifikace</h1>
-          <p>Změny žádostí a důležité události.</p>
+          <p>Zprávy, oznámení a potvrzení řidičů.</p>
         </div>
 
         <button
@@ -4765,8 +5065,7 @@ function Notifications({ user, role }) {
               <div>
                 <h2>Odeslat notifikaci</h2>
                 <p>
-                  Admin a dispečer mohou poslat zprávu jednomu uživateli nebo všem.
-                  Fotka je volitelná.
+                  Vyber příjemce, typ zprávy, text a případně fotografii.
                 </p>
               </div>
             </div>
@@ -4798,12 +5097,11 @@ function Notifications({ user, role }) {
                   value={notificationType}
                   onChange={(e) => setNotificationType(e.target.value)}
                 >
-                  <option value="OBECNÁ">OBECNÁ</option>
-                  <option value="INFORMACE">INFORMACE</option>
-                  <option value="DŮLEŽITÉ">DŮLEŽITÉ</option>
-                  <option value="UPOZORNĚNÍ">UPOZORNĚNÍ</option>
-                  <option value="VOZIDLO">VOZIDLO</option>
-                  <option value="VÝPRAVA">VÝPRAVA</option>
+                  {notificationTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -4818,6 +5116,21 @@ function Notifications({ user, role }) {
                 required
               />
             </div>
+
+            <label className="notification-confirm-switch">
+              <input
+                type="checkbox"
+                checked={requiresConfirmation}
+                onChange={(e) => setRequiresConfirmation(e.target.checked)}
+              />
+              <span className="notification-switch-ui" />
+              <span>
+                <strong>Vyžadovat potvrzení řidičem</strong>
+                <small>
+                  Řidič bude muset kliknout na „Potvrzuji převzetí“.
+                </small>
+              </span>
+            </label>
 
             <div className="notification-upload-box">
               <div className="notification-upload-top">
@@ -4868,6 +5181,13 @@ function Notifications({ user, role }) {
         </div>
       )}
 
+      <div className="notification-section-heading">
+        <div>
+          <h2>Moje notifikace</h2>
+          <p>Zprávy určené pro tebe.</p>
+        </div>
+      </div>
+
       <div className="notifications-list">
         {items.length === 0 ? (
           <div className="notification-empty">
@@ -4893,6 +5213,11 @@ function Notifications({ user, role }) {
                     {notification.created_at
                       ? new Date(notification.created_at).toLocaleString("cs-CZ")
                       : "—"}
+                    {notification.updated_at
+                      ? ` · upraveno ${new Date(
+                          notification.updated_at
+                        ).toLocaleString("cs-CZ")}`
+                      : ""}
                   </small>
                 </div>
 
@@ -4921,10 +5246,253 @@ function Notifications({ user, role }) {
                   />
                 </a>
               )}
+
+              {isDriver && notification.vyzaduje_potvrzeni && (
+                <div className="notification-confirm-area">
+                  {notification.potvrzeno ? (
+                    <div className="notification-confirmed">
+                      ✓ Potvrzeno
+                      {notification.potvrzeno_at
+                        ? ` · ${new Date(
+                            notification.potvrzeno_at
+                          ).toLocaleString("cs-CZ")}`
+                        : ""}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="notification-confirm-button"
+                      disabled={busyId === notification.id}
+                      onClick={() => confirmNotification(notification)}
+                    >
+                      {busyId === notification.id
+                        ? "Ukládám…"
+                        : "✓ Potvrzuji převzetí"}
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           ))
         )}
       </div>
+
+      {manage && (
+        <>
+          <div className="notification-section-heading notification-sent-heading">
+            <div>
+              <h2>Odeslané notifikace</h2>
+              <p>
+                Tady může admin/dispečer zprávy upravit, smazat a zkontrolovat
+                potvrzení řidiče.
+              </p>
+            </div>
+          </div>
+
+          <div className="notifications-list">
+            {sentItems.length === 0 ? (
+              <div className="notification-empty">
+                <div>📨</div>
+                <strong>Zatím nic odesláno</strong>
+                <span>Ručně odeslané notifikace se zobrazí tady.</span>
+              </div>
+            ) : (
+              sentItems.map((notification) => {
+                const recipient = getProfile(notification.uzivatel_id);
+                const editing = editingId === notification.id;
+                const busy = busyId === notification.id;
+
+                return (
+                  <article
+                    className="notification-card notification-sent-card"
+                    key={notification.id}
+                  >
+                    <div className="notification-card-header">
+                      <div>
+                        <span className="notification-type">
+                          {notification.typ || "OZNÁMENÍ"}
+                        </span>
+                        <small>
+                          Pro: {recipient?.jmeno || notification.uzivatel_id}
+                          {" · "}
+                          {notification.created_at
+                            ? new Date(
+                                notification.created_at
+                              ).toLocaleString("cs-CZ")
+                            : "—"}
+                        </small>
+                      </div>
+
+                      <span
+                        className={`notification-confirm-state ${
+                          notification.potvrzeno ? "confirmed" : "waiting"
+                        }`}
+                      >
+                        {confirmationLabel(notification)}
+                      </span>
+                    </div>
+
+                    {editing ? (
+                      <div className="notification-edit-box">
+                        <div className="notification-compose-grid">
+                          <div className="notification-field">
+                            <label>Typ</label>
+                            <select
+                              value={editType}
+                              onChange={(e) => setEditType(e.target.value)}
+                            >
+                              {notificationTypes.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="notification-field">
+                            <label>Potvrzení</label>
+                            <select
+                              value={
+                                editRequiresConfirmation ? "ANO" : "NE"
+                              }
+                              onChange={(e) =>
+                                setEditRequiresConfirmation(
+                                  e.target.value === "ANO"
+                                )
+                              }
+                            >
+                              <option value="ANO">
+                                Vyžadovat potvrzení řidičem
+                              </option>
+                              <option value="NE">
+                                Potvrzení nevyžadovat
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="notification-field">
+                          <label>Zpráva</label>
+                          <textarea
+                            value={editMessage}
+                            onChange={(e) => setEditMessage(e.target.value)}
+                            rows={4}
+                          />
+                        </div>
+
+                        {notification.image_url &&
+                          !editRemoveImage &&
+                          !editImagePreview && (
+                            <div className="notification-current-image">
+                              <img
+                                src={notification.image_url}
+                                alt="Současná fotka"
+                              />
+                              <button
+                                type="button"
+                                className="notification-remove-image"
+                                onClick={() => setEditRemoveImage(true)}
+                              >
+                                🗑️ Odebrat současnou fotku
+                              </button>
+                            </div>
+                          )}
+
+                        {editImagePreview && (
+                          <div className="notification-current-image">
+                            <img
+                              src={editImagePreview}
+                              alt="Nová fotka"
+                            />
+                            <button
+                              type="button"
+                              className="notification-remove-image"
+                              onClick={resetEditImage}
+                            >
+                              ✕ Zrušit novou fotku
+                            </button>
+                          </div>
+                        )}
+
+                        <label className="notification-file-button notification-edit-file">
+                          📷 Vybrat novou fotku
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={chooseEditImage}
+                          />
+                        </label>
+
+                        <div className="notification-edit-actions">
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={busy}
+                            onClick={() => saveEdit(notification)}
+                          >
+                            {busy ? "Ukládám…" : "💾 Uložit změny"}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={cancelEdit}
+                          >
+                            Zrušit
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="notification-message">
+                          {notification.zprava}
+                        </div>
+
+                        {notification.image_url && (
+                          <a
+                            href={notification.image_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="notification-image-link"
+                          >
+                            <img
+                              src={notification.image_url}
+                              alt="Fotka v notifikaci"
+                              className="notification-image"
+                              loading="lazy"
+                            />
+                          </a>
+                        )}
+
+                        <div className="notification-admin-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => startEdit(notification)}
+                          >
+                            ✏️ Upravit
+                          </button>
+
+                          <button
+                            type="button"
+                            className="delete-button"
+                            disabled={busy}
+                            onClick={() => deleteNotification(notification)}
+                          >
+                            🗑️ Smazat
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -7819,6 +8387,227 @@ button {
 
   .notification-card {
     padding: 15px;
+  }
+}
+
+
+/* =========================================================
+   NOTIFIKACE - EDITACE / MAZÁNÍ / POTVRZENÍ ŘIDIČE
+========================================================= */
+.notification-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 24px 0 12px;
+}
+
+.notification-section-heading h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 18px;
+}
+
+.notification-section-heading p {
+  margin: 4px 0 0;
+  color: #7a8496;
+  font-size: 12px;
+}
+
+.notification-sent-heading {
+  margin-top: 30px;
+}
+
+.notification-confirm-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 2px 0 15px;
+  padding: 13px 14px;
+  border: 1px solid #dfe6ef;
+  border-radius: 12px;
+  background: #fafcff;
+  cursor: pointer;
+}
+
+.notification-confirm-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.notification-switch-ui {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 42px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background .15s ease;
+}
+
+.notification-switch-ui::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.18);
+  transition: transform .15s ease;
+}
+
+.notification-confirm-switch input:checked + .notification-switch-ui {
+  background: #2563eb;
+}
+
+.notification-confirm-switch input:checked + .notification-switch-ui::after {
+  transform: translateX(18px);
+}
+
+.notification-confirm-switch > span:last-child {
+  min-width: 0;
+}
+
+.notification-confirm-switch strong {
+  display: block;
+  color: #283449;
+  font-size: 12px;
+}
+
+.notification-confirm-switch small {
+  display: block;
+  margin-top: 2px;
+  color: #8390a3;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.notification-confirm-area {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #edf1f5;
+}
+
+.notification-confirm-button {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #166534;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.notification-confirm-button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.notification-confirmed {
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: #ecfdf3;
+  color: #18733a;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.notification-confirm-state {
+  max-width: 230px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.notification-confirm-state.confirmed {
+  background: #dcfce7;
+  color: #18733a;
+}
+
+.notification-confirm-state.waiting {
+  background: #fff4d6;
+  color: #93631a;
+}
+
+.notification-admin-actions,
+.notification-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #edf1f5;
+}
+
+.notification-edit-box {
+  margin-top: 10px;
+  padding: 15px;
+  border: 1px solid #dce5f0;
+  border-radius: 13px;
+  background: #fafcff;
+}
+
+.notification-current-image {
+  margin: 10px 0;
+}
+
+.notification-current-image img {
+  display: block;
+  width: min(100%, 480px);
+  max-height: 280px;
+  object-fit: contain;
+  border: 1px solid #e1e7ef;
+  border-radius: 12px;
+  background: #eef2f7;
+}
+
+.notification-edit-file {
+  margin-top: 8px;
+}
+
+.notification-sent-card {
+  border-left: 4px solid #94a3b8;
+}
+
+@media (max-width: 700px) {
+  .notification-card-header {
+    flex-direction: column;
+  }
+
+  .notification-confirm-state {
+    max-width: 100%;
+  }
+
+  .notification-admin-actions,
+  .notification-edit-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-admin-actions button,
+  .notification-edit-actions button {
+    width: 100%;
+  }
+
+  .notification-confirm-area {
+    justify-content: stretch;
+  }
+
+  .notification-confirm-button,
+  .notification-confirmed {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
   }
 }
 
