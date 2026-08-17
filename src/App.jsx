@@ -848,6 +848,7 @@ const emptyVehicle = {
   typ: "",
   spz: "",
   rok: "",
+  stk: "",
   barevne_schema: "",
   stav: "PROVOZNÍ",
   provozovna_id: "",
@@ -937,6 +938,16 @@ function VehicleForm({
               type="number"
               value={form.rok}
               onChange={(e) => change("rok", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label>STK – platnost do</label>
+
+            <input
+              type="date"
+              value={form.stk || ""}
+              onChange={(e) => change("stk", e.target.value)}
             />
           </div>
 
@@ -1078,6 +1089,8 @@ function AdminVehicles() {
         form.rok === ""
           ? null
           : Number(form.rok),
+
+      stk: form.stk || null,
 
       barevne_schema:
         form.barevne_schema.trim() || null,
@@ -1301,6 +1314,13 @@ function AdminVehicles() {
                     Schéma:{" "}
                     {vehicle.barevne_schema || "-"}
                   </small>
+
+                  <small>
+                    STK do:{" "}
+                    {vehicle.stk
+                      ? formatStkForDisplay(vehicle.stk)
+                      : "-"}
+                  </small>
                 </div>
 
                 <VehicleStatus status={vehicle.stav} />
@@ -1316,6 +1336,7 @@ function AdminVehicles() {
                           vehicle.cislo ?? "",
                         rok:
                           vehicle.rok ?? "",
+                        stk: normalizeStkForInput(vehicle.stk),
                         provozovna_id:
                           vehicle.provozovna_id ?? "",
                         spz: vehicle.spz || "",
@@ -1370,42 +1391,98 @@ const vehicleDetailFields = [
   ["ridic_2", "Řidič 2"],
 ];
 
-function formatStkForDisplay(value) {
+function normalizeStkForInput(value) {
   if (!value) return "";
+
   const raw = String(value).trim();
 
-  // Supabase/date column usually returns YYYY-MM-DD.
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    return `${iso[2]}/${iso[1]}`;
+  // PostgreSQL date -> HTML input[type=date]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
   }
 
-  // Already in MM/YYYY form.
-  const monthYear = raw.match(/^(\d{1,2})\/(\d{4})$/);
+  // Legacy MM/YYYY -> first day of month, until user sets exact day.
+  const monthYear = raw.match(/^(0?[1-9]|1[0-2])\/(\d{4})$/);
   if (monthYear) {
-    return `${monthYear[1].padStart(2, "0")}/${monthYear[2]}`;
+    return `${monthYear[2]}-${String(monthYear[1]).padStart(2, "0")}-01`;
   }
 
-  return raw;
+  // Legacy DD.MM.YYYY
+  const czDate = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (czDate) {
+    return `${czDate[3]}-${String(czDate[2]).padStart(2, "0")}-${String(
+      czDate[1]
+    ).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+function formatStkForDisplay(value) {
+  if (!value) return "";
+
+  const normalized = normalizeStkForInput(value);
+  const iso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (iso) {
+    return `${iso[3]}.${iso[2]}.${iso[1]}`;
+  }
+
+  return String(value);
 }
 
 function stkInputToDate(value) {
   if (!value) return null;
 
-  const raw = String(value).trim();
+  const normalized = normalizeStkForInput(value);
 
-  // Accept MM/YYYY and store it safely in a PostgreSQL date column.
-  const monthYear = raw.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
-  if (monthYear) {
-    return `${monthYear[2]}-${monthYear[1]}-01`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
   }
 
-  // Also accept YYYY-MM-DD if already supplied.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return raw;
+  return null;
+}
+
+function localDateIso(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getStkStatus(value) {
+  const normalized = normalizeStkForInput(value);
+  if (!normalized) return null;
+
+  const target = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.ceil(
+    (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffDays < 0) {
+    return {
+      type: "expired",
+      text: `STK propadla před ${Math.abs(diffDays)} dny`,
+    };
   }
 
-  return raw;
+  if (diffDays === 0) {
+    return { type: "soon", text: "STK končí dnes" };
+  }
+
+  if (diffDays <= 30) {
+    return {
+      type: "soon",
+      text: `STK končí za ${diffDays} dní`,
+    };
+  }
+
+  return { type: "ok", text: `STK platí ještě ${diffDays} dní` };
 }
 
 function VehicleDetail({ vehicle, role, onBack, onSaved }) {
@@ -1420,7 +1497,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   useEffect(() => {
     setForm({
       ...vehicle,
-      stk: formatStkForDisplay(vehicle.stk),
+      stk: normalizeStkForInput(vehicle.stk),
     });
     setEditing(false);
     setError("");
@@ -1483,7 +1560,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
 
   const updatedVehicle = {
     ...data,
-    stk: formatStkForDisplay(data?.stk),
+    stk: normalizeStkForInput(data?.stk),
   };
 
   setForm(updatedVehicle);
@@ -1607,26 +1684,17 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                   <>
                     <input
                       className="form-input"
-                      type={field === "rok" ? "number" : "text"}
+                      type={
+                        field === "stk"
+                          ? "date"
+                          : field === "rok"
+                          ? "number"
+                          : "text"
+                      }
                       value={form[field] ?? ""}
                       onChange={(e) => change(field, e.target.value)}
-                      placeholder={
-                        field === "stk"
-                          ? "MM/YYYY"
-                          : label
-                      }
+                      placeholder={label}
                     />
-                    {field === "stk" && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: 12,
-                          color: "#64748b",
-                        }}
-                      >
-                        Zadej například 07/2027
-                      </div>
-                    )}
                   </>
                 )
               ) : (
@@ -1639,6 +1707,13 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
                     ? formatStkForDisplay(form[field])
                     : String(form[field])}
                 </div>
+                {field === "stk" && form[field] && getStkStatus(form[field]) && (
+                  <div
+                    className={`stk-status-note ${getStkStatus(form[field]).type}`}
+                  >
+                    {getStkStatus(form[field]).text}
+                  </div>
+                )}
               )}
             </div>
           ))}
@@ -6896,19 +6971,63 @@ function App() {
     useState(false);
 
   async function loadDashboardStats() {
-    const today = new Date().toISOString().slice(0,10);
-    const limit = new Date(); limit.setDate(limit.getDate()+30);
-    const [p,v,a,vy,z,q,stk] = await Promise.all([
-      supabase.from("provozovny").select("*",{count:"exact",head:true}),
-      supabase.from("vozy").select("*",{count:"exact",head:true}),
-      supabase.from("vozy").select("*",{count:"exact",head:true}).eq("stav","PROVOZNÍ"),
-      supabase.from("vypravy").select("*",{count:"exact",head:true}).eq("datum",today),
-      supabase.from("vehicle_faults").select("*",{count:"exact",head:true}).neq("stav","OPRAVENO"),
-      supabase.from("zadosti_vozidla").select("*",{count:"exact",head:true}).eq("stav","ČEKÁ NA VYŘÍZENÍ"),
-      supabase.from("vozy").select("*",{count:"exact",head:true}).gte("stk",today).lte("stk",limit.toISOString().slice(0,10)),
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+
+    const limitDate = new Date(todayDate);
+    limitDate.setDate(limitDate.getDate() + 30);
+
+    const today = localDateIso(todayDate);
+    const stkLimit = localDateIso(limitDate);
+
+    const [p, v, a, vy, z, q, stk] = await Promise.all([
+      supabase.from("provozovny").select("*", { count: "exact", head: true }),
+      supabase.from("vozy").select("*", { count: "exact", head: true }),
+      supabase
+        .from("vozy")
+        .select("*", { count: "exact", head: true })
+        .eq("stav", "PROVOZNÍ"),
+      supabase
+        .from("vypravy")
+        .select("*", { count: "exact", head: true })
+        .eq("datum", today),
+      supabase
+        .from("vehicle_faults")
+        .select("*", { count: "exact", head: true })
+        .neq("stav", "OPRAVENO"),
+      supabase
+        .from("zadosti_vozidla")
+        .select("*", { count: "exact", head: true })
+        .eq("stav", "ČEKÁ NA VYŘÍZENÍ"),
+      supabase
+        .from("vozy")
+        .select("*", { count: "exact", head: true })
+        .not("stk", "is", null)
+        .gte("stk", today)
+        .lte("stk", stkLimit),
     ]);
-    setDashboardStats({vypravy:vy.count||0,aktivniVozy:a.count||0,vozyCelkem:v.count||0,provozovny:p.count||0,zavady:z.count||0,cekajiciZadosti:q.count||0,stkBrzy:stk.count||0});
+
+    if (stk.error) {
+      console.error("STK DASHBOARD ERROR:", stk.error);
+    }
+
+    setDashboardStats({
+      vypravy: vy.count || 0,
+      aktivniVozy: a.count || 0,
+      vozyCelkem: v.count || 0,
+      provozovny: p.count || 0,
+      zavady: z.count || 0,
+      cekajiciZadosti: q.count || 0,
+      stkBrzy: stk.count || 0,
+    });
   }
+
+  useEffect(() => {
+    if (user && page === "dashboard") {
+      loadDashboardStats();
+    }
+  }, [page, user]);
+
 
   async function loadProfile(authUser) {
     if (!authUser) {
@@ -7325,7 +7444,7 @@ function App() {
   <div className="stat"><span>Provozovny</span><strong>{dashboardStats.provozovny}</strong></div>
   <div className="stat"><span>Aktivní závady</span><strong>{dashboardStats.zavady}</strong></div>
   <div className="stat"><span>Čekající žádosti</span><strong>{dashboardStats.cekajiciZadosti}</strong></div>
-  <div className="stat"><span>STK do 30 dní</span><strong>{dashboardStats.stkBrzy}</strong></div>
+  <div className="stat"><span>STK končí do 30 dní</span><strong>{dashboardStats.stkBrzy}</strong></div>
 </div>
 
               <div className="panel">
@@ -10931,6 +11050,34 @@ thead .departures-vehicle-column {
   .departure-missing-summary-stats {
     justify-content: flex-start;
   }
+}
+
+
+/* =========================================================
+   STK
+========================================================= */
+.stk-status-note {
+  display: inline-flex;
+  margin-top: 7px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.stk-status-note.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stk-status-note.soon {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.stk-status-note.expired {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 `;
