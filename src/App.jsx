@@ -78,7 +78,7 @@ function Login({ onLogin }) {
   return (
     <div className="login-page">
       <div className="login-box">
-        <div className="login-logo">CM</div>
+        <div className="login-logo"><img src="/cm-logo.png" alt="CM" /></div>
 
         <h1>Czech Mobility</h1>
         <p>VDP systém</p>
@@ -220,7 +220,7 @@ function Register({ onRegistered }) {
   return (
     <div className="login-page">
       <div className="login-box">
-        <div className="login-logo">CM</div>
+        <div className="login-logo"><img src="/cm-logo.png" alt="CM" /></div>
 
         <h1>Registrace</h1>
 
@@ -7736,7 +7736,7 @@ function App() {
       <div className="app">
         <header className="mobile-app-bar">
           <div className="mobile-app-brand">
-            <div className="mobile-app-logo">CM</div>
+            <div className="mobile-app-logo"><img src="/cm-logo.png" alt="CM" /></div>
             <div>
               <strong>Czech Mobility</strong>
               <span>{roleName}</span>
@@ -7765,7 +7765,7 @@ function App() {
 
         <aside className={`sidebar ${mobileMenuOpen ? "mobile-open" : ""}`}>
           <div className="brand">
-            <div className="brand-logo">CM</div>
+            <div className="brand-logo"><img src="/cm-logo.png" alt="CM" /></div>
 
             <div>
               <div className="brand-title">
@@ -8751,14 +8751,23 @@ button {
 }
 
 .brand-logo {
-  width: 42px;
+  width: 52px;
   height: 42px;
-  border-radius: 12px;
-  background: #2563eb;
+  flex: 0 0 52px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.96);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,.14);
+}
+
+.brand-logo img {
+  width: 46px;
+  height: 34px;
+  object-fit: contain;
+  display: block;
 }
 
 .brand-title {
@@ -12208,16 +12217,22 @@ thead .departures-vehicle-column {
   }
 
   .mobile-app-logo {
-    width: 38px;
+    width: 48px;
     height: 38px;
-    flex: 0 0 38px;
+    flex: 0 0 48px;
     display: grid;
     place-items: center;
-    border-radius: 10px;
-    background: #2563eb;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 900;
+    border-radius: 9px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(15,23,42,.10);
+  }
+
+  .mobile-app-logo img {
+    width: 43px;
+    height: 31px;
+    object-fit: contain;
+    display: block;
   }
 
   .mobile-app-brand strong,
@@ -12283,8 +12298,14 @@ thead .departures-vehicle-column {
   }
 
   .sidebar .brand-logo {
-    width: 38px;
+    width: 48px;
     height: 38px;
+    flex-basis: 48px;
+  }
+
+  .sidebar .brand-logo img {
+    width: 43px;
+    height: 31px;
   }
 
   .sidebar .brand-title {
@@ -13474,6 +13495,22 @@ thead .departures-vehicle-column {
 .dashboard-glass-card > * {
   position: relative;
   z-index: 1;
+}
+
+
+/* =========================================================
+   CM LOGO
+========================================================= */
+.login-logo {
+  overflow: hidden;
+  background: #fff !important;
+}
+
+.login-logo img {
+  width: 90%;
+  height: 90%;
+  display: block;
+  object-fit: contain;
 }
 
 `;
