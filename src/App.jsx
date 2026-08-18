@@ -6437,6 +6437,578 @@ function AdminCourses() {
 
 
 
+
+function AdminConnections() {
+  const { provozovny } = useProvozovny();
+
+  const [courses, setCourses] = useState([]);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [connections, setConnections] = useState([]);
+  const [search, setSearch] = useState("");
+  const [loadingCourses, setLoadingCourses] = useState(true);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [form, setForm] = useState({
+    poradi: "",
+    spoj: "",
+    odjezd: "",
+    prijezd: "",
+    odkud: "",
+    kam: "",
+  });
+
+  async function loadCourses() {
+    setLoadingCourses(true);
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("kurzy")
+      .select(
+        "id,nazev,provozovna_id,aktivni,typ_dne,zacatek,konec"
+      )
+      .order("nazev", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setCourses([]);
+    } else {
+      setCourses(data || []);
+    }
+
+    setLoadingCourses(false);
+  }
+
+  async function loadConnections(courseId) {
+    if (!courseId) {
+      setConnections([]);
+      return;
+    }
+
+    setLoadingConnections(true);
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("kurz_spoje")
+      .select("id,kurz_id,poradi,spoj,odjezd,prijezd,odkud,kam")
+      .eq("kurz_id", Number(courseId))
+      .order("poradi", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setConnections([]);
+    } else {
+      setConnections(data || []);
+    }
+
+    setLoadingConnections(false);
+  }
+
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
+  useEffect(() => {
+    loadConnections(selectedCourseId);
+    setEditing(null);
+    setForm({
+      poradi: "",
+      spoj: "",
+      odjezd: "",
+      prijezd: "",
+      odkud: "",
+      kam: "",
+    });
+  }, [selectedCourseId]);
+
+  function resetForm() {
+    setEditing(null);
+    setForm({
+      poradi: "",
+      spoj: "",
+      odjezd: "",
+      prijezd: "",
+      odkud: "",
+      kam: "",
+    });
+  }
+
+  function getBranch(course) {
+    return provozovny.find(
+      (item) => String(item.id) === String(course.provozovna_id)
+    );
+  }
+
+  function getBranchCode(course) {
+    const branch = getBranch(course);
+    return String(
+      branch?.kod ||
+      branch?.code ||
+      branch?.zkratka ||
+      branch?.nazev ||
+      ""
+    ).trim();
+  }
+
+  const visibleCourses = courses
+    .filter((course) => {
+      const branch = getBranch(course);
+      if (!branch) return false;
+
+      const code = getBranchCode(course).toUpperCase();
+      const name = String(branch.nazev || "").toUpperCase();
+
+      const allowed =
+        ["WRO", "400", "BUK", "BRE", "BRN"].includes(code) ||
+        name === "400" ||
+        name.includes("BŘECLAV") ||
+        name.includes("BRECLAV") ||
+        name.includes("BRNO") ||
+        name.includes("BUKOVEC") ||
+        name.includes("WROCŁAW") ||
+        name.includes("WROCLAW") ||
+        name.includes("BRESLAU");
+
+      if (!allowed) return false;
+
+      const needle = search.trim().toLowerCase();
+      if (!needle) return true;
+
+      return (
+        String(course.nazev || "").toLowerCase().includes(needle) ||
+        String(branch.nazev || "").toLowerCase().includes(needle) ||
+        code.toLowerCase().includes(needle)
+      );
+    })
+    .sort((a, b) =>
+      String(a.nazev).localeCompare(String(b.nazev), "cs", {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+
+  const selectedCourse =
+    courses.find(
+      (course) => String(course.id) === String(selectedCourseId)
+    ) || null;
+
+  async function saveConnection(event) {
+    event.preventDefault();
+
+    if (!selectedCourseId) {
+      setError("Nejdřív vyber turnus.");
+      return;
+    }
+
+    if (
+      !form.spoj.trim() ||
+      !form.odjezd ||
+      !form.prijezd
+    ) {
+      setError("Vyplň spoj, odjezd a příjezd.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const nextOrder =
+      connections.length > 0
+        ? Math.max(
+            ...connections.map((item) => Number(item.poradi) || 0)
+          ) + 1
+        : 1;
+
+    const payload = {
+      kurz_id: Number(selectedCourseId),
+      poradi: Number(form.poradi || nextOrder),
+      spoj: form.spoj.trim(),
+      odjezd: form.odjezd,
+      prijezd: form.prijezd,
+      odkud: form.odkud.trim() || null,
+      kam: form.kam.trim() || null,
+    };
+
+    const result = editing
+      ? await supabase
+          .from("kurz_spoje")
+          .update(payload)
+          .eq("id", editing.id)
+      : await supabase
+          .from("kurz_spoje")
+          .insert(payload);
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editing ? "Spoj byl upraven." : "Spoj byl přidán."
+    );
+    resetForm();
+    await loadConnections(selectedCourseId);
+    setSaving(false);
+  }
+
+  function editConnection(connection) {
+    setEditing(connection);
+    setError("");
+    setSuccess("");
+    setForm({
+      poradi: String(connection.poradi || ""),
+      spoj: connection.spoj || "",
+      odjezd: connection.odjezd
+        ? String(connection.odjezd).slice(0, 5)
+        : "",
+      prijezd: connection.prijezd
+        ? String(connection.prijezd).slice(0, 5)
+        : "",
+      odkud: connection.odkud || "",
+      kam: connection.kam || "",
+    });
+  }
+
+  async function deleteConnection(connection) {
+    if (
+      !window.confirm(
+        `Opravdu chceš smazat spoj ${connection.spoj}?`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error: deleteError } = await supabase
+      .from("kurz_spoje")
+      .delete()
+      .eq("id", connection.id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editing?.id === connection.id) {
+      resetForm();
+    }
+
+    setSuccess("Spoj byl smazán.");
+    await loadConnections(selectedCourseId);
+  }
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <span className="page-kicker">TURNUSE</span>
+          <h1>Spoje</h1>
+          <p>
+            Správa jednotlivých spojů a časů uvnitř turnusů.
+          </p>
+        </div>
+
+        <div className="count-badge">
+          {connections.length} spojů
+        </div>
+      </div>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="admin-connections-layout">
+        <aside className="panel admin-connections-courses">
+          <div className="admin-connections-side-head">
+            <div>
+              <h2>Turnusy</h2>
+              <p>Vyber turnus, jehož spoje chceš upravit.</p>
+            </div>
+          </div>
+
+          <input
+            className="admin-connections-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Hledat turnus..."
+          />
+
+          {loadingCourses ? (
+            <div className="empty">Načítám turnusy...</div>
+          ) : (
+            <div className="admin-connections-course-list">
+              {visibleCourses.map((course) => {
+                const branch = getBranch(course);
+
+                return (
+                  <button
+                    type="button"
+                    key={course.id}
+                    className={`admin-connections-course ${
+                      String(selectedCourseId) === String(course.id)
+                        ? "active"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setSelectedCourseId(String(course.id))
+                    }
+                  >
+                    <strong>{course.nazev}</strong>
+                    <span>
+                      {branch?.nazev || "Bez provozovny"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </aside>
+
+        <section className="panel admin-connections-main">
+          {!selectedCourse ? (
+            <div className="admin-connections-empty">
+              <div className="admin-connections-empty-icon">⇄</div>
+              <strong>Vyber turnus vlevo</strong>
+              <span>
+                Potom se zobrazí jeho spoje a časy.
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="admin-connections-turnus-head">
+                <div>
+                  <span>TURNUS</span>
+                  <h2>{selectedCourse.nazev}</h2>
+                  <p>
+                    {getBranch(selectedCourse)?.nazev || ""}
+                    {selectedCourse.zacatek || selectedCourse.konec
+                      ? ` · ${
+                          selectedCourse.zacatek
+                            ? String(selectedCourse.zacatek).slice(0, 5)
+                            : "—"
+                        }–${
+                          selectedCourse.konec
+                            ? String(selectedCourse.konec).slice(0, 5)
+                            : "—"
+                        }`
+                      : ""}
+                  </p>
+                </div>
+
+                <span className="admin-connections-count">
+                  {connections.length} spojů
+                </span>
+              </div>
+
+              <form
+                className="admin-connection-form"
+                onSubmit={saveConnection}
+              >
+                <div className="admin-connection-form-title">
+                  <strong>
+                    {editing ? "Upravit spoj" : "Přidat spoj"}
+                  </strong>
+
+                  {editing && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={resetForm}
+                      disabled={saving}
+                    >
+                      Zrušit úpravu
+                    </button>
+                  )}
+                </div>
+
+                <div className="admin-connection-grid">
+                  <label>
+                    <span>Pořadí</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={form.poradi}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          poradi: event.target.value,
+                        })
+                      }
+                      placeholder="automaticky"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Číslo spoje</span>
+                    <input
+                      value={form.spoj}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          spoj: event.target.value,
+                        })
+                      }
+                      placeholder="např. 501400-1005"
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    <span>Odjezd</span>
+                    <input
+                      type="time"
+                      value={form.odjezd}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          odjezd: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    <span>Příjezd</span>
+                    <input
+                      type="time"
+                      value={form.prijezd}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          prijezd: event.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label className="admin-connection-wide">
+                    <span>Odkud</span>
+                    <input
+                      value={form.odkud}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          odkud: event.target.value,
+                        })
+                      }
+                      placeholder="Výchozí zastávka"
+                    />
+                  </label>
+
+                  <label className="admin-connection-wide">
+                    <span>Kam</span>
+                    <input
+                      value={form.kam}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          kam: event.target.value,
+                        })
+                      }
+                      placeholder="Cílová zastávka"
+                    />
+                  </label>
+                </div>
+
+                <div className="admin-connection-form-actions">
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={saving}
+                  >
+                    {saving
+                      ? "Ukládám..."
+                      : editing
+                      ? "💾 Uložit změny"
+                      : "+ Přidat spoj"}
+                  </button>
+                </div>
+              </form>
+
+              {loadingConnections ? (
+                <div className="empty">Načítám spoje...</div>
+              ) : connections.length === 0 ? (
+                <div className="admin-connections-empty compact">
+                  <strong>Zatím žádné spoje</strong>
+                  <span>
+                    Přidej první spoj formulářem nahoře.
+                  </span>
+                </div>
+              ) : (
+                <div className="admin-connections-table-wrap">
+                  <table className="admin-connections-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Spoj</th>
+                        <th>Odjezd</th>
+                        <th>Příjezd</th>
+                        <th>Odkud</th>
+                        <th>Kam</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {connections.map((connection) => (
+                        <tr key={connection.id}>
+                          <td>{connection.poradi}</td>
+                          <td>
+                            <strong>{connection.spoj}</strong>
+                          </td>
+                          <td className="admin-connection-time">
+                            {String(connection.odjezd || "").slice(0, 5)}
+                          </td>
+                          <td className="admin-connection-time">
+                            {String(connection.prijezd || "").slice(0, 5)}
+                          </td>
+                          <td>{connection.odkud || "—"}</td>
+                          <td>{connection.kam || "—"}</td>
+                          <td>
+                            <div className="admin-connection-row-actions">
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() =>
+                                  editConnection(connection)
+                                }
+                              >
+                                ✏️
+                              </button>
+
+                              <button
+                                type="button"
+                                className="delete-button"
+                                onClick={() =>
+                                  deleteConnection(connection)
+                                }
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+
 function Departures({ role, onOpenVehicle }) {
   const manage = canManageVehicles(role);
   const { provozovny } = useProvozovny();
@@ -6659,8 +7231,17 @@ function Departures({ role, onOpenVehicle }) {
   function getCourse(row) {
     if (!row) return null;
 
-    return courses.find(
-      (course) => String(course.id) === String(row.kurz_id)
+    return (
+      courses.find(
+        (course) => String(course.id) === String(row.kurz_id)
+      ) ||
+      courses.find(
+        (course) =>
+          row.linka &&
+          String(course.nazev).trim().toLowerCase() ===
+            String(row.linka).trim().toLowerCase()
+      ) ||
+      null
     );
   }
 
@@ -7279,10 +7860,7 @@ function Departures({ role, onOpenVehicle }) {
                                   }}
                                   title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
-                                  <span>
-                                    {course.nazev}
-                                  </span>
-                                  <small>Spoje</small>
+                                  {course.nazev}
                                 </button>
                               ) : (
                                 <span
@@ -7519,32 +8097,11 @@ function Departures({ role, onOpenVehicle }) {
 
                                 <button
                                   type="button"
-                                  className="departure-course-detail-button"
+                                  className="departure-course-detail-button departure-course-number-only"
                                   onClick={() => openCourseDetail(course)}
+                                  title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
-                                  <span className="departure-course-detail-copy">
-                                    <strong>{course.nazev}</strong>
-                                    {course.typ_dne && (
-                                      <span className="departure-course-day">
-                                        {getCourseDayLabel(course.typ_dne)}
-                                      </span>
-                                    )}
-                                    {(course.zacatek || course.konec) && (
-                                      <small>
-                                        {course.zacatek
-                                          ? String(course.zacatek).slice(0, 5)
-                                          : "—"}
-                                        {" – "}
-                                        {course.konec
-                                          ? String(course.konec).slice(0, 5)
-                                          : "—"}
-                                      </small>
-                                    )}
-                                  </span>
-
-                                  <span className="departure-course-detail-link">
-                                    Spoje →
-                                  </span>
+                                  <strong>{course.nazev}</strong>
                                 </button>
                               </div>
                             );
@@ -8491,6 +9048,21 @@ function App() {
               </button>
             )}
 
+            {manageVehicles && (
+              <button
+                className={
+                  page === "adminConnections"
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  setPage("adminConnections")
+                }
+              >
+                <span>⇄</span>
+                Spoje
+              </button>
+            )}
 
             {manageVehicles && (
               <button
@@ -8980,6 +9552,11 @@ function App() {
           {page === "adminCourses" &&
             manageVehicles && (
               <AdminCourses />
+            )}
+
+          {page === "adminConnections" &&
+            manageVehicles && (
+              <AdminConnections />
             )}
 
           {page === "adminVehicleRequests" &&
@@ -15781,6 +16358,420 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 @media (max-width: 700px) {
   .departure-cell-course-link > small {
     font-size: 5px;
+  }
+}
+
+
+/* =========================================================
+   TURNUSE - ČISTÉ ZOBRAZENÍ + FUNKČNÍ DETAIL SPOJŮ
+========================================================= */
+.turnus-detail-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 5000 !important;
+  padding: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(4, 10, 22, .64) !important;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.departure-cell-course-link {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 2px !important;
+  min-height: 25px;
+  display: grid !important;
+  place-items: center;
+  line-height: 1 !important;
+  font-size: 7px !important;
+  font-weight: 900 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.departure-cell-course-link > small {
+  display: none !important;
+}
+
+.departure-course-number-only {
+  min-height: 42px;
+  display: grid !important;
+  place-items: center;
+  padding: 8px 10px !important;
+  text-align: center !important;
+}
+
+.departure-course-number-only strong {
+  font-size: 11px !important;
+  line-height: 1.1;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.departure-course-number-only .departure-course-detail-copy,
+.departure-course-number-only .departure-course-detail-link,
+.departure-course-number-only .departure-course-day,
+.departure-course-number-only small {
+  display: none !important;
+}
+
+@media (max-width: 700px) {
+  .departure-cell-course-link {
+    padding: 4px 1px !important;
+    min-height: 22px;
+    font-size: 6px !important;
+  }
+
+  .departure-course-number-only {
+    min-height: 44px;
+  }
+
+  .turnus-detail-backdrop {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+}
+
+/* =========================================================
+   ADMINISTRACE - SPOJE
+========================================================= */
+.admin-connections-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.admin-connections-courses {
+  position: sticky;
+  top: 20px;
+  padding: 14px;
+  max-height: calc(100vh - 70px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-connections-side-head h2,
+.admin-connections-turnus-head h2 {
+  margin: 0;
+}
+
+.admin-connections-side-head p,
+.admin-connections-turnus-head p {
+  margin: 4px 0 0;
+  color: #738096;
+  font-size: 9px;
+}
+
+.admin-connections-search {
+  width: 100%;
+  margin: 12px 0 9px;
+}
+
+.admin-connections-course-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 3px;
+}
+
+.admin-connections-course {
+  appearance: none;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #e0e7f0;
+  border-radius: 9px;
+  background: #fff;
+  color: #172033;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-connections-course:hover {
+  border-color: #93b7ef;
+  background: #f7faff;
+}
+
+.admin-connections-course.active {
+  border-color: #3b82f6;
+  background: #edf5ff;
+  box-shadow: inset 3px 0 #2563eb;
+}
+
+.admin-connections-course strong,
+.admin-connections-course span {
+  display: block;
+}
+
+.admin-connections-course strong {
+  font-size: 10px;
+}
+
+.admin-connections-course span {
+  margin-top: 2px;
+  color: #7b8799;
+  font-size: 7px;
+}
+
+.admin-connections-main {
+  min-width: 0;
+}
+
+.admin-connections-empty {
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  color: #7b8799;
+  text-align: center;
+}
+
+.admin-connections-empty.compact {
+  min-height: 150px;
+}
+
+.admin-connections-empty-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #edf4ff;
+  color: #2563eb;
+  font-size: 24px;
+}
+
+.admin-connections-empty strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.admin-connections-empty span {
+  font-size: 9px;
+}
+
+.admin-connections-turnus-head {
+  margin-bottom: 13px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-connections-turnus-head > div > span {
+  color: #2563eb;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.admin-connections-count {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #1d4ed8;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.admin-connection-form {
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid #e0e7f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.admin-connection-form-title {
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-connection-form-title strong {
+  font-size: 12px;
+}
+
+.admin-connection-grid {
+  display: grid;
+  grid-template-columns: 110px minmax(170px, .8fr) 130px 130px minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 8px;
+}
+
+.admin-connection-grid label {
+  min-width: 0;
+}
+
+.admin-connection-grid label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #65748a;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.admin-connection-grid input {
+  width: 100%;
+}
+
+.admin-connection-form-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-connections-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dfe7f1;
+  border-radius: 11px;
+}
+
+.admin-connections-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 9px;
+}
+
+.admin-connections-table th {
+  padding: 8px 9px;
+  background: #f2f6fa;
+  color: #6b7890;
+  text-align: left;
+  font-size: 7px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-connections-table td {
+  padding: 8px 9px;
+  border-top: 1px solid #e5ebf2;
+  color: #334155;
+}
+
+.admin-connections-table td strong {
+  color: #1d4ed8;
+}
+
+.admin-connection-time {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.admin-connection-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.admin-connection-row-actions button {
+  min-width: 34px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* dark */
+.app.dark-mode .admin-connections-course,
+.app.dark-mode .admin-connection-form {
+  background: #0f1826 !important;
+  border-color: #2a394d !important;
+  color: #e8eef7 !important;
+}
+
+.app.dark-mode .admin-connections-course:hover {
+  background: #142238 !important;
+  border-color: #46658d !important;
+}
+
+.app.dark-mode .admin-connections-course.active {
+  background: #142b49 !important;
+  border-color: #3b82f6 !important;
+}
+
+.app.dark-mode .admin-connections-course strong,
+.app.dark-mode .admin-connections-empty strong {
+  color: #eef4fb !important;
+}
+
+.app.dark-mode .admin-connections-course span,
+.app.dark-mode .admin-connections-side-head p,
+.app.dark-mode .admin-connections-turnus-head p,
+.app.dark-mode .admin-connection-grid label > span {
+  color: #8f9db1 !important;
+}
+
+.app.dark-mode .admin-connections-empty-icon,
+.app.dark-mode .admin-connections-count {
+  background: #173052 !important;
+  color: #93c5fd !important;
+}
+
+.app.dark-mode .admin-connections-table-wrap {
+  border-color: #2a394d !important;
+}
+
+.app.dark-mode .admin-connections-table th {
+  background: #172233 !important;
+  color: #9aa8bc !important;
+}
+
+.app.dark-mode .admin-connections-table td {
+  background: #0f1826 !important;
+  color: #cbd5e1 !important;
+  border-color: #28364a !important;
+}
+
+.app.dark-mode .admin-connections-table td strong {
+  color: #93c5fd !important;
+}
+
+@media (max-width: 1000px) {
+  .admin-connections-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-connections-courses {
+    position: static;
+    max-height: none;
+  }
+
+  .admin-connections-course-list {
+    max-height: 280px;
+  }
+
+  .admin-connection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-connections-layout {
+    gap: 10px;
+  }
+
+  .admin-connection-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-connection-wide {
+    grid-column: 1 / -1;
+  }
+
+  .admin-connections-table {
+    min-width: 760px;
   }
 }
 
