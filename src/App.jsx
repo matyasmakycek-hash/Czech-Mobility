@@ -1500,24 +1500,96 @@ function getStkStatus(value) {
   return { type: "ok", text: `STK platí ještě ${diffDays} dní` };
 }
 
+
+function vehicleDraftKey(vehicleId) {
+  return `cm-vehicle-edit-draft-${vehicleId}`;
+}
+
+function readVehicleDraft(vehicleId) {
+  if (typeof window === "undefined" || !vehicleId) return null;
+
+  try {
+    const raw = window.localStorage.getItem(vehicleDraftKey(vehicleId));
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    console.warn("VEHICLE DRAFT READ ERROR:", error);
+    return null;
+  }
+}
+
+function clearVehicleDraft(vehicleId) {
+  if (typeof window === "undefined" || !vehicleId) return;
+
+  try {
+    window.localStorage.removeItem(vehicleDraftKey(vehicleId));
+  } catch (error) {
+    console.warn("VEHICLE DRAFT CLEAR ERROR:", error);
+  }
+}
+
 function VehicleDetail({ vehicle, role, onBack, onSaved }) {
   const editable = canManageVehicles(role);
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ ...vehicle });
+  const initialDraft = readVehicleDraft(vehicle.id);
+
+  const [editing, setEditing] = useState(
+    Boolean(initialDraft?.form)
+  );
+  const [form, setForm] = useState(() => ({
+    ...vehicle,
+    ...(initialDraft?.form || {}),
+    stk: normalizeStkForInput(
+      initialDraft?.form?.stk ?? vehicle.stk
+    ),
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
-    setForm({
-      ...vehicle,
-      stk: normalizeStkForInput(vehicle.stk),
-    });
-    setEditing(false);
+    const draft = readVehicleDraft(vehicle.id);
+
+    if (draft?.form) {
+      setForm({
+        ...vehicle,
+        ...draft.form,
+        stk: normalizeStkForInput(
+          draft.form.stk ?? vehicle.stk
+        ),
+      });
+      setEditing(true);
+    } else {
+      setForm({
+        ...vehicle,
+        stk: normalizeStkForInput(vehicle.stk),
+      });
+      setEditing(false);
+    }
+
     setError("");
     setSuccess("");
-  }, [vehicle]);
+  }, [vehicle.id]);
+
+  useEffect(() => {
+    if (!editing || !vehicle.id || typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        vehicleDraftKey(vehicle.id),
+        JSON.stringify({
+          form,
+          updated_at: new Date().toISOString(),
+        })
+      );
+    } catch (draftError) {
+      console.warn("VEHICLE DRAFT SAVE ERROR:", draftError);
+    }
+  }, [editing, form, vehicle.id]);
 
   useEffect(() => {
     supabase.from("vehicle_history")
@@ -1533,6 +1605,23 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
       ...old,
       [name]: value,
     }));
+  }
+
+  function startEditing() {
+    setError("");
+    setSuccess("");
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    clearVehicleDraft(vehicle.id);
+    setForm({
+      ...vehicle,
+      stk: normalizeStkForInput(vehicle.stk),
+    });
+    setEditing(false);
+    setError("");
+    setSuccess("");
   }
 
  async function save() {
@@ -1578,6 +1667,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
     stk: normalizeStkForInput(data?.stk),
   };
 
+  clearVehicleDraft(vehicle.id);
   setForm(updatedVehicle);
   setEditing(false);
   setSuccess("Údaje vozu byly uloženy.");
@@ -1614,11 +1704,7 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
             <button
               type="button"
               className="primary-button"
-              onClick={() => {
-                setError("");
-                setSuccess("");
-                setEditing((old) => !old);
-              }}
+              onClick={editing ? cancelEditing : startEditing}
               disabled={saving}
             >
               {editing ? "Zrušit úpravy" : "✏️ Upravit vůz"}
@@ -1649,6 +1735,14 @@ function VehicleDetail({ vehicle, role, onBack, onSaved }) {
       {success && (
         <div className="success-box" style={{ marginBottom: 16 }}>
           {success}
+        </div>
+      )}
+
+      {editing && (
+        <div className="vehicle-draft-info">
+          <span>●</span>
+          Rozepsané změny se průběžně ukládají v tomto prohlížeči.
+          Přepnutí záložky je nesmaže.
         </div>
       )}
 
@@ -7715,7 +7809,9 @@ function App() {
     setPage("dashboard");
   }
 
-  if (loading || profileLoading) {
+  // Pokud už profil máme, jeho tiché obnovení nesmí odmontovat
+  // právě otevřenou stránku a rozepsané formuláře.
+  if (loading || (profileLoading && !profile)) {
     return (
       <>
         <style>{styles}</style>
@@ -14686,6 +14782,39 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .app.dark-mode .vehicle-row-clickable:focus {
     background: #18263a !important;
   }
+}
+
+
+/* =========================================================
+   AUTOMATICKÉ ULOŽENÍ ROZEPSANÝCH ÚPRAV VOZU
+========================================================= */
+.vehicle-draft-info {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vehicle-draft-info span {
+  color: #2563eb;
+  font-size: 9px;
+}
+
+.app.dark-mode .vehicle-draft-info {
+  background: #10213d;
+  color: #bfdbfe;
+  border-color: #294c7c;
+}
+
+.app.dark-mode .vehicle-draft-info span {
+  color: #60a5fa;
 }
 
 `;
