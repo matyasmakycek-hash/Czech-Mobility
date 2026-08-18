@@ -6467,6 +6467,911 @@ function AdminCourses() {
 
 
 
+
+/* =========================================================
+   REZERVACE SMĚN
+========================================================= */
+
+function ShiftReservations({ user, profile, role }) {
+  const { provozovny } = useProvozovny();
+  const manage = canManageVehicles(role);
+
+  const [date, setDate] = useState(() => localDateIso(new Date()));
+  const [branchId, setBranchId] = useState("");
+  const [courses, setCourses] = useState([]);
+  const [courseId, setCourseId] = useState("");
+  const [connections, setConnections] = useState([]);
+  const [occupiedIds, setOccupiedIds] = useState(new Set());
+
+  const [rangeStart, setRangeStart] = useState(null);
+  const [rangeEnd, setRangeEnd] = useState(null);
+
+  const [reservations, setReservations] = useState([]);
+  const [reservationCourses, setReservationCourses] = useState({});
+  const [reservationProfiles, setReservationProfiles] = useState({});
+
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [loadingReservations, setLoadingReservations] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const mainBranches = getMainProvozovny(provozovny);
+
+  function selectedBranch() {
+    return provozovny.find(
+      (branch) => String(branch.id) === String(branchId)
+    );
+  }
+
+  function isWeekendDate(value) {
+    const d = new Date(`${value}T12:00:00`);
+    const day = d.getDay();
+    return day === 0 || day === 6;
+  }
+
+  function courseFitsDate(course) {
+    const d = new Date(`${date}T12:00:00`);
+    const weekday = d.getDay();
+    const weekend = weekday === 0 || weekday === 6;
+
+    if (course.typ_dne === "PD" && weekend) return false;
+    if (course.typ_dne === "VIKEND" && !weekend) return false;
+    if (course.typ_dne === "NE" && weekday !== 0) return false;
+
+    const branch = selectedBranch();
+    const code = String(branch?.kod || "").trim().toUpperCase();
+
+    if (code === "BRE" && course.varianta) {
+      const month = Number(date.split("-")[1]);
+      const expectedVariant =
+        month === 8 ? "PRAZDNINY" : "BEZNY";
+
+      if (course.varianta !== expectedVariant) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  async function loadCourses() {
+    if (!branchId || !date) {
+      setCourses([]);
+      setCourseId("");
+      return;
+    }
+
+    setLoadingCourses(true);
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("kurzy")
+      .select(
+        "id,nazev,provozovna_id,aktivni,typ_dne,varianta,zacatek,konec"
+      )
+      .eq("provozovna_id", Number(branchId))
+      .eq("aktivni", true)
+      .order("nazev", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setCourses([]);
+    } else {
+      setCourses(
+        (data || [])
+          .filter(courseFitsDate)
+          .sort((a, b) =>
+            String(a.nazev).localeCompare(
+              String(b.nazev),
+              "cs",
+              {
+                numeric: true,
+                sensitivity: "base",
+              }
+            )
+          )
+      );
+    }
+
+    setLoadingCourses(false);
+  }
+
+  async function loadConnections(targetCourseId = courseId) {
+    if (!targetCourseId) {
+      setConnections([]);
+      setOccupiedIds(new Set());
+      return;
+    }
+
+    setLoadingConnections(true);
+    setError("");
+
+    const { data, error: loadError } = await supabase
+      .from("kurz_spoje")
+      .select(
+        "id,kurz_id,poradi,typ,spoj,odjezd,prijezd,usek,odkud,kam,poznamka"
+      )
+      .eq("kurz_id", Number(targetCourseId))
+      .order("poradi", { ascending: true });
+
+    if (loadError) {
+      setError(loadError.message);
+      setConnections([]);
+      setOccupiedIds(new Set());
+      setLoadingConnections(false);
+      return;
+    }
+
+    const realTrips = (data || []).filter(
+      (row) => !row.typ || row.typ === "SPOJ"
+    );
+
+    setConnections(realTrips);
+
+    if (realTrips.length === 0) {
+      setOccupiedIds(new Set());
+      setLoadingConnections(false);
+      return;
+    }
+
+    const ids = realTrips.map((row) => row.id);
+
+    const { data: occupied, error: occupiedError } =
+      await supabase
+        .from("rezervace_smen_spoje")
+        .select("kurz_spoj_id")
+        .eq("datum", date)
+        .in("kurz_spoj_id", ids);
+
+    if (occupiedError) {
+      setError(occupiedError.message);
+      setOccupiedIds(new Set());
+    } else {
+      setOccupiedIds(
+        new Set(
+          (occupied || []).map((row) =>
+            String(row.kurz_spoj_id)
+          )
+        )
+      );
+    }
+
+    setLoadingConnections(false);
+  }
+
+  async function loadReservations() {
+    if (!user?.id) return;
+
+    setLoadingReservations(true);
+
+    let query = supabase
+      .from("rezervace_smen")
+      .select(
+        "id,uzivatel_id,datum,provozovna_id,kurz_id,od_spoj,do_spoj,pocet_spoju,minuty_jizdy,stav,created_at"
+      )
+      .order("datum", { ascending: true })
+      .order("created_at", { ascending: false })
+      .limit(300);
+
+    if (!manage) {
+      query = query.eq("uzivatel_id", user.id);
+    }
+
+    const { data, error: loadError } = await query;
+
+    if (loadError) {
+      setError(loadError.message);
+      setReservations([]);
+      setLoadingReservations(false);
+      return;
+    }
+
+    const loaded = data || [];
+    setReservations(loaded);
+
+    const courseIds = [
+      ...new Set(
+        loaded
+          .map((item) => item.kurz_id)
+          .filter(Boolean)
+      ),
+    ];
+
+    if (courseIds.length > 0) {
+      const { data: courseRows } = await supabase
+        .from("kurzy")
+        .select("id,nazev,provozovna_id")
+        .in("id", courseIds);
+
+      setReservationCourses(
+        Object.fromEntries(
+          (courseRows || []).map((item) => [
+            String(item.id),
+            item,
+          ])
+        )
+      );
+    } else {
+      setReservationCourses({});
+    }
+
+    if (manage) {
+      const userIds = [
+        ...new Set(
+          loaded
+            .map((item) => item.uzivatel_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      if (userIds.length > 0) {
+        const { data: profileRows } = await supabase
+          .from("profiles")
+          .select("id,jmeno")
+          .in("id", userIds);
+
+        setReservationProfiles(
+          Object.fromEntries(
+            (profileRows || []).map((item) => [
+              String(item.id),
+              item,
+            ])
+          )
+        );
+      } else {
+        setReservationProfiles({});
+      }
+    } else {
+      setReservationProfiles({});
+    }
+
+    setLoadingReservations(false);
+  }
+
+  useEffect(() => {
+    loadReservations();
+  }, [user?.id, role]);
+
+  useEffect(() => {
+    setCourseId("");
+    setConnections([]);
+    setRangeStart(null);
+    setRangeEnd(null);
+    setOccupiedIds(new Set());
+
+    if (branchId && date) {
+      loadCourses();
+    }
+  }, [branchId, date]);
+
+  useEffect(() => {
+    setRangeStart(null);
+    setRangeEnd(null);
+
+    if (courseId) {
+      loadConnections(courseId);
+    } else {
+      setConnections([]);
+      setOccupiedIds(new Set());
+    }
+  }, [courseId]);
+
+  function tripMinutes(row) {
+    if (!row?.odjezd || !row?.prijezd) return 0;
+
+    const [sh, sm] = String(row.odjezd)
+      .slice(0, 5)
+      .split(":")
+      .map(Number);
+
+    const [eh, em] = String(row.prijezd)
+      .slice(0, 5)
+      .split(":")
+      .map(Number);
+
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+
+    return end >= start
+      ? end - start
+      : 1440 - start + end;
+  }
+
+  const selectedRows =
+    rangeStart === null || rangeEnd === null
+      ? []
+      : connections.slice(
+          Math.min(rangeStart, rangeEnd),
+          Math.max(rangeStart, rangeEnd) + 1
+        );
+
+  const selectedMinutes = selectedRows.reduce(
+    (sum, row) => sum + tripMinutes(row),
+    0
+  );
+
+  const selectedHasOccupied = selectedRows.some(
+    (row) => occupiedIds.has(String(row.id))
+  );
+
+  function chooseTrip(index) {
+    const row = connections[index];
+
+    if (!row || occupiedIds.has(String(row.id))) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    if (rangeStart === null || rangeEnd === null) {
+      setRangeStart(index);
+      setRangeEnd(index);
+      return;
+    }
+
+    const newStart = Math.min(rangeStart, index);
+    const newEnd = Math.max(rangeStart, index);
+    const nextRows = connections.slice(newStart, newEnd + 1);
+
+    if (
+      nextRows.some((item) =>
+        occupiedIds.has(String(item.id))
+      )
+    ) {
+      setError(
+        "Mezi vybranými spoji je už rezervovaný spoj. Vyber jiný souvislý úsek."
+      );
+      return;
+    }
+
+    setRangeStart(newStart);
+    setRangeEnd(newEnd);
+  }
+
+  function clearSelection() {
+    setRangeStart(null);
+    setRangeEnd(null);
+    setError("");
+  }
+
+  function selectWholeTurnus() {
+    if (connections.length === 0) return;
+
+    if (
+      connections.some((row) =>
+        occupiedIds.has(String(row.id))
+      )
+    ) {
+      setError(
+        "Celý turnus nejde vybrat, protože některý jeho spoj je už rezervovaný."
+      );
+      return;
+    }
+
+    setRangeStart(0);
+    setRangeEnd(connections.length - 1);
+    setError("");
+  }
+
+  async function createReservation() {
+    if (!courseId || selectedRows.length === 0) {
+      setError("Vyber turnus a souvislý úsek spojů.");
+      return;
+    }
+
+    if (selectedHasOccupied) {
+      setError("Některý vybraný spoj je už rezervovaný.");
+      return;
+    }
+
+    if (selectedMinutes < 50) {
+      setError(
+        `Minimální doba jízdy je 50 minut. Teď máš ${selectedMinutes} min.`
+      );
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const { data, error: createError } =
+      await supabase.rpc("vytvor_rezervaci_smeny", {
+        p_datum: date,
+        p_kurz_id: Number(courseId),
+        p_spoj_ids: selectedRows.map((row) => row.id),
+      });
+
+    if (createError) {
+      setError(
+        createError.message ||
+          "Rezervaci se nepodařilo vytvořit."
+      );
+      setSaving(false);
+      await loadConnections(courseId);
+      return;
+    }
+
+    setSuccess(
+      `Rezervace byla vytvořena: ${selectedRows.length} spojů / ${selectedMinutes} minut jízdy.`
+    );
+
+    clearSelection();
+    await Promise.all([
+      loadConnections(courseId),
+      loadReservations(),
+    ]);
+
+    setSaving(false);
+  }
+
+  async function cancelReservation(reservation) {
+    const isMine =
+      String(reservation.uzivatel_id) === String(user.id);
+
+    if (!isMine && !manage) return;
+
+    if (
+      !window.confirm(
+        `Opravdu chceš zrušit rezervaci ${reservation.od_spoj || ""} – ${reservation.do_spoj || ""}?`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error: deleteError } = await supabase
+      .from("rezervace_smen")
+      .delete()
+      .eq("id", reservation.id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    setSuccess("Rezervace byla zrušena.");
+
+    await Promise.all([
+      loadReservations(),
+      courseId ? loadConnections(courseId) : Promise.resolve(),
+    ]);
+  }
+
+  const selectedCourse = courses.find(
+    (course) => String(course.id) === String(courseId)
+  );
+
+  const dateLabel = (() => {
+    try {
+      return new Intl.DateTimeFormat("cs-CZ", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${date}T12:00:00`));
+    } catch {
+      return date;
+    }
+  })();
+
+  return (
+    <div className="shift-reservations-page">
+      <div className="topbar">
+        <div>
+          <span className="page-kicker">PLÁNOVÁNÍ SMĚN</span>
+          <h1>Rezervace směn</h1>
+          <p>
+            Vyber souvislý úsek spojů. Minimální skutečný čas
+            jízdy je 50 minut.
+          </p>
+        </div>
+
+        <div className="reservation-minimum-badge">
+          MIN. 50 MIN JÍZDY
+        </div>
+      </div>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="reservation-builder panel">
+        <div className="reservation-builder-head">
+          <div>
+            <span>KROK 1</span>
+            <h2>Vyber směnu</h2>
+          </div>
+          <strong>{dateLabel}</strong>
+        </div>
+
+        <div className="reservation-filter-grid">
+          <label>
+            <span>Datum</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) =>
+                setDate(event.target.value)
+              }
+            />
+          </label>
+
+          <label>
+            <span>Provozovna</span>
+            <select
+              value={branchId}
+              onChange={(event) =>
+                setBranchId(event.target.value)
+              }
+            >
+              <option value="">Vyber provozovnu</option>
+              {mainBranches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.nazev}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Turnus</span>
+            <select
+              value={courseId}
+              onChange={(event) =>
+                setCourseId(event.target.value)
+              }
+              disabled={!branchId || loadingCourses}
+            >
+              <option value="">
+                {loadingCourses
+                  ? "Načítám..."
+                  : "Vyber turnus"}
+              </option>
+
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.nazev}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {branchId &&
+          String(selectedBranch()?.kod || "")
+            .trim()
+            .toUpperCase() === "BRE" && (
+            <div className="reservation-bre-mode">
+              Břeclavsko:{" "}
+              <strong>
+                {Number(date.split("-")[1]) === 8
+                  ? "prázdninový provoz"
+                  : "běžný provoz"}
+              </strong>
+            </div>
+          )}
+      </div>
+
+      {courseId && (
+        <div className="reservation-trips-panel panel">
+          <div className="reservation-trips-head">
+            <div>
+              <span>KROK 2</span>
+              <h2>
+                {selectedCourse?.nazev || "Turnus"} – vyber spoje
+              </h2>
+              <p>
+                Klikni na první spoj a potom na poslední.
+                Vytvoří se jeden souvislý úsek.
+              </p>
+            </div>
+
+            <div className="reservation-trips-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={selectWholeTurnus}
+                disabled={connections.length === 0}
+              >
+                Celý turnus
+              </button>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={clearSelection}
+                disabled={rangeStart === null}
+              >
+                Zrušit výběr
+              </button>
+            </div>
+          </div>
+
+          {loadingConnections ? (
+            <div className="empty">Načítám spoje...</div>
+          ) : connections.length === 0 ? (
+            <div className="empty">
+              Tento turnus nemá uložené žádné spoje.
+            </div>
+          ) : (
+            <>
+              <div className="reservation-trip-list">
+                {connections.map((row, index) => {
+                  const occupied = occupiedIds.has(
+                    String(row.id)
+                  );
+
+                  const selected =
+                    rangeStart !== null &&
+                    rangeEnd !== null &&
+                    index >= Math.min(rangeStart, rangeEnd) &&
+                    index <= Math.max(rangeStart, rangeEnd);
+
+                  return (
+                    <button
+                      type="button"
+                      key={row.id}
+                      className={[
+                        "reservation-trip",
+                        selected ? "selected" : "",
+                        occupied ? "occupied" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      onClick={() => chooseTrip(index)}
+                      disabled={occupied}
+                    >
+                      <span className="reservation-trip-number">
+                        {row.spoj || "Spoj"}
+                      </span>
+
+                      <span className="reservation-trip-time">
+                        {row.odjezd
+                          ? String(row.odjezd).slice(0, 5)
+                          : "—"}
+                        {" – "}
+                        {row.prijezd
+                          ? String(row.prijezd).slice(0, 5)
+                          : "—"}
+                      </span>
+
+                      <span className="reservation-trip-route">
+                        {row.usek ||
+                          [row.odkud, row.kam]
+                            .filter(Boolean)
+                            .join(" → ") ||
+                          "—"}
+                      </span>
+
+                      <span className="reservation-trip-duration">
+                        {tripMinutes(row)} min
+                      </span>
+
+                      <span className="reservation-trip-state">
+                        {occupied
+                          ? "REZERVOVÁNO"
+                          : selected
+                          ? "VYBRÁNO"
+                          : "VOLNÉ"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="reservation-summary">
+                <div className="reservation-summary-main">
+                  <span>Vybraný úsek</span>
+
+                  <strong>
+                    {selectedRows.length > 0
+                      ? `${selectedRows[0]?.spoj || "—"} → ${
+                          selectedRows[
+                            selectedRows.length - 1
+                          ]?.spoj || "—"
+                        }`
+                      : "Zatím nic nevybráno"}
+                  </strong>
+
+                  <small>
+                    {selectedRows.length} spojů
+                  </small>
+                </div>
+
+                <div
+                  className={[
+                    "reservation-minutes",
+                    selectedMinutes >= 50 ? "ok" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <span>Čas jízdy</span>
+                  <strong>{selectedMinutes} min</strong>
+                  <small>
+                    {selectedMinutes >= 50
+                      ? "Minimum splněno"
+                      : `Chybí ${Math.max(
+                          0,
+                          50 - selectedMinutes
+                        )} min`}
+                  </small>
+
+                  <div className="reservation-progress">
+                    <span
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (selectedMinutes / 50) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="primary-button reservation-create-button"
+                  disabled={
+                    saving ||
+                    selectedRows.length === 0 ||
+                    selectedMinutes < 50 ||
+                    selectedHasOccupied
+                  }
+                  onClick={createReservation}
+                >
+                  {saving
+                    ? "Rezervuji..."
+                    : "✓ Rezervovat směnu"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="reservation-list-panel panel">
+        <div className="reservation-list-head">
+          <div>
+            <span>KROK 3</span>
+            <h2>
+              {manage
+                ? "Rezervace zaměstnanců"
+                : "Moje rezervace"}
+            </h2>
+            <p>
+              {manage
+                ? "Admin a dispečer vidí všechny rezervace."
+                : "Tvoje uložené rezervace směn."}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={loadReservations}
+            disabled={loadingReservations}
+          >
+            ↻ Obnovit
+          </button>
+        </div>
+
+        {loadingReservations ? (
+          <div className="empty">Načítám rezervace...</div>
+        ) : reservations.length === 0 ? (
+          <div className="reservation-empty">
+            <span>📅</span>
+            <strong>Zatím žádné rezervace</strong>
+            <small>
+              Vyber datum, turnus a alespoň 50 minut jízdy.
+            </small>
+          </div>
+        ) : (
+          <div className="reservation-cards">
+            {reservations.map((reservation) => {
+              const course =
+                reservationCourses[
+                  String(reservation.kurz_id)
+                ];
+
+              const branch = provozovny.find(
+                (item) =>
+                  String(item.id) ===
+                  String(reservation.provozovna_id)
+              );
+
+              const person =
+                reservationProfiles[
+                  String(reservation.uzivatel_id)
+                ];
+
+              const canCancel =
+                manage ||
+                String(reservation.uzivatel_id) ===
+                  String(user.id);
+
+              return (
+                <article
+                  className="reservation-card"
+                  key={reservation.id}
+                >
+                  <div className="reservation-card-date">
+                    <strong>
+                      {new Intl.DateTimeFormat("cs-CZ", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      }).format(
+                        new Date(
+                          `${reservation.datum}T12:00:00`
+                        )
+                      )}
+                    </strong>
+                    <span>{branch?.nazev || "—"}</span>
+                  </div>
+
+                  <div className="reservation-card-course">
+                    <span>Turnus</span>
+                    <strong>{course?.nazev || "—"}</strong>
+                    <small>
+                      {reservation.od_spoj || "—"} →{" "}
+                      {reservation.do_spoj || "—"}
+                    </small>
+                  </div>
+
+                  {manage && (
+                    <div className="reservation-card-person">
+                      <span>Zaměstnanec</span>
+                      <strong>
+                        {person?.jmeno ||
+                          reservation.uzivatel_id}
+                      </strong>
+                    </div>
+                  )}
+
+                  <div className="reservation-card-stats">
+                    <div>
+                      <span>Spojů</span>
+                      <strong>
+                        {reservation.pocet_spoju}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Jízda</span>
+                      <strong>
+                        {reservation.minuty_jizdy} min
+                      </strong>
+                    </div>
+                  </div>
+
+                  {canCancel && (
+                    <button
+                      type="button"
+                      className="reservation-cancel-button"
+                      onClick={() =>
+                        cancelReservation(reservation)
+                      }
+                    >
+                      Zrušit rezervaci
+                    </button>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function AdminConnections() {
   const { provozovny } = useProvozovny();
 
@@ -9243,6 +10148,20 @@ function App() {
 
             <button
               className={
+                page === "shiftReservations"
+                  ? "active"
+                  : ""
+              }
+              onClick={() =>
+                setPage("shiftReservations")
+              }
+            >
+              <span>📅</span>
+              Rezervace směn
+            </button>
+
+            <button
+              className={
                 page === "vehicles"
                   ? "active"
                   : ""
@@ -9834,6 +10753,14 @@ function App() {
               role={role}
               initialVehicleId={vehicleToOpen}
               onVehicleOpened={() => setVehicleToOpen(null)}
+            />
+          )}
+
+          {page === "shiftReservations" && (
+            <ShiftReservations
+              user={user}
+              profile={profile}
+              role={role}
             />
           )}
 
@@ -17355,6 +18282,587 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .breclav-variant-panel > div:first-child small {
   color: #7f8da2;
+}
+
+
+/* =========================================================
+   REZERVACE SMĚN
+========================================================= */
+.reservation-minimum-badge {
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.reservation-builder,
+.reservation-trips-panel,
+.reservation-list-panel {
+  margin-bottom: 14px;
+}
+
+.reservation-builder-head,
+.reservation-trips-head,
+.reservation-list-head {
+  margin-bottom: 13px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reservation-builder-head > div > span,
+.reservation-trips-head > div > span,
+.reservation-list-head > div > span {
+  display: block;
+  margin-bottom: 3px;
+  color: #2563eb;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.reservation-builder-head h2,
+.reservation-trips-head h2,
+.reservation-list-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.reservation-builder-head > strong {
+  color: #64748b;
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.reservation-trips-head p,
+.reservation-list-head p {
+  margin: 4px 0 0;
+  color: #7b8799;
+  font-size: 9px;
+}
+
+.reservation-filter-grid {
+  display: grid;
+  grid-template-columns: 190px minmax(180px, .8fr) minmax(220px, 1fr);
+  gap: 10px;
+}
+
+.reservation-filter-grid label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.reservation-filter-grid input,
+.reservation-filter-grid select {
+  width: 100%;
+}
+
+.reservation-bre-mode {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #cfe0f8;
+  border-radius: 9px;
+  background: #f1f7ff;
+  color: #5b6d85;
+  font-size: 8px;
+}
+
+.reservation-bre-mode strong {
+  color: #1d4ed8;
+}
+
+.reservation-trips-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.reservation-trip-list {
+  overflow: hidden;
+  border: 1px solid #dce5ef;
+  border-radius: 11px;
+}
+
+.reservation-trip {
+  appearance: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  background: #fff;
+  color: #263246;
+  display: grid;
+  grid-template-columns:
+    100px
+    100px
+    minmax(220px, 1fr)
+    70px
+    90px;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.reservation-trip:last-child {
+  border-bottom: 0;
+}
+
+.reservation-trip:hover:not(:disabled) {
+  background: #f5f9ff;
+}
+
+.reservation-trip.selected {
+  background: #eaf3ff;
+  box-shadow: inset 4px 0 #2563eb;
+}
+
+.reservation-trip.occupied {
+  background: #f4f5f7;
+  color: #9aa3b0;
+  cursor: not-allowed;
+}
+
+.reservation-trip-number {
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.reservation-trip-time {
+  font-size: 9px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.reservation-trip-route {
+  color: #5f6d80;
+  font-size: 8px;
+}
+
+.reservation-trip-duration {
+  font-size: 8px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.reservation-trip-state {
+  justify-self: end;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: #e8f0fb;
+  color: #52647e;
+  font-size: 6px;
+  font-weight: 900;
+}
+
+.reservation-trip.selected .reservation-trip-state {
+  background: #2563eb;
+  color: #fff;
+}
+
+.reservation-trip.occupied .reservation-trip-state {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.reservation-summary {
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid #dce5ef;
+  border-radius: 11px;
+  background: #f8fafc;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 190px auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.reservation-summary-main span,
+.reservation-minutes span {
+  display: block;
+  color: #7b8799;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.reservation-summary-main strong {
+  display: block;
+  margin-top: 2px;
+  color: #172033;
+  font-size: 11px;
+}
+
+.reservation-summary-main small {
+  color: #8290a3;
+  font-size: 7px;
+}
+
+.reservation-minutes {
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fff4f4;
+}
+
+.reservation-minutes.ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.reservation-minutes strong {
+  display: block;
+  margin-top: 2px;
+  color: #dc2626;
+  font-size: 16px;
+}
+
+.reservation-minutes.ok strong {
+  color: #15803d;
+}
+
+.reservation-minutes small {
+  color: #7c8797;
+  font-size: 7px;
+}
+
+.reservation-progress {
+  height: 4px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.reservation-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #dc2626;
+  transition: width .2s ease;
+}
+
+.reservation-minutes.ok .reservation-progress > span {
+  background: #16a34a;
+}
+
+.reservation-create-button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.reservation-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.reservation-card {
+  padding: 10px 11px;
+  border: 1px solid #dce5ef;
+  border-radius: 11px;
+  background: #fff;
+  display: grid;
+  grid-template-columns:
+    150px
+    minmax(180px, 1fr)
+    minmax(160px, .8fr)
+    170px
+    auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.reservation-card-date strong,
+.reservation-card-date span,
+.reservation-card-course span,
+.reservation-card-course strong,
+.reservation-card-course small,
+.reservation-card-person span,
+.reservation-card-person strong {
+  display: block;
+}
+
+.reservation-card-date strong {
+  color: #172033;
+  font-size: 10px;
+}
+
+.reservation-card-date span,
+.reservation-card-course span,
+.reservation-card-person span {
+  color: #8491a4;
+  font-size: 7px;
+}
+
+.reservation-card-course strong,
+.reservation-card-person strong {
+  color: #1e293b;
+  font-size: 10px;
+}
+
+.reservation-card-course small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 7px;
+}
+
+.reservation-card-stats {
+  display: flex;
+  gap: 7px;
+}
+
+.reservation-card-stats > div {
+  min-width: 70px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  background: #f4f7fb;
+}
+
+.reservation-card-stats span,
+.reservation-card-stats strong {
+  display: block;
+}
+
+.reservation-card-stats span {
+  color: #8793a5;
+  font-size: 6px;
+}
+
+.reservation-card-stats strong {
+  margin-top: 1px;
+  color: #172033;
+  font-size: 9px;
+}
+
+.reservation-cancel-button {
+  padding: 7px 9px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b91c1c;
+  font-family: inherit;
+  font-size: 7px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservation-empty {
+  min-height: 170px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  color: #8491a4;
+}
+
+.reservation-empty > span {
+  font-size: 24px;
+}
+
+.reservation-empty strong {
+  color: #475569;
+  font-size: 11px;
+}
+
+.reservation-empty small {
+  font-size: 8px;
+}
+
+/* dark */
+.app.dark-mode .reservation-minimum-badge {
+  background: #12351f;
+  color: #86efac;
+}
+
+.app.dark-mode .reservation-bre-mode {
+  background: #10213a;
+  border-color: #29476f;
+  color: #91a2ba;
+}
+
+.app.dark-mode .reservation-bre-mode strong {
+  color: #93c5fd;
+}
+
+.app.dark-mode .reservation-trip-list,
+.app.dark-mode .reservation-summary,
+.app.dark-mode .reservation-card {
+  border-color: #29364a;
+}
+
+.app.dark-mode .reservation-trip {
+  background: #0f1826;
+  color: #dce6f3;
+  border-color: #28364a;
+}
+
+.app.dark-mode .reservation-trip:hover:not(:disabled) {
+  background: #16243a;
+}
+
+.app.dark-mode .reservation-trip.selected {
+  background: #142b49;
+}
+
+.app.dark-mode .reservation-trip.occupied {
+  background: #151a22;
+  color: #667386;
+}
+
+.app.dark-mode .reservation-trip-number {
+  color: #93c5fd;
+}
+
+.app.dark-mode .reservation-trip-route {
+  color: #98a6ba;
+}
+
+.app.dark-mode .reservation-trip-state {
+  background: #223147;
+  color: #aebbd0;
+}
+
+.app.dark-mode .reservation-summary {
+  background: #0f1826;
+}
+
+.app.dark-mode .reservation-summary-main strong,
+.app.dark-mode .reservation-card-date strong,
+.app.dark-mode .reservation-card-course strong,
+.app.dark-mode .reservation-card-person strong,
+.app.dark-mode .reservation-card-stats strong {
+  color: #eef4fb;
+}
+
+.app.dark-mode .reservation-minutes {
+  background: #2b171b;
+  border-color: #66313a;
+}
+
+.app.dark-mode .reservation-minutes.ok {
+  background: #10271b;
+  border-color: #28583d;
+}
+
+.app.dark-mode .reservation-progress {
+  background: #2d394a;
+}
+
+.app.dark-mode .reservation-card {
+  background: #111927;
+}
+
+.app.dark-mode .reservation-card-stats > div {
+  background: #172233;
+}
+
+.app.dark-mode .reservation-cancel-button {
+  background: #2a151b;
+  border-color: #65323a;
+  color: #fda4af;
+}
+
+.app.dark-mode .reservation-empty strong {
+  color: #cbd5e1;
+}
+
+@media (max-width: 1000px) {
+  .reservation-card {
+    grid-template-columns: 130px 1fr 150px auto;
+  }
+
+  .reservation-card-person {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .reservation-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-builder-head,
+  .reservation-trips-head,
+  .reservation-list-head {
+    flex-direction: column;
+  }
+
+  .reservation-builder-head > strong {
+    align-self: stretch;
+  }
+
+  .reservation-trips-actions {
+    width: 100%;
+  }
+
+  .reservation-trips-actions button {
+    flex: 1;
+  }
+
+  .reservation-trip {
+    grid-template-columns: 82px 90px 1fr;
+    gap: 5px 8px;
+    padding: 9px 8px;
+  }
+
+  .reservation-trip-route {
+    grid-column: 1 / -1;
+  }
+
+  .reservation-trip-duration {
+    text-align: left;
+  }
+
+  .reservation-trip-state {
+    justify-self: start;
+  }
+
+  .reservation-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-create-button {
+    width: 100%;
+  }
+
+  .reservation-card {
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+
+  .reservation-card-person {
+    grid-column: auto;
+  }
+
+  .reservation-card-stats {
+    grid-column: 1 / -1;
+  }
+
+  .reservation-cancel-button {
+    grid-column: 1 / -1;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 400px) {
+  .reservation-card {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-card-stats,
+  .reservation-card-person,
+  .reservation-cancel-button {
+    grid-column: auto;
+  }
 }
 
 `;
