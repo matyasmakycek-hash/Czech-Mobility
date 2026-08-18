@@ -6459,7 +6459,7 @@ function Departures({ role, onOpenVehicle }) {
   const [editor, setEditor] = useState(null);
   const [saving, setSaving] = useState(false);
   const [cellForm, setCellForm] = useState({
-    kurz_id: "",
+    kurz_ids: [],
     poznamka: "",
   });
 
@@ -6642,10 +6642,10 @@ function Departures({ role, onOpenVehicle }) {
     ).padStart(2, "0")}`;
   }
 
-  function getEntry(vehicleId, day) {
+  function getEntries(vehicleId, day) {
     const date = isoDate(day);
 
-    return rows.find(
+    return rows.filter(
       (row) =>
         String(row.vuz_id) === String(vehicleId) &&
         row.datum === date
@@ -6680,7 +6680,7 @@ function Departures({ role, onOpenVehicle }) {
   function openEditor(vehicle, day) {
     if (!manage) return;
 
-    const row = getEntry(vehicle.id, day);
+    const entries = getEntries(vehicle.id, day);
 
     setError("");
     setSuccess("");
@@ -6689,38 +6689,55 @@ function Departures({ role, onOpenVehicle }) {
       vehicle,
       day,
       date: isoDate(day),
-      row: row || null,
+      rows: entries,
       courses: coursesForDay(day),
     });
 
     setCellForm({
-      kurz_id: row?.kurz_id ? String(row.kurz_id) : "",
-      poznamka: row?.poznamka || "",
+      kurz_ids: entries
+        .filter((row) => row.kurz_id)
+        .map((row) => String(row.kurz_id)),
+      poznamka: entries[0]?.poznamka || "",
     });
   }
 
   function closeEditor() {
     setEditor(null);
     setCellForm({
-      kurz_id: "",
+      kurz_ids: [],
       poznamka: "",
     });
+  }
+
+  function toggleCourse(courseId) {
+    const id = String(courseId);
+
+    setCellForm((old) => ({
+      ...old,
+      kurz_ids: old.kurz_ids.includes(id)
+        ? old.kurz_ids.filter((item) => item !== id)
+        : [...old.kurz_ids, id],
+    }));
   }
 
   async function saveEntry(e) {
     e.preventDefault();
 
-    if (!editor || !cellForm.kurz_id) {
-      setError("Vyber výpravu / pořadí.");
+    if (!editor || cellForm.kurz_ids.length === 0) {
+      setError("Vyber alespoň jednu výpravu / pořadí.");
       return;
     }
 
-    const course = courses.find(
-      (item) => String(item.id) === String(cellForm.kurz_id)
-    );
+    const selectedCourses = cellForm.kurz_ids
+      .map((id) =>
+        courses.find(
+          (item) => String(item.id) === String(id)
+        )
+      )
+      .filter(Boolean);
 
-    if (!course) {
-      setError("Vybraná výprava nebyla nalezena.");
+    if (selectedCourses.length !== cellForm.kurz_ids.length) {
+      setError("Některá vybraná výprava nebyla nalezena.");
       return;
     }
 
@@ -6728,33 +6745,93 @@ function Departures({ role, onOpenVehicle }) {
     setError("");
     setSuccess("");
 
-    const payload = {
-      datum: editor.date,
-      provozovna_id: Number(selectedProvozovna),
-      vuz_id: Number(editor.vehicle.id),
-      kurz_id: Number(course.id),
-      linka: course.nazev,
-      ridic_id: null,
-      poznamka: cellForm.poznamka.trim() || null,
-    };
+    const existingRows = editor.rows || [];
+    const desiredIds = new Set(
+      selectedCourses.map((course) => String(course.id))
+    );
 
-    const result = editor.row
-      ? await supabase
-          .from("vypravy")
-          .update(payload)
-          .eq("id", editor.row.id)
-      : await supabase.from("vypravy").insert(payload);
+    const rowsToDelete = existingRows.filter(
+      (row) =>
+        !row.kurz_id ||
+        !desiredIds.has(String(row.kurz_id))
+    );
 
-    if (result.error) {
-      setError(result.error.message);
-      setSaving(false);
-      return;
+    const existingCourseIds = new Set(
+      existingRows
+        .filter((row) => row.kurz_id)
+        .map((row) => String(row.kurz_id))
+    );
+
+    const coursesToInsert = selectedCourses.filter(
+      (course) => !existingCourseIds.has(String(course.id))
+    );
+
+    const retainedRows = existingRows.filter(
+      (row) =>
+        row.kurz_id &&
+        desiredIds.has(String(row.kurz_id))
+    );
+
+    const note = cellForm.poznamka.trim() || null;
+
+    if (rowsToDelete.length > 0) {
+      const deleteResult = await supabase
+        .from("vypravy")
+        .delete()
+        .in(
+          "id",
+          rowsToDelete.map((row) => row.id)
+        );
+
+      if (deleteResult.error) {
+        setError(deleteResult.error.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (retainedRows.length > 0) {
+      const updateResult = await supabase
+        .from("vypravy")
+        .update({ poznamka: note })
+        .in(
+          "id",
+          retainedRows.map((row) => row.id)
+        );
+
+      if (updateResult.error) {
+        setError(updateResult.error.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (coursesToInsert.length > 0) {
+      const payload = coursesToInsert.map((course) => ({
+        datum: editor.date,
+        provozovna_id: Number(selectedProvozovna),
+        vuz_id: Number(editor.vehicle.id),
+        kurz_id: Number(course.id),
+        linka: course.nazev,
+        ridic_id: null,
+        poznamka: note,
+      }));
+
+      const insertResult = await supabase
+        .from("vypravy")
+        .insert(payload);
+
+      if (insertResult.error) {
+        setError(insertResult.error.message);
+        setSaving(false);
+        return;
+      }
     }
 
     setSuccess(
-      editor.row
-        ? "Výprava vozu byla upravena."
-        : "Výprava byla přiřazena k vozu."
+      `Vůz ${editor.vehicle.cislo} má pro ${editor.date} přiřazeno ${selectedCourses.length} ${
+        selectedCourses.length === 1 ? "pořadí" : "pořadí"
+      }.`
     );
 
     closeEditor();
@@ -6763,11 +6840,12 @@ function Departures({ role, onOpenVehicle }) {
   }
 
   async function deleteEntry() {
-    if (!editor?.row) return;
+    const existingRows = editor?.rows || [];
+    if (existingRows.length === 0) return;
 
     if (
       !window.confirm(
-        `Opravdu chceš zrušit výpravu vozu ${editor.vehicle.cislo} dne ${editor.date}?`
+        `Opravdu chceš odebrat všechny výpravy vozu ${editor.vehicle.cislo} dne ${editor.date}?`
       )
     ) {
       return;
@@ -6780,7 +6858,10 @@ function Departures({ role, onOpenVehicle }) {
     const { error: deleteError } = await supabase
       .from("vypravy")
       .delete()
-      .eq("id", editor.row.id);
+      .in(
+        "id",
+        existingRows.map((row) => row.id)
+      );
 
     if (deleteError) {
       setError(deleteError.message);
@@ -6788,7 +6869,7 @@ function Departures({ role, onOpenVehicle }) {
       return;
     }
 
-    setSuccess("Výprava byla z vozu odebrána.");
+    setSuccess("Všechny výpravy byly z vozu pro tento den odebrány.");
     closeEditor();
     await loadMonth();
     setSaving(false);
@@ -7116,8 +7197,11 @@ function Departures({ role, onOpenVehicle }) {
 
                   {days.map((day) => {
                     const info = dayInfo(day);
-                    const row = getEntry(vehicle.id, day);
-                    const course = getCourse(row);
+                    const entries = getEntries(vehicle.id, day);
+                    const assigned = entries.map((row) => ({
+                      row,
+                      course: getCourse(row),
+                    }));
 
                     return (
                       <td
@@ -7126,25 +7210,38 @@ function Departures({ role, onOpenVehicle }) {
                           "departure-cell",
                           info.weekend ? "weekend" : "",
                           info.today ? "today" : "",
-                          row ? "filled" : "",
+                          entries.length > 0 ? "filled" : "",
+                          entries.length > 1 ? "multi" : "",
                           manage ? "editable" : "",
                         ]
                           .filter(Boolean)
                           .join(" ")}
                         onClick={() => openEditor(vehicle, day)}
                         title={
-                          row
-                            ? `${course?.nazev || row.linka || "Výprava"}`
+                          entries.length > 0
+                            ? assigned
+                                .map(
+                                  ({ row, course }) =>
+                                    course?.nazev ||
+                                    row.linka ||
+                                    "Výprava"
+                                )
+                                .join(", ")
                             : manage
-                            ? "Klikni pro přiřazení výpravy"
+                            ? "Klikni pro přiřazení jedné nebo více výprav"
                             : ""
                         }
                       >
-                        {row ? (
-                          <div className="departure-cell-content">
-                            <strong>
-                              {course?.nazev || row.linka || "-"}
-                            </strong>
+                        {entries.length > 0 ? (
+                          <div className="departure-cell-course-list">
+                            {assigned.map(({ row, course }) => (
+                              <span
+                                className="departure-cell-course-tag"
+                                key={row.id}
+                              >
+                                {course?.nazev || row.linka || "-"}
+                              </span>
+                            ))}
                           </div>
                         ) : (
                           <span className="departure-cell-empty">
@@ -7312,7 +7409,16 @@ function Departures({ role, onOpenVehicle }) {
               </div>
 
               <div className="notification-field">
-                <label>Výprava / pořadí</label>
+                <label>Výpravy / pořadí – můžeš vybrat více</label>
+
+                <div className="departure-multi-summary">
+                  <strong>{cellForm.kurz_ids.length}</strong>
+                  <span>
+                    {cellForm.kurz_ids.length === 1
+                      ? "vybrané pořadí"
+                      : "vybraných pořadí"}
+                  </span>
+                </div>
 
                 {(editor.courses || []).length === 0 ? (
                   <div className="departure-course-empty">
@@ -7335,16 +7441,11 @@ function Departures({ role, onOpenVehicle }) {
                               key={course.id}
                               type="button"
                               className={
-                                String(cellForm.kurz_id) === String(course.id)
+                                cellForm.kurz_ids.includes(String(course.id))
                                   ? "active"
                                   : ""
                               }
-                              onClick={() =>
-                                setCellForm({
-                                  ...cellForm,
-                                  kurz_id: String(course.id),
-                                })
-                              }
+                              onClick={() => toggleCourse(course.id)}
                             >
                               <strong>{course.nazev}</strong>
                               {course.typ_dne && (
@@ -7388,14 +7489,14 @@ function Departures({ role, onOpenVehicle }) {
               </div>
 
               <div className="departure-modal-actions">
-                {editor.row && (
+                {(editor.rows || []).length > 0 && (
                   <button
                     type="button"
                     className="delete-button"
                     onClick={deleteEntry}
                     disabled={saving}
                   >
-                    🗑️ Odebrat výpravu
+                    🗑️ Odebrat všechny
                   </button>
                 )}
 
@@ -7412,11 +7513,15 @@ function Departures({ role, onOpenVehicle }) {
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={saving || (editor.courses || []).length === 0}
+                    disabled={
+                      saving ||
+                      (editor.courses || []).length === 0 ||
+                      cellForm.kurz_ids.length === 0
+                    }
                   >
                     {saving
                       ? "Ukládám..."
-                      : "💾 Uložit výpravu"}
+                      : "💾 Uložit výpravy"}
                   </button>
                 </div>
               </div>
@@ -14919,6 +15024,115 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .departure-course-day {
   color: #8fa0b7;
+}
+
+
+/* =========================================================
+   VÝPRAVY - VÍCE KURZŮ NA JEDEN VŮZ / DEN
+========================================================= */
+.departure-cell-course-list {
+  width: 100%;
+  min-height: 100%;
+  padding: 3px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+}
+
+.departure-cell-course-tag {
+  display: block;
+  width: 100%;
+  padding: 3px 2px;
+  border-radius: 5px;
+  background: #e8f0ff;
+  color: #174ea6;
+  font-size: 7px;
+  font-weight: 900;
+  line-height: 1.05;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.departure-cell.multi {
+  vertical-align: middle;
+}
+
+.departure-multi-summary {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #dbe5f2;
+  border-radius: 9px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.departure-multi-summary strong {
+  width: 25px;
+  height: 25px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+}
+
+.departure-multi-summary span {
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.departure-course-picker button.active {
+  position: relative;
+}
+
+.departure-course-picker button.active::after {
+  content: "✓";
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,.20);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.app.dark-mode .departure-cell-course-tag {
+  background: #183253 !important;
+  color: #bfdbfe !important;
+  border: 1px solid #294b75;
+}
+
+.app.dark-mode .departure-multi-summary {
+  background: #0d1725;
+  border-color: #2b394d;
+}
+
+.app.dark-mode .departure-multi-summary span {
+  color: #9aa8bc;
+}
+
+@media (max-width: 700px) {
+  .departure-cell-course-list {
+    gap: 1px;
+    padding: 2px 1px;
+  }
+
+  .departure-cell-course-tag {
+    padding: 2px 1px;
+    font-size: 6px;
+    border-radius: 4px;
+  }
 }
 
 `;
