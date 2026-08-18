@@ -6458,6 +6458,10 @@ function Departures({ role, onOpenVehicle }) {
 
   const [editor, setEditor] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [courseDetail, setCourseDetail] = useState(null);
+  const [courseDetailRows, setCourseDetailRows] = useState([]);
+  const [courseDetailLoading, setCourseDetailLoading] = useState(false);
+  const [courseDetailError, setCourseDetailError] = useState("");
   const [cellForm, setCellForm] = useState({
     kurz_ids: [],
     poznamka: "",
@@ -6718,6 +6722,35 @@ function Departures({ role, onOpenVehicle }) {
         ? old.kurz_ids.filter((item) => item !== id)
         : [...old.kurz_ids, id],
     }));
+  }
+
+  async function openCourseDetail(course) {
+    setCourseDetail(course);
+    setCourseDetailRows([]);
+    setCourseDetailError("");
+    setCourseDetailLoading(true);
+
+    const { data, error: detailError } = await supabase
+      .from("kurz_spoje")
+      .select("id,poradi,spoj,odjezd,prijezd,odkud,kam")
+      .eq("kurz_id", course.id)
+      .order("poradi", { ascending: true });
+
+    if (detailError) {
+      setCourseDetailError(detailError.message);
+      setCourseDetailRows([]);
+    } else {
+      setCourseDetailRows(data || []);
+    }
+
+    setCourseDetailLoading(false);
+  }
+
+  function closeCourseDetail() {
+    setCourseDetail(null);
+    setCourseDetailRows([]);
+    setCourseDetailError("");
+    setCourseDetailLoading(false);
   }
 
   async function saveEntry(e) {
@@ -7436,36 +7469,68 @@ function Departures({ role, onOpenVehicle }) {
                         </div>
 
                         <div className="departure-course-picker">
-                          {group.courses.map((course) => (
-                            <button
-                              key={course.id}
-                              type="button"
-                              className={
-                                cellForm.kurz_ids.includes(String(course.id))
-                                  ? "active"
-                                  : ""
-                              }
-                              onClick={() => toggleCourse(course.id)}
-                            >
-                              <strong>{course.nazev}</strong>
-                              {course.typ_dne && (
-                                <span className="departure-course-day">
-                                  {getCourseDayLabel(course.typ_dne)}
-                                </span>
-                              )}
-                              {(course.zacatek || course.konec) && (
-                                <small>
-                                  {course.zacatek
-                                    ? String(course.zacatek).slice(0, 5)
-                                    : "—"}
-                                  {" – "}
-                                  {course.konec
-                                    ? String(course.konec).slice(0, 5)
-                                    : "—"}
-                                </small>
-                              )}
-                            </button>
-                          ))}
+                          {group.courses.map((course) => {
+                            const selected = cellForm.kurz_ids.includes(
+                              String(course.id)
+                            );
+
+                            return (
+                              <div
+                                key={course.id}
+                                className={`departure-course-card ${
+                                  selected ? "active" : ""
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  className="departure-course-select"
+                                  onClick={() => toggleCourse(course.id)}
+                                  aria-label={
+                                    selected
+                                      ? `Odebrat ${course.nazev} z výběru`
+                                      : `Přidat ${course.nazev} do výběru`
+                                  }
+                                  title={
+                                    selected
+                                      ? "Odebrat z vozu"
+                                      : "Přidat na vůz"
+                                  }
+                                >
+                                  {selected ? "✓" : "+"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="departure-course-detail-button"
+                                  onClick={() => openCourseDetail(course)}
+                                >
+                                  <span className="departure-course-detail-copy">
+                                    <strong>{course.nazev}</strong>
+                                    {course.typ_dne && (
+                                      <span className="departure-course-day">
+                                        {getCourseDayLabel(course.typ_dne)}
+                                      </span>
+                                    )}
+                                    {(course.zacatek || course.konec) && (
+                                      <small>
+                                        {course.zacatek
+                                          ? String(course.zacatek).slice(0, 5)
+                                          : "—"}
+                                        {" – "}
+                                        {course.konec
+                                          ? String(course.konec).slice(0, 5)
+                                          : "—"}
+                                      </small>
+                                    )}
+                                  </span>
+
+                                  <span className="departure-course-detail-link">
+                                    Spoje →
+                                  </span>
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
@@ -7526,6 +7591,142 @@ function Departures({ role, onOpenVehicle }) {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {courseDetail && (
+        <div
+          className="modal-backdrop turnus-detail-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeCourseDetail();
+            }
+          }}
+        >
+          <div className="turnus-detail-modal">
+            <div className="turnus-detail-head">
+              <div>
+                <span className="turnus-detail-kicker">DETAIL TURNUSE</span>
+                <h2>{courseDetail.nazev}</h2>
+                <p>
+                  {courseDetail.typ_dne
+                    ? getCourseDayLabel(courseDetail.typ_dne)
+                    : "Bez omezení dne"}
+                  {" · "}
+                  {courseDetail.zacatek
+                    ? String(courseDetail.zacatek).slice(0, 5)
+                    : "—"}
+                  {" – "}
+                  {courseDetail.konec
+                    ? String(courseDetail.konec).slice(0, 5)
+                    : "—"}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="stk-dashboard-modal-close"
+                onClick={closeCourseDetail}
+                aria-label="Zavřít detail turnusu"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="turnus-detail-summary">
+              <div>
+                <span>Turnus</span>
+                <strong>{courseDetail.nazev}</strong>
+              </div>
+              <div>
+                <span>Začátek</span>
+                <strong>
+                  {courseDetail.zacatek
+                    ? String(courseDetail.zacatek).slice(0, 5)
+                    : "—"}
+                </strong>
+              </div>
+              <div>
+                <span>Konec</span>
+                <strong>
+                  {courseDetail.konec
+                    ? String(courseDetail.konec).slice(0, 5)
+                    : "—"}
+                </strong>
+              </div>
+              <div>
+                <span>Spojů</span>
+                <strong>{courseDetailRows.length}</strong>
+              </div>
+            </div>
+
+            {courseDetailError && (
+              <div className="error-box">{courseDetailError}</div>
+            )}
+
+            {courseDetailLoading ? (
+              <div className="turnus-detail-loading">Načítám spoje...</div>
+            ) : courseDetailRows.length === 0 ? (
+              <div className="turnus-detail-empty">
+                Pro tento turnus zatím nejsou uložené žádné spoje.
+              </div>
+            ) : (
+              <div className="turnus-spoje-wrap">
+                <table className="turnus-spoje-table">
+                  <thead>
+                    <tr>
+                      <th>Spoj</th>
+                      <th>Odjezd</th>
+                      <th>Příjezd</th>
+                      <th>Odkud</th>
+                      <th>Kam</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {courseDetailRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <strong>{row.spoj}</strong>
+                        </td>
+                        <td className="turnus-time">
+                          {String(row.odjezd || "").slice(0, 5)}
+                        </td>
+                        <td className="turnus-time">
+                          {String(row.prijezd || "").slice(0, 5)}
+                        </td>
+                        <td>{row.odkud || "—"}</td>
+                        <td>{row.kam || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="turnus-detail-actions">
+              <button
+                type="button"
+                className={`primary-button ${
+                  cellForm.kurz_ids.includes(String(courseDetail.id))
+                    ? "turnus-selected-button"
+                    : ""
+                }`}
+                onClick={() => toggleCourse(courseDetail.id)}
+              >
+                {cellForm.kurz_ids.includes(String(courseDetail.id))
+                  ? "✓ Turnus je vybraný – odebrat"
+                  : "+ Přidat turnus na vůz"}
+              </button>
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeCourseDetail}
+              >
+                Zavřít
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -15132,6 +15333,369 @@ body.cm-dark *::-webkit-scrollbar-thumb {
     padding: 2px 1px;
     font-size: 6px;
     border-radius: 4px;
+  }
+}
+
+
+/* =========================================================
+   DETAIL TURNUSE - SPOJE A ČASY
+========================================================= */
+.departure-course-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid #d9e2ef;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.departure-course-card:hover {
+  border-color: #9ebff8;
+  box-shadow: 0 4px 14px rgba(37,99,235,.09);
+}
+
+.departure-course-card.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.departure-course-picker .departure-course-select {
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 100% !important;
+  min-height: 58px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-right: 1px solid #d9e2ef !important;
+  border-radius: 0 !important;
+  background: #f5f8fc !important;
+  color: #2563eb !important;
+  display: grid !important;
+  place-items: center !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  cursor: pointer;
+}
+
+.departure-course-card.active .departure-course-select {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-right-color: #2563eb !important;
+}
+
+.departure-course-picker .departure-course-detail-button {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 58px !important;
+  padding: 9px 10px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #172033 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  text-align: left !important;
+  cursor: pointer;
+}
+
+.departure-course-detail-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.departure-course-detail-copy strong {
+  color: inherit;
+}
+
+.departure-course-detail-link {
+  flex: 0 0 auto;
+  color: #2563eb;
+  font-size: 8px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.turnus-detail-backdrop {
+  z-index: 3200 !important;
+}
+
+.turnus-detail-modal {
+  width: min(1000px, calc(100vw - 32px));
+  max-height: min(86vh, 820px);
+  padding: 20px;
+  border-radius: 18px;
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 30px 90px rgba(0,0,0,.30);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.turnus-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.turnus-detail-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #2563eb;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.turnus-detail-head h2 {
+  margin: 0;
+  font-size: 25px;
+}
+
+.turnus-detail-head p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.turnus-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.turnus-detail-summary > div {
+  padding: 9px 11px;
+  border: 1px solid #e0e7f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.turnus-detail-summary span,
+.turnus-detail-summary strong {
+  display: block;
+}
+
+.turnus-detail-summary span {
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.turnus-detail-summary strong {
+  margin-top: 2px;
+  color: #172033;
+  font-size: 14px;
+}
+
+.turnus-spoje-wrap {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #dbe3ee;
+  border-radius: 11px;
+}
+
+.turnus-spoje-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.turnus-spoje-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 10px;
+  background: #eef3f9;
+  color: #64748b;
+  text-align: left;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.turnus-spoje-table td {
+  padding: 9px 10px;
+  border-top: 1px solid #e6ebf2;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.turnus-spoje-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.turnus-spoje-table td:first-child strong {
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.turnus-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  color: #0f172a !important;
+  white-space: nowrap;
+}
+
+.turnus-detail-loading,
+.turnus-detail-empty {
+  padding: 30px 16px;
+  border: 1px dashed #ccd7e5;
+  border-radius: 11px;
+  color: #64748b;
+  text-align: center;
+  font-size: 10px;
+}
+
+.turnus-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.turnus-selected-button {
+  background: #15803d !important;
+}
+
+/* Dark mode */
+.app.dark-mode .departure-course-card {
+  background: #101927;
+  border-color: #2b394d;
+}
+
+.app.dark-mode .departure-course-card:hover {
+  border-color: #4d78b8;
+}
+
+.app.dark-mode .departure-course-card.active {
+  background: #13243c;
+  border-color: #3b82f6;
+}
+
+.app.dark-mode .departure-course-picker .departure-course-select {
+  background: #172233 !important;
+  color: #93c5fd !important;
+  border-right-color: #2b394d !important;
+}
+
+.app.dark-mode .departure-course-card.active .departure-course-select {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+.app.dark-mode .departure-course-picker .departure-course-detail-button {
+  color: #e8eef7 !important;
+}
+
+.app.dark-mode .departure-course-detail-link {
+  color: #93c5fd;
+}
+
+.app.dark-mode .turnus-detail-modal {
+  background: #0f1826;
+  color: #e7edf7;
+  border: 1px solid #29364a;
+}
+
+.app.dark-mode .turnus-detail-head h2,
+.app.dark-mode .turnus-detail-summary strong {
+  color: #f1f5f9;
+}
+
+.app.dark-mode .turnus-detail-head p,
+.app.dark-mode .turnus-detail-summary span {
+  color: #8e9cb0;
+}
+
+.app.dark-mode .turnus-detail-summary > div {
+  background: #111d2c;
+  border-color: #2a394d;
+}
+
+.app.dark-mode .turnus-spoje-wrap {
+  border-color: #2a394d;
+}
+
+.app.dark-mode .turnus-spoje-table th {
+  background: #172233 !important;
+  color: #9aa8bc !important;
+  border-color: #2b394d !important;
+}
+
+.app.dark-mode .turnus-spoje-table td {
+  background: #0f1826 !important;
+  color: #cbd5e1 !important;
+  border-color: #28364a !important;
+}
+
+.app.dark-mode .turnus-spoje-table tbody tr:hover td {
+  background: #15243a !important;
+}
+
+.app.dark-mode .turnus-spoje-table td:first-child strong {
+  color: #93c5fd !important;
+}
+
+.app.dark-mode .turnus-time {
+  color: #f1f5f9 !important;
+}
+
+.app.dark-mode .turnus-detail-loading,
+.app.dark-mode .turnus-detail-empty {
+  border-color: #334155;
+  color: #8e9cb0;
+  background: #0d1623;
+}
+
+@media (max-width: 700px) {
+  .departure-course-picker {
+    grid-template-columns: 1fr !important;
+  }
+
+  .turnus-detail-backdrop {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .turnus-detail-modal {
+    width: 100%;
+    max-height: 92dvh;
+    padding: 14px 12px max(14px, env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+  }
+
+  .turnus-detail-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .turnus-spoje-table {
+    min-width: 660px;
+  }
+
+  .turnus-detail-actions {
+    position: sticky;
+    bottom: 0;
+    padding-top: 10px;
+    background: inherit;
+  }
+
+  .turnus-detail-actions button {
+    min-height: 44px;
   }
 }
 
