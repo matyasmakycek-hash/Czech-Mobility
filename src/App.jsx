@@ -7267,14 +7267,32 @@ function Departures({ role, onOpenVehicle }) {
                       >
                         {entries.length > 0 ? (
                           <div className="departure-cell-course-list">
-                            {assigned.map(({ row, course }) => (
-                              <span
-                                className="departure-cell-course-tag"
-                                key={row.id}
-                              >
-                                {course?.nazev || row.linka || "-"}
-                              </span>
-                            ))}
+                            {assigned.map(({ row, course }) =>
+                              course ? (
+                                <button
+                                  type="button"
+                                  className="departure-cell-course-tag departure-cell-course-link"
+                                  key={row.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openCourseDetail(course);
+                                  }}
+                                  title={`Zobrazit spoje turnusu ${course.nazev}`}
+                                >
+                                  <span>
+                                    {course.nazev}
+                                  </span>
+                                  <small>Spoje</small>
+                                </button>
+                              ) : (
+                                <span
+                                  className="departure-cell-course-tag"
+                                  key={row.id}
+                                >
+                                  {row.linka || "-"}
+                                </span>
+                              )
+                            )}
                           </div>
                         ) : (
                           <span className="departure-cell-empty">
@@ -7607,7 +7625,9 @@ function Departures({ role, onOpenVehicle }) {
           <div className="turnus-detail-modal">
             <div className="turnus-detail-head">
               <div>
-                <span className="turnus-detail-kicker">DETAIL TURNUSE</span>
+                <span className="turnus-detail-kicker">
+                  SPOJE TURNUSE
+                </span>
                 <h2>{courseDetail.nazev}</h2>
                 <p>
                   {courseDetail.typ_dne
@@ -7705,19 +7725,21 @@ function Departures({ role, onOpenVehicle }) {
             )}
 
             <div className="turnus-detail-actions">
-              <button
-                type="button"
-                className={`primary-button ${
-                  cellForm.kurz_ids.includes(String(courseDetail.id))
-                    ? "turnus-selected-button"
-                    : ""
-                }`}
-                onClick={() => toggleCourse(courseDetail.id)}
-              >
-                {cellForm.kurz_ids.includes(String(courseDetail.id))
-                  ? "✓ Turnus je vybraný – odebrat"
-                  : "+ Přidat turnus na vůz"}
-              </button>
+              {manage && editor && (
+                <button
+                  type="button"
+                  className={`primary-button ${
+                    cellForm.kurz_ids.includes(String(courseDetail.id))
+                      ? "turnus-selected-button"
+                      : ""
+                  }`}
+                  onClick={() => toggleCourse(courseDetail.id)}
+                >
+                  {cellForm.kurz_ids.includes(String(courseDetail.id))
+                    ? "✓ Turnus je vybraný – odebrat"
+                    : "+ Přidat turnus na vůz"}
+                </button>
+              )}
 
               <button
                 type="button"
@@ -15696,6 +15718,69 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .turnus-detail-actions button {
     min-height: 44px;
+  }
+}
+
+
+/* =========================================================
+   VÝPRAVY - ZAMĚSTNANEC ROZKLIKNE PŘIŘAZENÝ TURNUS
+========================================================= */
+.departure-cell-course-link {
+  appearance: none;
+  border: 1px solid rgba(37,99,235,.18);
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    transform .15s ease,
+    border-color .15s ease,
+    box-shadow .15s ease,
+    background .15s ease;
+}
+
+.departure-cell-course-link:hover {
+  transform: translateY(-1px);
+  border-color: #60a5fa;
+  background: #dbeafe;
+  box-shadow: 0 3px 9px rgba(37,99,235,.12);
+}
+
+.departure-cell-course-link:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+.departure-cell-course-link > span {
+  display: block;
+  font: inherit;
+  font-weight: 900;
+}
+
+.departure-cell-course-link > small {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 5.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.app.dark-mode .departure-cell-course-link {
+  border-color: #294b75 !important;
+}
+
+.app.dark-mode .departure-cell-course-link:hover {
+  background: #204064 !important;
+  border-color: #60a5fa !important;
+}
+
+.app.dark-mode .departure-cell-course-link > small {
+  color: #93a8c2 !important;
+}
+
+@media (max-width: 700px) {
+  .departure-cell-course-link > small {
+    font-size: 5px;
   }
 }
 
