@@ -7334,6 +7334,18 @@ function Departures({ role, onOpenVehicle }) {
     );
   }, [breclavVariant]);
 
+  useEffect(() => {
+    const monthNumber = Number(
+      String(selectedMonth).split("-")[1]
+    );
+
+    setBreclavVariant(
+      monthNumber === 8
+        ? "PRAZDNINY"
+        : "BEZNY"
+    );
+  }, [selectedMonth]);
+
   const [yearText, monthText] = selectedMonth.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
@@ -7941,6 +7953,11 @@ function Departures({ role, onOpenVehicle }) {
                 ? "Prázdniny"
                 : "Běžný provoz"}
             </strong>
+            <small>
+              {Number(String(selectedMonth).split("-")[1]) === 8
+                ? "Srpen = automaticky prázdninový provoz"
+                : "Automaticky podle zvoleného měsíce"}
+            </small>
           </div>
 
           <div className="breclav-variant-buttons">
@@ -17326,6 +17343,18 @@ body.cm-dark *::-webkit-scrollbar-thumb {
     flex-direction: column;
     gap: 3px;
   }
+}
+
+
+.breclav-variant-panel > div:first-child small {
+  display: block;
+  margin-top: 3px;
+  color: #8b97a9;
+  font-size: 7px;
+}
+
+.app.dark-mode .breclav-variant-panel > div:first-child small {
+  color: #7f8da2;
 }
 
 `;
