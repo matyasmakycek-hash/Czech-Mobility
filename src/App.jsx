@@ -6472,7 +6472,13 @@ function AdminCourses() {
    REZERVACE SMĚN
 ========================================================= */
 
-function ShiftReservations({ user, profile, role }) {
+function ShiftReservations({
+  user,
+  profile,
+  role,
+  initialTarget = null,
+  onInitialTargetUsed,
+}) {
   const { provozovny } = useProvozovny();
   const manage = canManageVehicles(role);
 
@@ -6555,6 +6561,41 @@ function ShiftReservations({ user, profile, role }) {
     setLoadingCourses(true);
     setError("");
 
+    // Rezervovat lze pouze turnusy, které jsou pro zvolený den
+    // skutečně zadané ve Výpravách.
+    const { data: departureRows, error: departureError } =
+      await supabase
+        .from("vypravy")
+        .select("kurz_id,linka")
+        .eq("datum", targetDate)
+        .eq("provozovna_id", Number(targetBranchId));
+
+    if (departureError) {
+      setError(departureError.message);
+      setCourses([]);
+      setLoadingCourses(false);
+      return [];
+    }
+
+    const plannedIds = new Set(
+      (departureRows || [])
+        .map((row) => row.kurz_id)
+        .filter(Boolean)
+        .map((id) => String(id))
+    );
+
+    const plannedNames = new Set(
+      (departureRows || [])
+        .map((row) => String(row.linka || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    if (plannedIds.size === 0 && plannedNames.size === 0) {
+      setCourses([]);
+      setLoadingCourses(false);
+      return [];
+    }
+
     const { data, error: loadError } = await supabase
       .from("kurzy")
       .select(
@@ -6572,9 +6613,18 @@ function ShiftReservations({ user, profile, role }) {
     }
 
     const filtered = (data || [])
-      .filter((course) =>
-        courseFitsDate(course, targetDate, targetBranchId)
-      )
+      .filter((course) => {
+        const isInDepartures =
+          plannedIds.has(String(course.id)) ||
+          plannedNames.has(
+            String(course.nazev || "").trim().toLowerCase()
+          );
+
+        return (
+          isInDepartures &&
+          courseFitsDate(course, targetDate, targetBranchId)
+        );
+      })
       .sort((a, b) =>
         String(a.nazev).localeCompare(
           String(b.nazev),
@@ -6790,6 +6840,83 @@ function ShiftReservations({ user, profile, role }) {
   useEffect(() => {
     loadReservations();
   }, [user?.id, role]);
+
+  useEffect(() => {
+    if (
+      !initialTarget ||
+      !initialTarget.date ||
+      !initialTarget.branchId ||
+      !initialTarget.courseId ||
+      provozovny.length === 0
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function openFromDepartures() {
+      const targetDate = initialTarget.date;
+      const targetBranchId = String(initialTarget.branchId);
+      const targetCourseId = String(initialTarget.courseId);
+
+      setEditingReservation(null);
+      setDate(targetDate);
+      setBranchId(targetBranchId);
+      setCourseId("");
+      setConnections([]);
+      setOccupiedIds(new Set());
+      setRangeStart(null);
+      setRangeEnd(null);
+      setError("");
+      setSuccess("");
+
+      const loadedCourses = await loadCourses(
+        targetBranchId,
+        targetDate
+      );
+
+      if (cancelled) return;
+
+      const targetCourse = loadedCourses.find(
+        (course) =>
+          String(course.id) === targetCourseId
+      );
+
+      if (!targetCourse) {
+        setError(
+          "Tento turnus není pro zvolený den ve Výpravách, takže ho nelze nabídnout k rezervaci."
+        );
+        onInitialTargetUsed?.();
+        return;
+      }
+
+      setCourseId(targetCourseId);
+
+      await loadConnections(
+        targetCourseId,
+        targetDate,
+        null,
+        []
+      );
+
+      if (cancelled) return;
+
+      setSuccess(
+        `Turnus ${targetCourse.nazev} byl načten z Výprav. Vyber si požadovaný úsek spojů.`
+      );
+
+      onInitialTargetUsed?.();
+    }
+
+    openFromDepartures();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    initialTarget?.key,
+    provozovny.length,
+  ]);
 
   function resetTripSelection() {
     setRangeStart(null);
@@ -7236,8 +7363,9 @@ function ShiftReservations({ user, profile, role }) {
           <span className="page-kicker">PLÁNOVÁNÍ SMĚN</span>
           <h1>Rezervace směn</h1>
           <p>
-            Rezervuj si souvislý úsek turnusu. Počítá se pouze
-            skutečný čas jízdy a minimum je 50 minut.
+            Rezervuj si souvislý úsek turnusu. Nabízí se pouze
+            turnusy skutečně zadané ve Výpravách pro vybraný den.
+            Minimum je 50 minut skutečné jízdy.
           </p>
         </div>
 
@@ -7385,8 +7513,12 @@ function ShiftReservations({ user, profile, role }) {
             >
               <option value="">
                 {loadingCourses
-                  ? "Načítám..."
-                  : "Vyber turnus"}
+                  ? "Načítám Výpravy..."
+                  : !branchId
+                  ? "Nejdřív vyber provozovnu"
+                  : courses.length === 0
+                  ? "Pro tento den není ve Výpravách žádný turnus"
+                  : "Vyber turnus z Výprav"}
               </option>
 
               {courses.map((course) => (
@@ -7397,6 +7529,20 @@ function ShiftReservations({ user, profile, role }) {
             </select>
           </label>
         </div>
+
+        {branchId && date && (
+          <div className="reservation-departures-source">
+            <span>◆</span>
+            <div>
+              <strong>Turnusy se načítají z Výprav</strong>
+              <small>
+                Když je ve Výpravách pro tento den například 210.01,
+                objeví se tady k rezervaci. Pokud ve Výpravách není,
+                rezervovat ho nepůjde.
+              </small>
+            </div>
+          </div>
+        )}
 
         {branchId &&
           String(branchById(branchId)?.kod || "")
@@ -8583,7 +8729,11 @@ function AdminConnections() {
 }
 
 
-function Departures({ role, onOpenVehicle }) {
+function Departures({
+  role,
+  onOpenVehicle,
+  onReserveTurnus,
+}) {
   const manage = canManageVehicles(role);
   const { provozovny } = useProvozovny();
 
@@ -8921,8 +9071,15 @@ function Departures({ role, onOpenVehicle }) {
     }));
   }
 
-  async function openCourseDetail(course) {
-    setCourseDetail(course);
+  async function openCourseDetail(
+    course,
+    reservationDate = editor?.date || null
+  ) {
+    setCourseDetail({
+      ...course,
+      reservation_date: reservationDate,
+      reservation_provozovna_id: selectedProvozovna,
+    });
     setCourseDetailRows([]);
     setCourseDetailError("");
     setCourseDetailLoading(true);
@@ -9512,7 +9669,10 @@ function Departures({ role, onOpenVehicle }) {
                                   key={row.id}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    openCourseDetail(course);
+                                    openCourseDetail(
+                                      course,
+                                      isoDate(day)
+                                    );
                                   }}
                                   title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
@@ -9754,7 +9914,12 @@ function Departures({ role, onOpenVehicle }) {
                                 <button
                                   type="button"
                                   className="departure-course-detail-button departure-course-number-only"
-                                  onClick={() => openCourseDetail(course)}
+                                  onClick={() =>
+                                    openCourseDetail(
+                                      course,
+                                      editor?.date || null
+                                    )
+                                  }
                                   title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
                                   <strong>{course.nazev}</strong>
@@ -10000,6 +10165,28 @@ function Departures({ role, onOpenVehicle }) {
             )}
 
             <div className="turnus-detail-actions">
+              {courseDetail.reservation_date && onReserveTurnus && (
+                <button
+                  type="button"
+                  className="primary-button turnus-reservation-button"
+                  onClick={() => {
+                    const target = {
+                      date: courseDetail.reservation_date,
+                      branchId:
+                        courseDetail.reservation_provozovna_id ||
+                        selectedProvozovna,
+                      courseId: courseDetail.id,
+                    };
+
+                    closeCourseDetail();
+                    closeEditor();
+                    onReserveTurnus(target);
+                  }}
+                >
+                  📅 Rezervovat směnu
+                </button>
+              )}
+
               {manage && editor && (
                 <button
                   type="button"
@@ -10200,6 +10387,7 @@ function App() {
 
   const [page, setPage] = useState("dashboard");
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
+  const [reservationTarget, setReservationTarget] = useState(null);
   const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
   const [showStkSoon, setShowStkSoon] = useState(false);
   const [dashboardSlide, setDashboardSlide] = useState(0);
@@ -10652,9 +10840,10 @@ function App() {
                   ? "active"
                   : ""
               }
-              onClick={() =>
-                setPage("shiftReservations")
-              }
+              onClick={() => {
+                setReservationTarget(null);
+                setPage("shiftReservations");
+              }}
             >
               <span>📅</span>
               Rezervace směn
@@ -11237,6 +11426,13 @@ function App() {
                 setVehicleToOpen(vehicleId);
                 setPage("vehicles");
               }}
+              onReserveTurnus={(target) => {
+                setReservationTarget({
+                  ...target,
+                  key: Date.now(),
+                });
+                setPage("shiftReservations");
+              }}
             />
           )}
 
@@ -11261,6 +11457,10 @@ function App() {
               user={user}
               profile={profile}
               role={role}
+              initialTarget={reservationTarget}
+              onInitialTargetUsed={() =>
+                setReservationTarget(null)
+              }
             />
           )}
 
@@ -20063,6 +20263,76 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .reservation-card-actions,
   .reservation-card-updated {
     grid-column: auto;
+  }
+}
+
+
+/* =========================================================
+   REZERVACE NAVÁZANÉ NA VÝPRAVY
+========================================================= */
+.reservation-departures-source {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.reservation-departures-source > span {
+  color: #2563eb;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.reservation-departures-source strong,
+.reservation-departures-source small {
+  display: block;
+}
+
+.reservation-departures-source strong {
+  color: #1e40af;
+  font-size: 8px;
+}
+
+.reservation-departures-source small {
+  margin-top: 2px;
+  color: #61738d;
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.turnus-reservation-button {
+  margin-right: auto;
+}
+
+.app.dark-mode .reservation-departures-source {
+  background: #10213d;
+  border-color: #294c7c;
+}
+
+.app.dark-mode .reservation-departures-source > span {
+  color: #60a5fa;
+}
+
+.app.dark-mode .reservation-departures-source strong {
+  color: #bfdbfe;
+}
+
+.app.dark-mode .reservation-departures-source small {
+  color: #91a3bc;
+}
+
+@media (max-width: 700px) {
+  .turnus-reservation-button {
+    width: 100%;
+    order: -1;
+  }
+
+  .turnus-detail-actions {
+    flex-wrap: wrap;
   }
 }
 
