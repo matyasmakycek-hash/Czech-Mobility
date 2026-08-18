@@ -6483,11 +6483,16 @@ function AdminConnections() {
 
   const [form, setForm] = useState({
     poradi: "",
+    typ: "SPOJ",
     spoj: "",
     odjezd: "",
     prijezd: "",
+    usek: "",
     odkud: "",
     kam: "",
+    delka_trasy: "",
+    poznamka: "",
+    ois: "",
   });
 
   async function loadCourses() {
@@ -6497,7 +6502,7 @@ function AdminConnections() {
     const { data, error: loadError } = await supabase
       .from("kurzy")
       .select(
-        "id,nazev,provozovna_id,aktivni,typ_dne,varianta,zacatek,konec"
+        "id,nazev,provozovna_id,aktivni,typ_dne,varianta,zacatek,konec,zacatek_misto,stridani_misto,stridani_cas,konec_misto,druh_smeny,poznamka_turnusu"
       )
       .order("nazev", { ascending: true });
 
@@ -6522,7 +6527,7 @@ function AdminConnections() {
 
     const { data, error: loadError } = await supabase
       .from("kurz_spoje")
-      .select("id,kurz_id,poradi,spoj,odjezd,prijezd,odkud,kam")
+      .select("id,kurz_id,poradi,typ,spoj,odjezd,prijezd,usek,odkud,kam,delka_trasy,poznamka,ois")
       .eq("kurz_id", Number(courseId))
       .order("poradi", { ascending: true });
 
@@ -6545,11 +6550,16 @@ function AdminConnections() {
     setEditing(null);
     setForm({
       poradi: "",
+      typ: "SPOJ",
       spoj: "",
       odjezd: "",
       prijezd: "",
+      usek: "",
       odkud: "",
       kam: "",
+      delka_trasy: "",
+      poznamka: "",
+      ois: "",
     });
   }, [selectedCourseId]);
 
@@ -6557,11 +6567,16 @@ function AdminConnections() {
     setEditing(null);
     setForm({
       poradi: "",
+      typ: "SPOJ",
       spoj: "",
       odjezd: "",
       prijezd: "",
+      usek: "",
       odkud: "",
       kam: "",
+      delka_trasy: "",
+      poznamka: "",
+      ois: "",
     });
   }
 
@@ -6633,11 +6648,15 @@ function AdminConnections() {
     }
 
     if (
-      !form.spoj.trim() ||
-      !form.odjezd ||
-      !form.prijezd
+      form.typ === "SPOJ" &&
+      (!form.spoj.trim() || !form.odjezd || !form.prijezd)
     ) {
-      setError("Vyplň spoj, odjezd a příjezd.");
+      setError("U běžného spoje vyplň číslo spoje, odjezd a příjezd.");
+      return;
+    }
+
+    if (!form.usek.trim()) {
+      setError("Vyplň úsek / činnost.");
       return;
     }
 
@@ -6655,11 +6674,16 @@ function AdminConnections() {
     const payload = {
       kurz_id: Number(selectedCourseId),
       poradi: Number(form.poradi || nextOrder),
-      spoj: form.spoj.trim(),
-      odjezd: form.odjezd,
-      prijezd: form.prijezd,
+      typ: form.typ,
+      spoj: form.spoj.trim() || null,
+      odjezd: form.odjezd || null,
+      prijezd: form.prijezd || null,
+      usek: form.usek.trim() || null,
       odkud: form.odkud.trim() || null,
       kam: form.kam.trim() || null,
+      delka_trasy: form.delka_trasy.trim() || null,
+      poznamka: form.poznamka.trim() || null,
+      ois: form.ois.trim() || null,
     };
 
     const result = editing
@@ -6691,6 +6715,7 @@ function AdminConnections() {
     setSuccess("");
     setForm({
       poradi: String(connection.poradi || ""),
+      typ: connection.typ || "SPOJ",
       spoj: connection.spoj || "",
       odjezd: connection.odjezd
         ? String(connection.odjezd).slice(0, 5)
@@ -6698,15 +6723,19 @@ function AdminConnections() {
       prijezd: connection.prijezd
         ? String(connection.prijezd).slice(0, 5)
         : "",
+      usek: connection.usek || "",
       odkud: connection.odkud || "",
       kam: connection.kam || "",
+      delka_trasy: connection.delka_trasy || "",
+      poznamka: connection.poznamka || "",
+      ois: connection.ois || "",
     });
   }
 
   async function deleteConnection(connection) {
     if (
       !window.confirm(
-        `Opravdu chceš smazat spoj ${connection.spoj}?`
+        `Opravdu chceš smazat řádek ${connection.spoj || connection.usek || ""}?`
       )
     ) {
       return;
@@ -6886,7 +6915,25 @@ function AdminConnections() {
                   </label>
 
                   <label>
-                    <span>Číslo spoje</span>
+                    <span>Typ řádku</span>
+                    <select
+                      value={form.typ}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          typ: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="SPOJ">Spoj</option>
+                      <option value="ODPOCINEK">Odpočinek</option>
+                      <option value="STRIDANI">Střídání</option>
+                      <option value="SLUZEBNI_JIZDA">Služební jízda</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Linkospoj</span>
                     <input
                       value={form.spoj}
                       onChange={(event) =>
@@ -6895,13 +6942,12 @@ function AdminConnections() {
                           spoj: event.target.value,
                         })
                       }
-                      placeholder="např. 501400-1005"
-                      required
+                      placeholder="např. 572/31"
                     />
                   </label>
 
                   <label>
-                    <span>Odjezd</span>
+                    <span>Odjezd / od</span>
                     <input
                       type="time"
                       value={form.odjezd}
@@ -6911,12 +6957,11 @@ function AdminConnections() {
                           odjezd: event.target.value,
                         })
                       }
-                      required
                     />
                   </label>
 
                   <label>
-                    <span>Příjezd</span>
+                    <span>Příjezd / do</span>
                     <input
                       type="time"
                       value={form.prijezd}
@@ -6926,6 +6971,20 @@ function AdminConnections() {
                           prijezd: event.target.value,
                         })
                       }
+                    />
+                  </label>
+
+                  <label className="admin-connection-wide">
+                    <span>Úsek / činnost</span>
+                    <input
+                      value={form.usek}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          usek: event.target.value,
+                        })
+                      }
+                      placeholder="Břeclav, a.n. - Lužice, žel.st."
                       required
                     />
                   </label>
@@ -6957,8 +7016,49 @@ function AdminConnections() {
                       placeholder="Cílová zastávka"
                     />
                   </label>
-                </div>
 
+                  <label>
+                    <span>Délka trasy</span>
+                    <input
+                      value={form.delka_trasy}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          delka_trasy: event.target.value,
+                        })
+                      }
+                      placeholder="např. 27 km"
+                    />
+                  </label>
+
+                  <label className="admin-connection-wide">
+                    <span>Poznámka</span>
+                    <input
+                      value={form.poznamka}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          poznamka: event.target.value,
+                        })
+                      }
+                      placeholder="Poznámka ke spoji"
+                    />
+                  </label>
+
+                  <label>
+                    <span>OIS</span>
+                    <input
+                      value={form.ois}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          ois: event.target.value,
+                        })
+                      }
+                      placeholder="např. 572/13"
+                    />
+                  </label>
+                </div>
                 <div className="admin-connection-form-actions">
                   <button
                     type="submit"
@@ -6989,29 +7089,57 @@ function AdminConnections() {
                     <thead>
                       <tr>
                         <th>#</th>
-                        <th>Spoj</th>
-                        <th>Odjezd</th>
-                        <th>Příjezd</th>
-                        <th>Odkud</th>
-                        <th>Kam</th>
+                        <th>Typ</th>
+                        <th>Linkospoj</th>
+                        <th>Odj.</th>
+                        <th>Pří.</th>
+                        <th>Úsek / činnost</th>
+                        <th>Délka</th>
+                        <th>Poznámka</th>
+                        <th>OIS</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
                       {connections.map((connection) => (
-                        <tr key={connection.id}>
+                        <tr
+                          key={connection.id}
+                          className={
+                            connection.typ &&
+                            connection.typ !== "SPOJ"
+                              ? "admin-connection-activity-row"
+                              : ""
+                          }
+                        >
                           <td>{connection.poradi}</td>
                           <td>
-                            <strong>{connection.spoj}</strong>
+                            <span className="connection-type-badge">
+                              {connection.typ === "ODPOCINEK"
+                                ? "Odpočinek"
+                                : connection.typ === "STRIDANI"
+                                ? "Střídání"
+                                : connection.typ === "SLUZEBNI_JIZDA"
+                                ? "Služební jízda"
+                                : "Spoj"}
+                            </span>
+                          </td>
+                          <td>
+                            <strong>{connection.spoj || "—"}</strong>
                           </td>
                           <td className="admin-connection-time">
-                            {String(connection.odjezd || "").slice(0, 5)}
+                            {connection.odjezd
+                              ? String(connection.odjezd).slice(0, 5)
+                              : "—"}
                           </td>
                           <td className="admin-connection-time">
-                            {String(connection.prijezd || "").slice(0, 5)}
+                            {connection.prijezd
+                              ? String(connection.prijezd).slice(0, 5)
+                              : "—"}
                           </td>
-                          <td>{connection.odkud || "—"}</td>
-                          <td>{connection.kam || "—"}</td>
+                          <td>{connection.usek || "—"}</td>
+                          <td>{connection.delka_trasy || "—"}</td>
+                          <td>{connection.poznamka || "—"}</td>
+                          <td>{connection.ois || "—"}</td>
                           <td>
                             <div className="admin-connection-row-actions">
                               <button
@@ -7133,7 +7261,7 @@ function Departures({ role, onOpenVehicle }) {
 
       supabase
         .from("kurzy")
-        .select("id,nazev,provozovna_id,aktivni,typ_dne,varianta,typ_vozu,zacatek,konec")
+        .select("id,nazev,provozovna_id,aktivni,typ_dne,varianta,typ_vozu,zacatek,konec,zacatek_misto,stridani_misto,stridani_cas,konec_misto,druh_smeny,poznamka_turnusu")
         .order("nazev", { ascending: true }),
     ]);
 
@@ -7384,7 +7512,7 @@ function Departures({ role, onOpenVehicle }) {
 
     const { data, error: detailError } = await supabase
       .from("kurz_spoje")
-      .select("id,poradi,spoj,odjezd,prijezd,odkud,kam")
+      .select("id,poradi,typ,spoj,odjezd,prijezd,usek,odkud,kam,delka_trasy,poznamka,ois")
       .eq("kurz_id", course.id)
       .order("poradi", { ascending: true });
 
@@ -8320,10 +8448,21 @@ function Departures({ role, onOpenVehicle }) {
               </button>
             </div>
 
-            <div className="turnus-detail-summary">
+            <div className="turnus-detail-summary turnus-detail-summary-full">
               <div>
                 <span>Turnus</span>
                 <strong>{courseDetail.nazev}</strong>
+              </div>
+              <div>
+                <span>Režim</span>
+                <strong>
+                  {courseDetail.typ_dne === "VIKEND"
+                    ? "Víkend"
+                    : "Pracovní den"}
+                  {courseDetail.varianta === "PRAZDNINY"
+                    ? " · prázdniny"
+                    : ""}
+                </strong>
               </div>
               <div>
                 <span>Začátek</span>
@@ -8332,7 +8471,17 @@ function Departures({ role, onOpenVehicle }) {
                     ? String(courseDetail.zacatek).slice(0, 5)
                     : "—"}
                 </strong>
+                <small>{courseDetail.zacatek_misto || ""}</small>
               </div>
+              {courseDetail.stridani_cas && (
+                <div>
+                  <span>Střídání</span>
+                  <strong>
+                    {String(courseDetail.stridani_cas).slice(0, 5)}
+                  </strong>
+                  <small>{courseDetail.stridani_misto || ""}</small>
+                </div>
+              )}
               <div>
                 <span>Konec</span>
                 <strong>
@@ -8340,13 +8489,20 @@ function Departures({ role, onOpenVehicle }) {
                     ? String(courseDetail.konec).slice(0, 5)
                     : "—"}
                 </strong>
+                <small>{courseDetail.konec_misto || ""}</small>
               </div>
               <div>
-                <span>Spojů</span>
-                <strong>{courseDetailRows.length}</strong>
+                <span>Druh směny</span>
+                <strong>{courseDetail.druh_smeny || "—"}</strong>
               </div>
             </div>
 
+            {courseDetail.poznamka_turnusu && (
+              <div className="turnus-course-note">
+                <strong>Poznámka ke kurzu:</strong>
+                <span>{courseDetail.poznamka_turnusu}</span>
+              </div>
+            )}
             {courseDetailError && (
               <div className="error-box">{courseDetailError}</div>
             )}
@@ -8359,32 +8515,63 @@ function Departures({ role, onOpenVehicle }) {
               </div>
             ) : (
               <div className="turnus-spoje-wrap">
-                <table className="turnus-spoje-table">
+                <table className="turnus-spoje-table turnus-spoje-table-full">
                   <thead>
                     <tr>
-                      <th>Spoj</th>
-                      <th>Odjezd</th>
-                      <th>Příjezd</th>
-                      <th>Odkud</th>
-                      <th>Kam</th>
+                      <th>Linkospoj</th>
+                      <th>Odj.</th>
+                      <th>Pří.</th>
+                      <th>Úsek / činnost</th>
+                      <th>Délka trasy</th>
+                      <th>Poznámky</th>
+                      <th>OIS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {courseDetailRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.spoj}</strong>
-                        </td>
-                        <td className="turnus-time">
-                          {String(row.odjezd || "").slice(0, 5)}
-                        </td>
-                        <td className="turnus-time">
-                          {String(row.prijezd || "").slice(0, 5)}
-                        </td>
-                        <td>{row.odkud || "—"}</td>
-                        <td>{row.kam || "—"}</td>
-                      </tr>
-                    ))}
+                    {courseDetailRows.map((row) => {
+                      const activity =
+                        row.typ && row.typ !== "SPOJ";
+
+                      return (
+                        <tr
+                          key={row.id}
+                          className={
+                            activity
+                              ? `turnus-activity-row ${String(
+                                  row.typ
+                                ).toLowerCase()}`
+                              : ""
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {row.spoj ||
+                                (row.typ === "ODPOCINEK"
+                                  ? "Odpočinek"
+                                  : row.typ === "STRIDANI"
+                                  ? "Střídání"
+                                  : row.typ === "SLUZEBNI_JIZDA"
+                                  ? "Služební jízda"
+                                  : "—")}
+                            </strong>
+                          </td>
+                          <td className="turnus-time">
+                            {row.odjezd
+                              ? String(row.odjezd).slice(0, 5)
+                              : "—"}
+                          </td>
+                          <td className="turnus-time">
+                            {row.prijezd
+                              ? String(row.prijezd).slice(0, 5)
+                              : "—"}
+                          </td>
+                          <td>{row.usek || "—"}</td>
+                          <td>{row.delka_trasy || "—"}</td>
+                          <td>{row.poznamka || "—"}</td>
+                          <td>{row.ois || "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -16992,6 +17179,152 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .breclav-variant-buttons button {
     min-height: 42px;
+  }
+}
+
+
+/* =========================================================
+   BŘECLAVSKO V2 - PŘESNÉ TABULKY PDF
+========================================================= */
+.turnus-detail-summary-full {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.turnus-detail-summary-full small {
+  display: block;
+  margin-top: 3px;
+  color: #748197;
+  font-size: 7px;
+  line-height: 1.25;
+}
+
+.turnus-course-note {
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border: 1px solid #dce5ef;
+  border-radius: 9px;
+  background: #f8fafc;
+  display: flex;
+  gap: 7px;
+  font-size: 8px;
+}
+
+.turnus-course-note strong {
+  color: #334155;
+  white-space: nowrap;
+}
+
+.turnus-course-note span {
+  color: #64748b;
+}
+
+.turnus-spoje-table-full {
+  min-width: 900px;
+}
+
+.turnus-spoje-table-full th:nth-child(1) {
+  width: 90px;
+}
+
+.turnus-spoje-table-full th:nth-child(2),
+.turnus-spoje-table-full th:nth-child(3) {
+  width: 64px;
+}
+
+.turnus-spoje-table-full th:nth-child(5) {
+  width: 88px;
+}
+
+.turnus-spoje-table-full th:nth-child(7) {
+  width: 74px;
+}
+
+.turnus-activity-row td {
+  background: #f6f8fb;
+  color: #526178;
+  font-style: italic;
+}
+
+.turnus-activity-row td:first-child strong {
+  color: #475569;
+}
+
+.turnus-activity-row.odpocinek td {
+  background: #fff8e8;
+}
+
+.turnus-activity-row.stridani td {
+  background: #eef5ff;
+}
+
+.turnus-activity-row.sluzebni_jizda td {
+  background: #f3f0ff;
+}
+
+.connection-type-badge {
+  display: inline-flex;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #e9eef5;
+  color: #536276;
+  font-size: 7px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.admin-connection-activity-row td {
+  background: #f8fafc;
+}
+
+.admin-connections-table {
+  min-width: 1180px;
+}
+
+.app.dark-mode .turnus-course-note {
+  background: #0e1724;
+  border-color: #2b394d;
+}
+
+.app.dark-mode .turnus-course-note strong {
+  color: #dbe7f5;
+}
+
+.app.dark-mode .turnus-course-note span,
+.app.dark-mode .turnus-detail-summary-full small {
+  color: #8f9db1;
+}
+
+.app.dark-mode .turnus-activity-row td,
+.app.dark-mode .admin-connection-activity-row td {
+  background: #121d2c !important;
+  color: #9eabc0 !important;
+}
+
+.app.dark-mode .turnus-activity-row.odpocinek td {
+  background: #242014 !important;
+}
+
+.app.dark-mode .turnus-activity-row.stridani td {
+  background: #12243f !important;
+}
+
+.app.dark-mode .turnus-activity-row.sluzebni_jizda td {
+  background: #1d1833 !important;
+}
+
+.app.dark-mode .connection-type-badge {
+  background: #233146;
+  color: #b8c7db;
+}
+
+@media (max-width: 700px) {
+  .turnus-detail-summary-full {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .turnus-course-note {
+    flex-direction: column;
+    gap: 3px;
   }
 }
 
