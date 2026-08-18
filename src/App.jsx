@@ -10365,6 +10365,9 @@ const DASHBOARD_IMAGES = [
   "/dashboard/dashboard-5.webp",
   "/dashboard/dashboard-6.webp",
   "/dashboard/dashboard-7.webp",
+  "/dashboard/dashboard-8.webp",
+  "/dashboard/dashboard-9.webp",
+  "/dashboard/dashboard-10.webp",
 ];
 
 function App() {
