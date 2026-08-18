@@ -10792,7 +10792,7 @@ function App() {
           </div>
 
           <div className="section-title">
-            Navigace
+            Hlavní nabídka
           </div>
 
           <nav
@@ -20333,6 +20333,87 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .turnus-detail-actions {
     flex-wrap: wrap;
+  }
+}
+
+
+/* =========================================================
+   LEVÉ MENU - HLAVNÍ NABÍDKA + VLASTNÍ SCROLL
+========================================================= */
+.sidebar {
+  overflow: hidden;
+}
+
+.sidebar .brand,
+.sidebar > .section-title,
+.sidebar .theme-switch-wrap,
+.sidebar .user-box {
+  flex: 0 0 auto;
+}
+
+.sidebar .menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  padding-bottom: 8px;
+}
+
+/* Jemný scrollbar v levém menu */
+.sidebar .menu {
+  scrollbar-width: thin;
+  scrollbar-color: #40506a transparent;
+}
+
+.sidebar .menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar .menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar .menu::-webkit-scrollbar-thumb {
+  background: #40506a;
+  border-radius: 999px;
+}
+
+.sidebar .menu::-webkit-scrollbar-thumb:hover {
+  background: #587096;
+}
+
+/* Nadpis hlavního menu trochu výraznější */
+.sidebar > .section-title {
+  color: #8592a7;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+/* Spodní ovládání zůstává viditelné při scrollování menu */
+.sidebar .theme-switch-wrap {
+  margin-top: 7px;
+}
+
+.sidebar .user-box {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .sidebar .menu {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-right: 3px;
+  }
+
+  .sidebar > .section-title {
+    padding-left: 8px;
   }
 }
 
