@@ -328,6 +328,14 @@ function useProvozovny() {
   };
 }
 
+function getCourseDayLabel(value) {
+  if (value === "PD") return "Pracovní den";
+  if (value === "VIKEND") return "Víkend";
+  if (value === "NE") return "Neděle";
+  if (value === "DENNE") return "Každý den";
+  return "Bez omezení dne";
+}
+
 const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN"];
 
 function getMainProvozovny(provozovny = []) {
@@ -6042,6 +6050,14 @@ function AdminCourses() {
     (course) => course.typ_dne === "VIKEND"
   );
 
+  const filteredSundayCourses = filtered.filter(
+    (course) => course.typ_dne === "NE"
+  );
+
+  const filteredDailyCourses = filtered.filter(
+    (course) => course.typ_dne === "DENNE"
+  );
+
   const filteredOtherCourses = filtered.filter(
     (course) => !course.typ_dne
   );
@@ -6058,6 +6074,9 @@ function AdminCourses() {
           <strong>{course.nazev}</strong>
           <span>
             {getProvozovnaName(course.provozovna_id)}
+            {course.typ_dne
+              ? ` · ${getCourseDayLabel(course.typ_dne)}`
+              : ""}
             {course.typ_vozu
               ? ` · ${course.typ_vozu === "SOLO" ? "Sólo" : "Kloub"}`
               : ""}
@@ -6207,9 +6226,11 @@ function AdminCourses() {
                     })
                   }
                 >
-                  <option value="">Všechny dny</option>
-                  <option value="PD">Pracovní den</option>
-                  <option value="VIKEND">Víkend</option>
+                  <option value="">Bez omezení dne</option>
+                  <option value="PD">Pracovní den (Po–Pá)</option>
+                  <option value="VIKEND">Víkend (So–Ne)</option>
+                  <option value="NE">Pouze neděle</option>
+                  <option value="DENNE">Každý den (Po–Ne)</option>
                 </select>
               </div>
 
@@ -6355,6 +6376,38 @@ function AdminCourses() {
 
                   <div className="course-admin-list">
                     {filteredWeekendCourses.map(renderCourseItem)}
+                  </div>
+                </section>
+              )}
+
+              {filteredSundayCourses.length > 0 && (
+                <section className="course-day-section sunday">
+                  <div className="course-day-section-title">
+                    <div>
+                      <strong>Neděle</strong>
+                      <span>{filteredSundayCourses.length} kurzů</span>
+                    </div>
+                    <span className="course-day-chip">NE</span>
+                  </div>
+
+                  <div className="course-admin-list">
+                    {filteredSundayCourses.map(renderCourseItem)}
+                  </div>
+                </section>
+              )}
+
+              {filteredDailyCourses.length > 0 && (
+                <section className="course-day-section daily">
+                  <div className="course-day-section-title">
+                    <div>
+                      <strong>Každý den</strong>
+                      <span>{filteredDailyCourses.length} kurzů</span>
+                    </div>
+                    <span className="course-day-chip">PO–NE</span>
+                  </div>
+
+                  <div className="course-admin-list">
+                    {filteredDailyCourses.map(renderCourseItem)}
                   </div>
                 </section>
               )}
@@ -6575,6 +6628,8 @@ function Departures({ role, onOpenVehicle }) {
 
     return visibleCourses.filter((course) => {
       if (!course.typ_dne) return true;
+      if (course.typ_dne === "DENNE") return true;
+      if (course.typ_dne === "NE") return weekday === 0;
       if (course.typ_dne === "VIKEND") return isWeekend;
       if (course.typ_dne === "PD") return !isWeekend;
       return true;
@@ -6789,7 +6844,7 @@ function Departures({ role, onOpenVehicle }) {
         key: "liberec",
         title: "ČSAD Liberec",
         test: (name) =>
-          ["210/X1", "211.01", "304.01", "305.01", "309.01", "310.01"].includes(name),
+          ["205.01", "206.01", "210.11", "210.21", "211.01", "304.01", "305.01", "306.01", "309.01", "310.01", "311.01", "205.67", "206.07", "303.07", "317.67"].includes(name),
       },
       {
         key: "mhdcl",
@@ -6800,7 +6855,7 @@ function Departures({ role, onOpenVehicle }) {
         key: "ceska-lipa",
         title: "ČSAD Česká Lípa",
         test: (name) =>
-          ["51.01", "52.01", "53.01", "54.01", "55.01", "56.01", "57.01", "58.01", "59.01"].includes(name),
+          ["51.01", "52.01", "53.01", "54.01", "55.01", "56.01", "57.01", "58.01", "59.01", "51.67", "52.67", "53.67", "54.67", "55.67", "56.67", "57.67", "58.67", "59.67"].includes(name),
       },
       {
         key: "stredni-cechy",
@@ -7292,6 +7347,11 @@ function Departures({ role, onOpenVehicle }) {
                               }
                             >
                               <strong>{course.nazev}</strong>
+                              {course.typ_dne && (
+                                <span className="departure-course-day">
+                                  {getCourseDayLabel(course.typ_dne)}
+                                </span>
+                              )}
                               {(course.zacatek || course.konec) && (
                                 <small>
                                   {course.zacatek
@@ -14815,6 +14875,50 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .vehicle-draft-info span {
   color: #60a5fa;
+}
+
+
+/* =========================================================
+   TURNUSY 400 - PŘESNÉ DNY PROVOZU
+========================================================= */
+.course-day-section.sunday {
+  border-left: 4px solid #8b5cf6;
+}
+
+.course-day-section.daily {
+  border-left: 4px solid #10b981;
+}
+
+.course-day-section.sunday .course-day-chip {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.course-day-section.daily .course-day-chip {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.departure-course-day {
+  display: block;
+  margin-top: 3px;
+  font-size: 7px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.app.dark-mode .course-day-section.sunday .course-day-chip {
+  background: #2e1f4f;
+  color: #c4b5fd;
+}
+
+.app.dark-mode .course-day-section.daily .course-day-chip {
+  background: #123629;
+  color: #6ee7b7;
+}
+
+.app.dark-mode .departure-course-day {
+  color: #8fa0b7;
 }
 
 `;
