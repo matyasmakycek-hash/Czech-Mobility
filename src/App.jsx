@@ -336,6 +336,12 @@ function getCourseDayLabel(value) {
   return "Bez omezení dne";
 }
 
+function getCourseVariantLabel(value) {
+  if (value === "PRAZDNINY") return "Prázdniny";
+  if (value === "BEZNY") return "Běžný provoz";
+  return "";
+}
+
 const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN"];
 
 function getMainProvozovny(provozovny = []) {
@@ -5890,6 +5896,7 @@ function AdminCourses() {
     nazev: "",
     provozovna_id: "",
     typ_dne: "",
+    varianta: "",
     typ_vozu: "",
     zacatek: "",
     konec: "",
@@ -5901,7 +5908,7 @@ function AdminCourses() {
 
     const { data, error: loadError } = await supabase
       .from("kurzy")
-      .select("id, nazev, provozovna_id, aktivni, typ_dne, typ_vozu, zacatek, konec, created_at")
+      .select("id, nazev, provozovna_id, aktivni, typ_dne, varianta, typ_vozu, zacatek, konec, created_at")
       .order("nazev", { ascending: true });
 
     if (loadError) {
@@ -5920,7 +5927,7 @@ function AdminCourses() {
 
   function resetForm() {
     setEditing(null);
-    setForm({ nazev: "", provozovna_id: "", typ_dne: "", typ_vozu: "", zacatek: "", konec: "" });
+    setForm({ nazev: "", provozovna_id: "", typ_dne: "", varianta: "", typ_vozu: "", zacatek: "", konec: "" });
   }
 
   async function saveCourse(e) {
@@ -5943,6 +5950,7 @@ function AdminCourses() {
       provozovna_id: Number(form.provozovna_id),
       aktivni: true,
       typ_dne: form.typ_dne || null,
+      varianta: form.varianta || null,
       typ_vozu: form.typ_vozu || null,
       zacatek: form.zacatek || null,
       konec: form.konec || null,
@@ -6077,6 +6085,9 @@ function AdminCourses() {
             {course.typ_dne
               ? ` · ${getCourseDayLabel(course.typ_dne)}`
               : ""}
+            {course.varianta
+              ? ` · ${getCourseVariantLabel(course.varianta)}`
+              : ""}
             {course.typ_vozu
               ? ` · ${course.typ_vozu === "SOLO" ? "Sólo" : "Kloub"}`
               : ""}
@@ -6105,6 +6116,7 @@ function AdminCourses() {
                 provozovna_id:
                   course.provozovna_id || "",
                 typ_dne: course.typ_dne || "",
+                varianta: course.varianta || "",
                 typ_vozu: course.typ_vozu || "",
                 zacatek: course.zacatek
                   ? String(course.zacatek).slice(0, 5)
@@ -6231,6 +6243,23 @@ function AdminCourses() {
                   <option value="VIKEND">Víkend (So–Ne)</option>
                   <option value="NE">Pouze neděle</option>
                   <option value="DENNE">Každý den (Po–Ne)</option>
+                </select>
+              </div>
+
+              <div>
+                <label>Režim provozu</label>
+                <select
+                  value={form.varianta}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      varianta: e.target.value,
+                    })
+                  }
+                >
+                  <option value="">Bez varianty</option>
+                  <option value="BEZNY">Běžný provoz</option>
+                  <option value="PRAZDNINY">Prázdniny</option>
                 </select>
               </div>
 
@@ -6468,7 +6497,7 @@ function AdminConnections() {
     const { data, error: loadError } = await supabase
       .from("kurzy")
       .select(
-        "id,nazev,provozovna_id,aktivni,typ_dne,zacatek,konec"
+        "id,nazev,provozovna_id,aktivni,typ_dne,varianta,zacatek,konec"
       )
       .order("nazev", { ascending: true });
 
@@ -6762,6 +6791,12 @@ function AdminConnections() {
                     <strong>{course.nazev}</strong>
                     <span>
                       {branch?.nazev || "Bez provozovny"}
+                      {course.typ_dne
+                        ? ` · ${getCourseDayLabel(course.typ_dne)}`
+                        : ""}
+                      {course.varianta
+                        ? ` · ${getCourseVariantLabel(course.varianta)}`
+                        : ""}
                     </span>
                   </button>
                 );
@@ -6787,6 +6822,12 @@ function AdminConnections() {
                   <h2>{selectedCourse.nazev}</h2>
                   <p>
                     {getBranch(selectedCourse)?.nazev || ""}
+                    {selectedCourse.typ_dne
+                      ? ` · ${getCourseDayLabel(selectedCourse.typ_dne)}`
+                      : ""}
+                    {selectedCourse.varianta
+                      ? ` · ${getCourseVariantLabel(selectedCourse.varianta)}`
+                      : ""}
                     {selectedCourse.zacatek || selectedCourse.konec
                       ? ` · ${
                           selectedCourse.zacatek
@@ -7020,6 +7061,14 @@ function Departures({ role, onOpenVehicle }) {
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   );
 
+  const [breclavVariant, setBreclavVariant] = useState(() => {
+    if (typeof window === "undefined") return "BEZNY";
+    return (
+      window.localStorage.getItem("cm-breclav-variant") ||
+      "BEZNY"
+    );
+  });
+
   const [rows, setRows] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [courses, setCourses] = useState([]);
@@ -7084,7 +7133,7 @@ function Departures({ role, onOpenVehicle }) {
 
       supabase
         .from("kurzy")
-        .select("id,nazev,provozovna_id,aktivni,typ_dne,typ_vozu,zacatek,konec")
+        .select("id,nazev,provozovna_id,aktivni,typ_dne,varianta,typ_vozu,zacatek,konec")
         .order("nazev", { ascending: true }),
     ]);
 
@@ -7149,6 +7198,14 @@ function Departures({ role, onOpenVehicle }) {
     loadMonth();
   }, [selectedProvozovna, selectedMonth]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      "cm-breclav-variant",
+      breclavVariant
+    );
+  }, [breclavVariant]);
+
   const [yearText, monthText] = selectedMonth.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
@@ -7197,12 +7254,26 @@ function Departures({ role, onOpenVehicle }) {
       String(course.provozovna_id) === String(selectedProvozovna)
   );
 
+  const isBreclavSelected =
+    String(selectedProvozovnaRow?.kod || "")
+      .trim()
+      .toUpperCase() === "BRE" ||
+    normalizeBranchName(selectedProvozovnaRow?.nazev).includes(
+      "breclav"
+    );
+
+  const activeVariantCourses = visibleCourses.filter((course) => {
+    if (!isBreclavSelected) return true;
+    if (!course.varianta) return true;
+    return course.varianta === breclavVariant;
+  });
+
   function coursesForDay(day) {
     const date = new Date(year, month - 1, day);
     const weekday = date.getDay();
     const isWeekend = weekday === 0 || weekday === 6;
 
-    return visibleCourses.filter((course) => {
+    return activeVariantCourses.filter((course) => {
       if (!course.typ_dne) return true;
       if (course.typ_dne === "DENNE") return true;
       if (course.typ_dne === "NE") return weekday === 0;
@@ -7606,7 +7677,7 @@ function Departures({ role, onOpenVehicle }) {
   }
 
   const departureCourseGroups = getDepartureCourseGroups(
-    editor?.courses || visibleCourses
+    editor?.courses || activeVariantCourses
   );
 
   function getMissingCoursesForDay(day) {
@@ -7622,7 +7693,7 @@ function Departures({ role, onOpenVehicle }) {
         .map((row) => String(row.kurz_id))
     );
 
-    return visibleCourses.filter(
+    return coursesForDay(day).filter(
       (course) => !assignedCourseIds.has(String(course.id))
     );
   }
@@ -7728,7 +7799,42 @@ function Departures({ role, onOpenVehicle }) {
 
           <div>
             <span>VÝPRAVY / POŘADÍ</span>
-            <strong>{visibleCourses.length}</strong>
+            <strong>{activeVariantCourses.length}</strong>
+          </div>
+        </div>
+      )}
+
+      {isBreclavSelected && (
+        <div className="breclav-variant-panel">
+          <div>
+            <span>REŽIM BŘECLAVSKO</span>
+            <strong>
+              {breclavVariant === "PRAZDNINY"
+                ? "Prázdniny"
+                : "Běžný provoz"}
+            </strong>
+          </div>
+
+          <div className="breclav-variant-buttons">
+            <button
+              type="button"
+              className={
+                breclavVariant === "BEZNY" ? "active" : ""
+              }
+              onClick={() => setBreclavVariant("BEZNY")}
+            >
+              Běžný provoz
+            </button>
+
+            <button
+              type="button"
+              className={
+                breclavVariant === "PRAZDNINY" ? "active" : ""
+              }
+              onClick={() => setBreclavVariant("PRAZDNINY")}
+            >
+              Prázdniny
+            </button>
           </div>
         </div>
       )}
@@ -7925,7 +8031,7 @@ function Departures({ role, onOpenVehicle }) {
       )}
 
       {selectedProvozovna &&
-        visibleCourses.length > 0 && (
+        activeVariantCourses.length > 0 && (
           <div className="departure-missing-summary">
             <div>
               <strong>Kontrola vypravení</strong>
@@ -7949,7 +8055,7 @@ function Departures({ role, onOpenVehicle }) {
 
       {manage &&
         selectedProvozovna &&
-        visibleCourses.length === 0 && (
+        activeVariantCourses.length === 0 && (
           <div className="departures-warning">
             Pro provozovnu{" "}
             <strong>{selectedProvozovnaRow?.nazev}</strong>{" "}
@@ -8190,6 +8296,9 @@ function Departures({ role, onOpenVehicle }) {
                   {courseDetail.typ_dne
                     ? getCourseDayLabel(courseDetail.typ_dne)
                     : "Bez omezení dne"}
+                  {courseDetail.varianta
+                    ? ` · ${getCourseVariantLabel(courseDetail.varianta)}`
+                    : ""}
                   {" · "}
                   {courseDetail.zacatek
                     ? String(courseDetail.zacatek).slice(0, 5)
@@ -16772,6 +16881,117 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .admin-connections-table {
     min-width: 760px;
+  }
+}
+
+
+/* =========================================================
+   BŘECLAVSKO - BĚŽNÝ PROVOZ / PRÁZDNINY
+========================================================= */
+.breclav-variant-panel {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dce5f1;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.breclav-variant-panel > div:first-child span,
+.breclav-variant-panel > div:first-child strong {
+  display: block;
+}
+
+.breclav-variant-panel > div:first-child span {
+  color: #7a8799;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .09em;
+}
+
+.breclav-variant-panel > div:first-child strong {
+  margin-top: 2px;
+  color: #172033;
+  font-size: 11px;
+}
+
+.breclav-variant-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.breclav-variant-buttons button {
+  appearance: none;
+  padding: 8px 11px;
+  border: 1px solid #d8e1ed;
+  border-radius: 9px;
+  background: #f6f8fb;
+  color: #56647a;
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.breclav-variant-buttons button:hover {
+  border-color: #93b7ef;
+  background: #edf5ff;
+}
+
+.breclav-variant-buttons button.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(37,99,235,.18);
+}
+
+.app.dark-mode .breclav-variant-panel {
+  background: #111927;
+  border-color: #29364a;
+}
+
+.app.dark-mode .breclav-variant-panel > div:first-child span {
+  color: #8492a8;
+}
+
+.app.dark-mode .breclav-variant-panel > div:first-child strong {
+  color: #eef4fb;
+}
+
+.app.dark-mode .breclav-variant-buttons button {
+  background: #172233;
+  color: #aebbd0;
+  border-color: #334155;
+}
+
+.app.dark-mode .breclav-variant-buttons button:hover {
+  background: #1d2c42;
+  border-color: #4f6f99;
+}
+
+.app.dark-mode .breclav-variant-buttons button.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #3b82f6;
+}
+
+@media (max-width: 700px) {
+  .breclav-variant-panel {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .breclav-variant-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .breclav-variant-buttons button {
+    min-height: 42px;
   }
 }
 
