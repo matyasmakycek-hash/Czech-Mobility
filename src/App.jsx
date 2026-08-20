@@ -57,6 +57,16 @@ function canViewWorkshop(role) {
 }
 
 function canEditWorkshop(role) {
+  role = normalizeRole(role);
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+}
+
+function canViewBudget(role) {
+  role = normalizeRole(role);
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+}
+
+function canEditBudget(role) {
   return normalizeRole(role) === ROLE_ADMIN;
 }
 
@@ -10400,6 +10410,7 @@ function WorkshopChannel({ user, role }) {
   const [posts, setPosts] = useState([]);
   const [partOrders, setPartOrders] = useState([]);
   const [workshopVehicles, setWorkshopVehicles] = useState([]);
+  const [workshopBranches, setWorkshopBranches] = useState([]);
   const [loadingWorkshopVehicles, setLoadingWorkshopVehicles] = useState(false);
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
@@ -10419,6 +10430,7 @@ function WorkshopChannel({ user, role }) {
     katalogove_cislo: "",
     mnozstvi: 1,
     vuz: "",
+    provozovna_id: "",
     dodavatel: "",
     odkaz: "",
     cena_ks: "",
@@ -10453,12 +10465,33 @@ function WorkshopChannel({ user, role }) {
     });
   }
 
+  async function loadWorkshopBranches() {
+    const { data, error: branchError } = await supabase
+      .from("provozovny")
+      .select("id,kod,nazev")
+      .order("kod", { ascending: true });
+
+    if (branchError) {
+      console.error("WORKSHOP BRANCHES:", branchError);
+      setWorkshopBranches([]);
+      return;
+    }
+
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+
+    setWorkshopBranches(
+      (data || []).filter((branch) =>
+        allowed.has(String(branch.kod || "").trim().toUpperCase())
+      )
+    );
+  }
+
   async function loadWorkshopVehicles() {
     setLoadingWorkshopVehicles(true);
 
     const { data, error: vehicleError } = await supabase
       .from("vozy")
-      .select("id,cislo,vyrobce,typ,spz")
+      .select("id,cislo,vyrobce,typ,spz,provozovna_id")
       .order("cislo", { ascending: true });
 
     if (vehicleError) {
@@ -10485,7 +10518,7 @@ function WorkshopChannel({ user, role }) {
     const { data, error: orderError } = await supabase
       .from("workshop_part_orders")
       .select(
-        "id,nazev_dilu,katalogove_cislo,mnozstvi,vuz,dodavatel,odkaz,cena_ks,poznamka,priorita,stav,created_by,updated_by,created_at,updated_at"
+        "id,nazev_dilu,katalogove_cislo,mnozstvi,vuz,provozovna_id,dodavatel,odkaz,cena_ks,poznamka,priorita,stav,created_by,updated_by,created_at,updated_at"
       )
       .order("created_at", { ascending: false });
 
@@ -10505,6 +10538,11 @@ function WorkshopChannel({ user, role }) {
 
     if (!partForm.nazev_dilu.trim()) {
       setError("Vyplň název dílu.");
+      return;
+    }
+
+    if (!partForm.provozovna_id) {
+      setError("Vyber provozovnu, ze které se díl objednává.");
       return;
     }
 
@@ -10528,6 +10566,7 @@ function WorkshopChannel({ user, role }) {
       katalogove_cislo: partForm.katalogove_cislo.trim() || null,
       mnozstvi: quantity,
       vuz: partForm.vuz.trim() || null,
+      provozovna_id: Number(partForm.provozovna_id),
       dodavatel: partForm.dodavatel.trim() || null,
       odkaz: partForm.odkaz.trim() || null,
       cena_ks: price,
@@ -10588,6 +10627,9 @@ function WorkshopChannel({ user, role }) {
       katalogove_cislo: order.katalogove_cislo || "",
       mnozstvi: order.mnozstvi || 1,
       vuz: order.vuz || "",
+      provozovna_id: order.provozovna_id
+        ? String(order.provozovna_id)
+        : "",
       dodavatel: order.dodavatel || "",
       odkaz: order.odkaz || "",
       cena_ks: order.cena_ks ?? "",
@@ -10697,6 +10739,7 @@ function WorkshopChannel({ user, role }) {
   useEffect(() => {
     loadPosts();
     loadPartOrders();
+    loadWorkshopBranches();
     loadWorkshopVehicles();
 
     const channel = supabase
@@ -10848,13 +10891,15 @@ function WorkshopChannel({ user, role }) {
           <span className="page-eyebrow">INTERNÍ KANÁL</span>
           <h1>Dílna</h1>
           <p>
-            Informace pro administrátory a dispečery. Obsah může upravovat
-            pouze administrátor.
+            Interní informace pro administrátory a dispečery. Obsah mohou
+            přidávat a upravovat obě role.
           </p>
         </div>
 
         <div className={`access-pill ${canEdit ? "edit" : "read"}`}>
-          {canEdit ? "✎ ADMIN · ÚPRAVY POVOLENY" : "◉ DISPEČER · POUZE ČTENÍ"}
+          {role === ROLE_ADMIN
+            ? "✎ ADMIN · ÚPRAVY POVOLENY"
+            : "✎ DISPEČER · ÚPRAVY POVOLENY"}
         </div>
       </header>
 
@@ -11013,12 +11058,22 @@ function WorkshopChannel({ user, role }) {
               <input
                 list="workshop-vehicle-options"
                 value={partForm.vuz}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const selectedVehicle = workshopVehicles.find(
+                    (vehicle) =>
+                      String(vehicle.cislo || "") === String(value || "")
+                  );
+
                   setPartForm((old) => ({
                     ...old,
-                    vuz: e.target.value,
-                  }))
-                }
+                    vuz: value,
+                    provozovna_id:
+                      selectedVehicle?.provozovna_id != null
+                        ? String(selectedVehicle.provozovna_id)
+                        : old.provozovna_id,
+                  }));
+                }}
                 placeholder={
                   loadingWorkshopVehicles
                     ? "Načítám vozy..."
@@ -11045,6 +11100,26 @@ function WorkshopChannel({ user, role }) {
               <small className="vehicle-autocomplete-help">
                 Začni psát číslo vozu — třeba 332 — a nabídnou se odpovídající vozy.
               </small>
+            </label>
+
+            <label>
+              <span>Provozovna *</span>
+              <select
+                value={partForm.provozovna_id}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    provozovna_id: e.target.value,
+                  }))
+                }
+              >
+                <option value="">Vyber provozovnu</option>
+                {workshopBranches.map((branch) => (
+                  <option key={branch.id} value={String(branch.id)}>
+                    {branch.kod} · {branch.nazev}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
@@ -11199,12 +11274,6 @@ function WorkshopChannel({ user, role }) {
             </button>
           </div>
 
-          {!canEdit && (
-            <small className="part-order-help">
-              Jako dispečer můžeš vytvořit požadavek. Další úpravy a změny
-              stavu provádí administrátor.
-            </small>
-          )}
         </form>
 
         <div className="part-orders-list">
@@ -11243,6 +11312,16 @@ function WorkshopChannel({ user, role }) {
                     <div className="part-order-meta">
                       <span><strong>Množství:</strong> {order.mnozstvi} ks</span>
                       {order.vuz && <span><strong>Vůz:</strong> {order.vuz}</span>}
+                      {order.provozovna_id && (
+                        <span>
+                          <strong>Provozovna:</strong>{" "}
+                          {workshopBranches.find(
+                            (branch) =>
+                              String(branch.id) ===
+                              String(order.provozovna_id)
+                          )?.kod || order.provozovna_id}
+                        </span>
+                      )}
                       {order.katalogove_cislo && (
                         <span><strong>Kat. č.:</strong> {order.katalogove_cislo}</span>
                       )}
@@ -11414,6 +11493,357 @@ function WorkshopChannel({ user, role }) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+
+/* =========================================================
+   ROZPOČET PROVOZOVEN
+========================================================= */
+
+function BranchBudget({ role }) {
+  const canEdit = canEditBudget(role);
+  const [branches, setBranches] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [budgetDrafts, setBudgetDrafts] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadBudgetData() {
+    setLoading(true);
+    setError("");
+
+    const [
+      { data: branchData, error: branchError },
+      { data: budgetData, error: budgetError },
+      { data: orderData, error: orderError },
+    ] = await Promise.all([
+      supabase
+        .from("provozovny")
+        .select("id,kod,nazev")
+        .order("kod", { ascending: true }),
+      supabase
+        .from("workshop_budgets")
+        .select("id,provozovna_id,castka,updated_at"),
+      supabase
+        .from("workshop_part_orders")
+        .select(
+          "id,provozovna_id,nazev_dilu,mnozstvi,cena_ks,stav,created_at"
+        )
+        .in("stav", ["OBJEDNÁNO", "NA CESTĚ", "DORUČENO"]),
+    ]);
+
+    if (branchError || budgetError || orderError) {
+      setError(
+        branchError?.message ||
+          budgetError?.message ||
+          orderError?.message ||
+          "Nepodařilo se načíst rozpočet."
+      );
+      setLoading(false);
+      return;
+    }
+
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+    const filteredBranches = (branchData || []).filter((branch) =>
+      allowed.has(String(branch.kod || "").trim().toUpperCase())
+    );
+
+    setBranches(filteredBranches);
+    setBudgets(budgetData || []);
+    setOrders(orderData || []);
+
+    const drafts = {};
+    filteredBranches.forEach((branch) => {
+      const budget = (budgetData || []).find(
+        (item) =>
+          String(item.provozovna_id) === String(branch.id)
+      );
+      drafts[String(branch.id)] =
+        budget?.castka != null ? String(budget.castka) : "";
+    });
+    setBudgetDrafts(drafts);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadBudgetData();
+
+    const channel = supabase
+      .channel("workshop-budget-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_part_orders",
+        },
+        () => loadBudgetData()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_budgets",
+        },
+        () => loadBudgetData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  function spentForBranch(branchId) {
+    return orders
+      .filter(
+        (order) =>
+          String(order.provozovna_id) === String(branchId) &&
+          order.cena_ks != null
+      )
+      .reduce(
+        (sum, order) =>
+          sum +
+          Number(order.cena_ks || 0) *
+            Number(order.mnozstvi || 0),
+        0
+      );
+  }
+
+  function formatMoney(value) {
+    return `${Number(value || 0).toLocaleString("cs-CZ", {
+      maximumFractionDigits: 2,
+    })} Kč`;
+  }
+
+  async function saveBudget(branchId) {
+    if (!canEdit) return;
+
+    const raw = String(
+      budgetDrafts[String(branchId)] || ""
+    )
+      .trim()
+      .replace(",", ".");
+
+    const amount = raw === "" ? 0 : Number(raw);
+
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Rozpočet musí být platné nezáporné číslo.");
+      return;
+    }
+
+    setSavingId(branchId);
+    setError("");
+    setSuccess("");
+
+    const { error: saveError } = await supabase
+      .from("workshop_budgets")
+      .upsert(
+        {
+          provozovna_id: Number(branchId),
+          castka: amount,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "provozovna_id" }
+      );
+
+    if (saveError) {
+      setError(saveError.message);
+      setSavingId(null);
+      return;
+    }
+
+    setSuccess("Rozpočet provozovny byl uložen.");
+    await loadBudgetData();
+    setSavingId(null);
+  }
+
+  const totalBudget = branches.reduce((sum, branch) => {
+    const budget = budgets.find(
+      (item) =>
+        String(item.provozovna_id) === String(branch.id)
+    );
+    return sum + Number(budget?.castka || 0);
+  }, 0);
+
+  const totalSpent = branches.reduce(
+    (sum, branch) => sum + spentForBranch(branch.id),
+    0
+  );
+
+  return (
+    <div className="standard-page budget-page">
+      <header className="standard-page-head">
+        <div>
+          <span className="page-eyebrow">FINANCE DÍLNY</span>
+          <h1>Rozpočet provozoven</h1>
+          <p>
+            Objednané díly se automaticky započítávají podle provozovny.
+            Požadavky bez stavu Objednáno / Na cestě / Doručeno se zatím
+            do čerpání nepočítají.
+          </p>
+        </div>
+
+        <div className={`access-pill ${canEdit ? "edit" : "read"}`}>
+          {canEdit
+            ? "ADMIN · NASTAVENÍ ROZPOČTU"
+            : "DISPEČER · PŘEHLED"}
+        </div>
+      </header>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="budget-summary-grid">
+        <div className="budget-summary-card">
+          <span>Celkový rozpočet</span>
+          <strong>{formatMoney(totalBudget)}</strong>
+        </div>
+        <div className="budget-summary-card">
+          <span>Čerpáno</span>
+          <strong>{formatMoney(totalSpent)}</strong>
+        </div>
+        <div className="budget-summary-card">
+          <span>Zbývá</span>
+          <strong>{formatMoney(totalBudget - totalSpent)}</strong>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="panel empty">Načítám rozpočty…</div>
+      ) : (
+        <div className="budget-branches">
+          {branches.map((branch) => {
+            const budget = budgets.find(
+              (item) =>
+                String(item.provozovna_id) === String(branch.id)
+            );
+            const budgetAmount = Number(budget?.castka || 0);
+            const spent = spentForBranch(branch.id);
+            const remaining = budgetAmount - spent;
+            const ratio =
+              budgetAmount > 0
+                ? Math.min(100, (spent / budgetAmount) * 100)
+                : 0;
+
+            const branchOrders = orders
+              .filter(
+                (order) =>
+                  String(order.provozovna_id) === String(branch.id)
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.created_at).getTime() -
+                  new Date(a.created_at).getTime()
+              );
+
+            return (
+              <section key={branch.id} className="panel branch-budget-card">
+                <div className="branch-budget-head">
+                  <div>
+                    <span className="branch-budget-code">{branch.kod}</span>
+                    <h2>{branch.nazev}</h2>
+                  </div>
+                  <div className="branch-budget-remaining">
+                    <span>Zbývá</span>
+                    <strong className={remaining < 0 ? "negative" : ""}>
+                      {formatMoney(remaining)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="branch-budget-numbers">
+                  <div>
+                    <span>Rozpočet</span>
+                    <strong>{formatMoney(budgetAmount)}</strong>
+                  </div>
+                  <div>
+                    <span>Čerpáno</span>
+                    <strong>{formatMoney(spent)}</strong>
+                  </div>
+                  <div>
+                    <span>Využití</span>
+                    <strong>{budgetAmount > 0 ? `${ratio.toFixed(0)} %` : "—"}</strong>
+                  </div>
+                </div>
+
+                <div className="budget-progress">
+                  <span
+                    style={{ width: `${ratio}%` }}
+                    className={ratio >= 100 ? "over" : ""}
+                  />
+                </div>
+
+                {canEdit && (
+                  <div className="budget-edit-row">
+                    <label>
+                      <span>Výše rozpočtu</span>
+                      <input
+                        inputMode="decimal"
+                        value={
+                          budgetDrafts[String(branch.id)] ?? ""
+                        }
+                        onChange={(e) =>
+                          setBudgetDrafts((old) => ({
+                            ...old,
+                            [String(branch.id)]: e.target.value,
+                          }))
+                        }
+                        placeholder="0"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={savingId === branch.id}
+                      onClick={() => saveBudget(branch.id)}
+                    >
+                      {savingId === branch.id
+                        ? "Ukládám…"
+                        : "Uložit rozpočet"}
+                    </button>
+                  </div>
+                )}
+
+                <div className="budget-order-list">
+                  <div className="budget-order-list-head">
+                    <strong>Objednané díly</strong>
+                    <span>{branchOrders.length}</span>
+                  </div>
+
+                  {branchOrders.length === 0 ? (
+                    <small>Žádné objednané díly.</small>
+                  ) : (
+                    branchOrders.slice(0, 8).map((order) => (
+                      <div key={order.id} className="budget-order-row">
+                        <div>
+                          <strong>{order.nazev_dilu}</strong>
+                          <small>
+                            {order.mnozstvi} ks · {order.stav}
+                          </small>
+                        </div>
+                        <strong>
+                          {formatMoney(
+                            Number(order.cena_ks || 0) *
+                              Number(order.mnozstvi || 0)
+                          )}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -12040,9 +12470,17 @@ function App() {
               >
                 <span>🔧</span>
                 Dílna
-                <span className="menu-access-mini">
-                  {role === ROLE_ADMIN ? "EDIT" : "READ"}
-                </span>
+                <span className="menu-access-mini">EDIT</span>
+              </button>
+            )}
+
+            {canViewBudget(role) && (
+              <button
+                className={page === "budget" ? "active" : ""}
+                onClick={() => setPage("budget")}
+              >
+                <span>💰</span>
+                Rozpočet
               </button>
             )}
 
@@ -12624,6 +13062,11 @@ function App() {
                 user={user}
                 role={role}
               />
+            )}
+
+          {page === "budget" &&
+            canViewBudget(role) && (
+              <BranchBudget role={role} />
             )}
 
           {page === "notifications" && <Notifications user={user} role={role} />}
@@ -22371,6 +22814,263 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .selected-workshop-vehicle small {
   color: #91a3bc;
+}
+
+
+/* =========================================================
+   ROZPOČET PROVOZOVEN
+========================================================= */
+.budget-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.budget-summary-card {
+  padding: 15px 16px;
+  border: 1px solid #e5eaf1;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.budget-summary-card span,
+.branch-budget-numbers span,
+.branch-budget-remaining span {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.budget-summary-card strong {
+  display: block;
+  margin-top: 5px;
+  color: #0f172a;
+  font-size: 21px;
+}
+
+.budget-branches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.branch-budget-card {
+  margin: 0 !important;
+}
+
+.branch-budget-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  align-items: flex-start;
+}
+
+.branch-budget-code {
+  display: inline-flex;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.branch-budget-head h2 {
+  margin: 7px 0 0;
+}
+
+.branch-budget-remaining {
+  text-align: right;
+}
+
+.branch-budget-remaining strong {
+  display: block;
+  margin-top: 4px;
+  color: #15803d;
+  font-size: 17px;
+}
+
+.branch-budget-remaining strong.negative {
+  color: #dc2626;
+}
+
+.branch-budget-numbers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.branch-budget-numbers > div {
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.branch-budget-numbers strong {
+  display: block;
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.budget-progress {
+  position: relative;
+  overflow: hidden;
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: #e8edf4;
+}
+
+.budget-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: width .2s ease;
+}
+
+.budget-progress > span.over {
+  background: #dc2626;
+}
+
+.budget-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 13px;
+}
+
+.budget-edit-row label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.budget-edit-row input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dce3ec;
+  border-radius: 9px;
+  padding: 9px 10px;
+}
+
+.budget-order-list {
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.budget-order-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 7px;
+  color: #334155;
+  font-size: 10px;
+}
+
+.budget-order-list-head span {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 9px;
+}
+
+.budget-order-list > small {
+  color: #94a3b8;
+}
+
+.budget-order-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid #eef2f6;
+}
+
+.budget-order-row > div strong,
+.budget-order-row > div small {
+  display: block;
+}
+
+.budget-order-row > div strong {
+  color: #334155;
+  font-size: 10px;
+}
+
+.budget-order-row > div small {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 8px;
+}
+
+.budget-order-row > strong {
+  color: #0f172a;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.app.dark-mode .budget-summary-card,
+.app.dark-mode .branch-budget-card {
+  background: #101a2b;
+  border-color: #243147;
+}
+
+.app.dark-mode .budget-summary-card strong,
+.app.dark-mode .branch-budget-numbers strong,
+.app.dark-mode .budget-order-row > strong,
+.app.dark-mode .budget-order-row > div strong {
+  color: #f8fafc;
+}
+
+.app.dark-mode .branch-budget-numbers > div {
+  background: #0b1423;
+}
+
+.app.dark-mode .budget-progress {
+  background: #263247;
+}
+
+.app.dark-mode .budget-edit-row input {
+  background: #0b1423;
+  border-color: #2b3950;
+  color: #f8fafc;
+}
+
+.app.dark-mode .budget-order-list,
+.app.dark-mode .budget-order-row {
+  border-color: #243147;
+}
+
+@media (max-width: 900px) {
+  .budget-branches {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .budget-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .branch-budget-numbers {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-edit-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 `;
