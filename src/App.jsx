@@ -11502,6 +11502,698 @@ function WorkshopChannel({ user, role }) {
    ROZPOČET PROVOZOVEN
 ========================================================= */
 
+
+function PartOrdersChannel({ user, role }) {
+  const canEdit = canEditWorkshop(role);
+  const [orders, setOrders] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [form, setForm] = useState({
+    nazev_dilu: "",
+    katalogove_cislo: "",
+    mnozstvi: 1,
+    vuz: "",
+    provozovna_id: "",
+    dodavatel: "",
+    odkaz: "",
+    cena_ks: "",
+    poznamka: "",
+    priorita: "BĚŽNÁ",
+    stav: "POŽADAVEK",
+  });
+
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      nazev_dilu: "",
+      katalogove_cislo: "",
+      mnozstvi: 1,
+      vuz: "",
+      provozovna_id: "",
+      dodavatel: "",
+      odkaz: "",
+      cena_ks: "",
+      poznamka: "",
+      priorita: "BĚŽNÁ",
+      stav: "POŽADAVEK",
+    });
+  }
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+
+    const [
+      { data: orderData, error: orderError },
+      { data: vehicleData, error: vehicleError },
+      { data: branchData, error: branchError },
+    ] = await Promise.all([
+      supabase
+        .from("workshop_part_orders")
+        .select(
+          "id,nazev_dilu,katalogove_cislo,mnozstvi,vuz,provozovna_id,dodavatel,odkaz,cena_ks,poznamka,priorita,stav,created_by,updated_by,created_at,updated_at"
+        )
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("vozy")
+        .select("id,cislo,vyrobce,typ,spz,provozovna_id")
+        .order("cislo", { ascending: true }),
+      supabase
+        .from("provozovny")
+        .select("id,kod,nazev")
+        .order("kod", { ascending: true }),
+    ]);
+
+    if (orderError || vehicleError || branchError) {
+      setError(
+        orderError?.message ||
+          vehicleError?.message ||
+          branchError?.message ||
+          "Nepodařilo se načíst objednávky dílů."
+      );
+      setLoading(false);
+      return;
+    }
+
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+
+    setOrders(orderData || []);
+    setVehicles(
+      (vehicleData || []).sort((a, b) =>
+        String(a.cislo || "").localeCompare(
+          String(b.cislo || ""),
+          "cs",
+          { numeric: true, sensitivity: "base" }
+        )
+      )
+    );
+    setBranches(
+      (branchData || []).filter((branch) =>
+        allowed.has(String(branch.kod || "").trim().toUpperCase())
+      )
+    );
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadData();
+
+    const channel = supabase
+      .channel("part-orders-channel-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_part_orders",
+        },
+        () => loadData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function saveOrder(e) {
+    e.preventDefault();
+
+    if (!canEdit) return;
+
+    if (!form.nazev_dilu.trim()) {
+      setError("Vyplň název dílu.");
+      return;
+    }
+
+    if (!form.provozovna_id) {
+      setError("Vyber provozovnu.");
+      return;
+    }
+
+    const quantity = Math.max(1, Number(form.mnozstvi) || 1);
+    const price =
+      String(form.cena_ks || "").trim() === ""
+        ? null
+        : Number(String(form.cena_ks).replace(",", "."));
+
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      setError("Cena za kus musí být platné nezáporné číslo.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      nazev_dilu: form.nazev_dilu.trim(),
+      katalogove_cislo: form.katalogove_cislo.trim() || null,
+      mnozstvi: quantity,
+      vuz: form.vuz.trim() || null,
+      provozovna_id: Number(form.provozovna_id),
+      dodavatel: form.dodavatel.trim() || null,
+      odkaz: form.odkaz.trim() || null,
+      cena_ks: price,
+      poznamka: form.poznamka.trim() || null,
+      priorita: form.priorita,
+      stav: form.stav,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    const result = editingId
+      ? await supabase
+          .from("workshop_part_orders")
+          .update(payload)
+          .eq("id", editingId)
+      : await supabase.from("workshop_part_orders").insert({
+          ...payload,
+          created_by: user.id,
+          stav: "POŽADAVEK",
+        });
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editingId
+        ? "Objednávka byla upravena."
+        : "Požadavek na díl byl vytvořen."
+    );
+    resetForm();
+    await loadData();
+    setSaving(false);
+  }
+
+  function startEdit(order) {
+    setEditingId(order.id);
+    setForm({
+      nazev_dilu: order.nazev_dilu || "",
+      katalogove_cislo: order.katalogove_cislo || "",
+      mnozstvi: order.mnozstvi || 1,
+      vuz: order.vuz || "",
+      provozovna_id: order.provozovna_id
+        ? String(order.provozovna_id)
+        : "",
+      dodavatel: order.dodavatel || "",
+      odkaz: order.odkaz || "",
+      cena_ks: order.cena_ks ?? "",
+      poznamka: order.poznamka || "",
+      priorita: order.priorita || "BĚŽNÁ",
+      stav: order.stav || "POŽADAVEK",
+    });
+
+    window.setTimeout(() => {
+      document
+        .querySelector(".part-orders-channel-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 30);
+  }
+
+  async function updateStatus(id, stav) {
+    if (!canEdit) return;
+
+    const { error: statusError } = await supabase
+      .from("workshop_part_orders")
+      .update({
+        stav,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (statusError) {
+      setError(statusError.message);
+      return;
+    }
+
+    setSuccess("Stav objednávky byl změněn.");
+    await loadData();
+  }
+
+  async function deleteOrder(id) {
+    if (!canEdit) return;
+    if (!window.confirm("Opravdu chceš objednávku smazat?")) return;
+
+    const { error: deleteError } = await supabase
+      .from("workshop_part_orders")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editingId === id) resetForm();
+    setSuccess("Objednávka byla smazána.");
+    await loadData();
+  }
+
+  function branchCode(id) {
+    return (
+      branches.find(
+        (branch) => String(branch.id) === String(id)
+      )?.kod || "-"
+    );
+  }
+
+  function formatMoney(value) {
+    if (value == null || value === "") return "—";
+    return `${Number(value).toLocaleString("cs-CZ", {
+      maximumFractionDigits: 2,
+    })} Kč`;
+  }
+
+  const activeOrders = orders.filter(
+    (order) => !["DORUČENO", "ZRUŠENO"].includes(order.stav)
+  ).length;
+
+  const orderedValue = orders
+    .filter((order) =>
+      ["OBJEDNÁNO", "NA CESTĚ", "DORUČENO"].includes(order.stav)
+    )
+    .reduce(
+      (sum, order) =>
+        sum +
+        Number(order.cena_ks || 0) *
+          Number(order.mnozstvi || 0),
+      0
+    );
+
+  return (
+    <div className="standard-page part-orders-channel">
+      <header className="standard-page-head">
+        <div>
+          <span className="page-eyebrow">DÍLNA · NÁKUP</span>
+          <h1>Objednávky dílů</h1>
+          <p>
+            Samostatný kanál pro objednávání dílů a materiálu.
+            Objednané položky se automaticky propisují do rozpočtu
+            zvolené provozovny.
+          </p>
+        </div>
+        <div className="access-pill edit">
+          ADMIN + DISPEČER
+        </div>
+      </header>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="budget-summary-grid">
+        <div className="budget-summary-card">
+          <span>Celkem objednávek</span>
+          <strong>{orders.length}</strong>
+        </div>
+        <div className="budget-summary-card">
+          <span>Aktivní</span>
+          <strong>{activeOrders}</strong>
+        </div>
+        <div className="budget-summary-card">
+          <span>Objednáno celkem</span>
+          <strong>{formatMoney(orderedValue)}</strong>
+        </div>
+      </div>
+
+      <form
+        className="panel part-orders-channel-editor"
+        onSubmit={saveOrder}
+      >
+        <div className="panel-section-head">
+          <div>
+            <span>{editingId ? "ÚPRAVA OBJEDNÁVKY" : "NOVÝ POŽADAVEK"}</span>
+            <h2>
+              {editingId ? "Upravit objednávku" : "Objednat díl"}
+            </h2>
+          </div>
+          {editingId && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={resetForm}
+            >
+              Zrušit úpravu
+            </button>
+          )}
+        </div>
+
+        <div className="part-order-grid">
+          <label className="part-order-wide">
+            <span>Název dílu *</span>
+            <input
+              value={form.nazev_dilu}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  nazev_dilu: e.target.value,
+                }))
+              }
+              placeholder="Např. brzdové destičky"
+            />
+          </label>
+
+          <label>
+            <span>Katalogové číslo</span>
+            <input
+              value={form.katalogove_cislo}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  katalogove_cislo: e.target.value,
+                }))
+              }
+              placeholder="OEM / SKU"
+            />
+          </label>
+
+          <label>
+            <span>Množství</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={form.mnozstvi}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  mnozstvi: e.target.value,
+                }))
+              }
+            />
+          </label>
+
+          <label>
+            <span>Vůz</span>
+            <input
+              list="part-orders-channel-vehicles"
+              value={form.vuz}
+              onChange={(e) => {
+                const value = e.target.value;
+                const selectedVehicle = vehicles.find(
+                  (vehicle) =>
+                    String(vehicle.cislo || "") === String(value || "")
+                );
+
+                setForm((old) => ({
+                  ...old,
+                  vuz: value,
+                  provozovna_id:
+                    selectedVehicle?.provozovna_id != null
+                      ? String(selectedVehicle.provozovna_id)
+                      : old.provozovna_id,
+                }));
+              }}
+              placeholder="Napiš např. 332"
+              autoComplete="off"
+            />
+            <datalist id="part-orders-channel-vehicles">
+              {vehicles.map((vehicle) => (
+                <option
+                  key={vehicle.id}
+                  value={String(vehicle.cislo || "")}
+                >
+                  {[vehicle.vyrobce, vehicle.typ, vehicle.spz]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </option>
+              ))}
+            </datalist>
+          </label>
+
+          <label>
+            <span>Provozovna *</span>
+            <select
+              value={form.provozovna_id}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  provozovna_id: e.target.value,
+                }))
+              }
+            >
+              <option value="">Vyber provozovnu</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={String(branch.id)}>
+                  {branch.kod} · {branch.nazev}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Dodavatel</span>
+            <input
+              value={form.dodavatel}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  dodavatel: e.target.value,
+                }))
+              }
+              placeholder="Název dodavatele"
+            />
+          </label>
+
+          <label>
+            <span>Cena / ks</span>
+            <input
+              inputMode="decimal"
+              value={form.cena_ks}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  cena_ks: e.target.value,
+                }))
+              }
+              placeholder="Kč"
+            />
+          </label>
+
+          <label>
+            <span>Priorita</span>
+            <select
+              value={form.priorita}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  priorita: e.target.value,
+                }))
+              }
+            >
+              <option value="BĚŽNÁ">Běžná</option>
+              <option value="DŮLEŽITÁ">Důležitá</option>
+              <option value="KRITICKÁ">Kritická</option>
+            </select>
+          </label>
+
+          {editingId && (
+            <label>
+              <span>Stav</span>
+              <select
+                value={form.stav}
+                onChange={(e) =>
+                  setForm((old) => ({
+                    ...old,
+                    stav: e.target.value,
+                  }))
+                }
+              >
+                <option value="POŽADAVEK">Požadavek</option>
+                <option value="OBJEDNÁNO">Objednáno</option>
+                <option value="NA CESTĚ">Na cestě</option>
+                <option value="DORUČENO">Doručeno</option>
+                <option value="ZRUŠENO">Zrušeno</option>
+              </select>
+            </label>
+          )}
+
+          <label className="part-order-wide">
+            <span>Odkaz</span>
+            <input
+              value={form.odkaz}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  odkaz: e.target.value,
+                }))
+              }
+              placeholder="https://..."
+            />
+          </label>
+
+          <label className="part-order-wide">
+            <span>Poznámka</span>
+            <textarea
+              rows={3}
+              value={form.poznamka}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  poznamka: e.target.value,
+                }))
+              }
+              placeholder="Specifikace, důvod objednávky, termín..."
+            />
+          </label>
+        </div>
+
+        <div className="part-order-actions">
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={saving}
+          >
+            {saving
+              ? "Ukládám…"
+              : editingId
+              ? "💾 Uložit změny"
+              : "🛒 Vytvořit objednávku"}
+          </button>
+        </div>
+      </form>
+
+      <section className="panel part-orders-channel-list">
+        <div className="panel-section-head">
+          <div>
+            <span>PŘEHLED</span>
+            <h2>Objednávky</h2>
+          </div>
+          <span className="workshop-count">{orders.length}</span>
+        </div>
+
+        {loading ? (
+          <div className="empty">Načítám objednávky…</div>
+        ) : orders.length === 0 ? (
+          <div className="empty">Zatím není žádná objednávka.</div>
+        ) : (
+          <div className="part-orders-list">
+            {orders.map((order) => {
+              const total =
+                order.cena_ks == null
+                  ? null
+                  : Number(order.cena_ks) *
+                    Number(order.mnozstvi || 1);
+
+              return (
+                <article key={order.id} className="part-order-card">
+                  <div className="part-order-main">
+                    <div className="part-order-top">
+                      <div>
+                        <span
+                          className={`part-status status-${String(order.stav || "")
+                            .normalize("NFD")
+                            .replace(/[\u0300-\u036f]/g, "")
+                            .replace(/\s+/g, "-")
+                            .toLowerCase()}`}
+                        >
+                          {order.stav}
+                        </span>
+                        <span className="part-priority">
+                          {order.priorita}
+                        </span>
+                      </div>
+                      <span className="branch-budget-code">
+                        {branchCode(order.provozovna_id)}
+                      </span>
+                    </div>
+
+                    <h3>{order.nazev_dilu}</h3>
+
+                    <div className="part-order-meta">
+                      <span>
+                        <strong>Množství:</strong> {order.mnozstvi} ks
+                      </span>
+                      {order.vuz && (
+                        <span>
+                          <strong>Vůz:</strong> {order.vuz}
+                        </span>
+                      )}
+                      {order.katalogove_cislo && (
+                        <span>
+                          <strong>Kat. č.:</strong> {order.katalogove_cislo}
+                        </span>
+                      )}
+                      {order.dodavatel && (
+                        <span>
+                          <strong>Dodavatel:</strong> {order.dodavatel}
+                        </span>
+                      )}
+                      {order.cena_ks != null && (
+                        <span>
+                          <strong>Cena:</strong> {formatMoney(order.cena_ks)}/ks
+                        </span>
+                      )}
+                      {total != null && (
+                        <span>
+                          <strong>Celkem:</strong> {formatMoney(total)}
+                        </span>
+                      )}
+                    </div>
+
+                    {order.poznamka && <p>{order.poznamka}</p>}
+
+                    {order.odkaz && (
+                      <a
+                        className="part-order-link"
+                        href={order.odkaz}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        🔗 Otevřít odkaz
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="part-order-admin">
+                    <select
+                      value={order.stav}
+                      onChange={(e) =>
+                        updateStatus(order.id, e.target.value)
+                      }
+                    >
+                      <option value="POŽADAVEK">Požadavek</option>
+                      <option value="OBJEDNÁNO">Objednáno</option>
+                      <option value="NA CESTĚ">Na cestě</option>
+                      <option value="DORUČENO">Doručeno</option>
+                      <option value="ZRUŠENO">Zrušeno</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => startEdit(order)}
+                    >
+                      ✏️ Upravit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() => deleteOrder(order.id)}
+                    >
+                      Smazat
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function BranchBudget({ role }) {
   const canEdit = canEditBudget(role);
   const [branches, setBranches] = useState([]);
@@ -12474,6 +13166,16 @@ function App() {
               </button>
             )}
 
+            {canViewWorkshop(role) && (
+              <button
+                className={page === "partOrders" ? "active" : ""}
+                onClick={() => setPage("partOrders")}
+              >
+                <span>🛒</span>
+                Objednávky dílů
+              </button>
+            )}
+
             {canViewBudget(role) && (
               <button
                 className={page === "budget" ? "active" : ""}
@@ -13059,6 +13761,14 @@ function App() {
           {page === "workshop" &&
             canViewWorkshop(role) && (
               <WorkshopChannel
+                user={user}
+                role={role}
+              />
+            )}
+
+          {page === "partOrders" &&
+            canViewWorkshop(role) && (
+              <PartOrdersChannel
                 user={user}
                 role={role}
               />
@@ -23071,6 +23781,30 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .budget-edit-row {
     grid-template-columns: 1fr;
   }
+}
+
+
+/* =========================================================
+   SAMOSTATNÝ KANÁL OBJEDNÁVKY DÍLŮ
+========================================================= */
+.part-orders-channel-editor {
+  margin-bottom: 18px;
+}
+
+.part-orders-channel-list {
+  margin-bottom: 18px;
+}
+
+.part-orders-channel .part-order-card {
+  transition: border-color .15s ease, transform .15s ease;
+}
+
+.part-orders-channel .part-order-card:hover {
+  border-color: #cbd5e1;
+}
+
+.app.dark-mode .part-orders-channel .part-order-card:hover {
+  border-color: #3a4961;
 }
 
 `;
