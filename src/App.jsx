@@ -9,19 +9,36 @@ const ROLE_ADMIN = "admin";
 const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
 
+function normalizeRole(value) {
+  const role = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (role === "admin" || role === "administrator") return ROLE_ADMIN;
+  if (role === "dispecer" || role === "dispatcher") return ROLE_DISPECER;
+  if (role === "ridic" || role === "driver") return ROLE_RIDIC;
+
+  return "";
+}
+
 function canManageVehicles(role) {
+  role = normalizeRole(role);
   return role === ROLE_ADMIN || role === ROLE_DISPECER;
 }
 
 function canManageReports(role) {
+  role = normalizeRole(role);
   return role === ROLE_ADMIN || role === ROLE_DISPECER;
 }
 
 function canManageUsers(role) {
-  return role === ROLE_ADMIN;
+  return normalizeRole(role) === ROLE_ADMIN;
 }
 
 function canUseReports(role) {
+  role = normalizeRole(role);
   return (
     role === ROLE_ADMIN ||
     role === ROLE_DISPECER ||
@@ -30,10 +47,21 @@ function canUseReports(role) {
 }
 
 function canManageNews(role) {
+  role = normalizeRole(role);
   return role === ROLE_ADMIN || role === ROLE_DISPECER;
 }
 
+function canViewWorkshop(role) {
+  role = normalizeRole(role);
+  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+}
+
+function canEditWorkshop(role) {
+  return normalizeRole(role) === ROLE_ADMIN;
+}
+
 function getRoleName(role) {
+  role = normalizeRole(role);
   if (role === ROLE_ADMIN) return "Administrátor";
   if (role === ROLE_DISPECER) return "Dispečer";
   if (role === ROLE_RIDIC) return "Řidič";
@@ -188,12 +216,17 @@ function Register({ onRegistered }) {
       return;
     }
 
+    const inviteRole = normalizeRole(invite.role) || ROLE_RIDIC;
+
     const { error: profileError } =
-      await supabase.from("profiles").insert({
-        id: data.user.id,
-        jmeno: invite.jmeno || cleanName,
-        role: invite.role,
-      });
+      await supabase.from("profiles").upsert(
+        {
+          id: data.user.id,
+          jmeno: invite.jmeno || cleanName,
+          role: inviteRole,
+        },
+        { onConflict: "id" }
+      );
 
     if (profileError) {
       setError(profileError.message);
@@ -10357,6 +10390,432 @@ function AuditLog() {
   );
 }
 
+
+/* =========================================================
+   INTERNÍ KANÁL – DÍLNA
+========================================================= */
+
+function WorkshopChannel({ user, role }) {
+  const canEdit = canEditWorkshop(role);
+  const [posts, setPosts] = useState([]);
+  const [profiles, setProfiles] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({
+    nadpis: "",
+    obsah: "",
+    priorita: "BĚŽNÁ",
+    pripnuto: false,
+  });
+
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      nadpis: "",
+      obsah: "",
+      priorita: "BĚŽNÁ",
+      pripnuto: false,
+    });
+  }
+
+  async function loadPosts() {
+    setLoading(true);
+    setError("");
+
+    const { data, error: postsError } = await supabase
+      .from("workshop_channel")
+      .select(
+        "id,nadpis,obsah,priorita,pripnuto,created_by,updated_by,created_at,updated_at"
+      )
+      .order("pripnuto", { ascending: false })
+      .order("updated_at", { ascending: false });
+
+    if (postsError) {
+      setError(postsError.message);
+      setPosts([]);
+      setLoading(false);
+      return;
+    }
+
+    const rows = data || [];
+    setPosts(rows);
+
+    const ids = [
+      ...new Set(
+        rows
+          .flatMap((row) => [row.created_by, row.updated_by])
+          .filter(Boolean)
+      ),
+    ];
+
+    if (ids.length > 0) {
+      const { data: people } = await supabase
+        .from("profiles")
+        .select("id,jmeno")
+        .in("id", ids);
+
+      const map = {};
+      (people || []).forEach((person) => {
+        map[String(person.id)] = person;
+      });
+      setProfiles(map);
+    } else {
+      setProfiles({});
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadPosts();
+
+    const channel = supabase
+      .channel("workshop-channel-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_channel",
+        },
+        () => loadPosts()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  function startEdit(post) {
+    if (!canEdit) return;
+
+    setEditingId(post.id);
+    setForm({
+      nadpis: post.nadpis || "",
+      obsah: post.obsah || "",
+      priorita: post.priorita || "BĚŽNÁ",
+      pripnuto: Boolean(post.pripnuto),
+    });
+    setError("");
+    setSuccess("");
+
+    window.setTimeout(() => {
+      document
+        .querySelector(".workshop-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 30);
+  }
+
+  async function savePost(e) {
+    e.preventDefault();
+
+    if (!canEdit) return;
+
+    const title = form.nadpis.trim();
+    const body = form.obsah.trim();
+
+    if (!title || !body) {
+      setError("Vyplň nadpis i obsah zprávy.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      nadpis: title,
+      obsah: body,
+      priorita: form.priorita,
+      pripnuto: Boolean(form.pripnuto),
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    let result;
+
+    if (editingId) {
+      result = await supabase
+        .from("workshop_channel")
+        .update(payload)
+        .eq("id", editingId);
+    } else {
+      result = await supabase.from("workshop_channel").insert({
+        ...payload,
+        created_by: user.id,
+      });
+    }
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editingId
+        ? "Zpráva v kanálu Dílna byla upravena."
+        : "Nová zpráva byla přidána do kanálu Dílna."
+    );
+
+    resetForm();
+    await loadPosts();
+    setSaving(false);
+  }
+
+  async function deletePost(id) {
+    if (!canEdit) return;
+
+    if (!window.confirm("Opravdu chceš tuto zprávu z kanálu Dílna smazat?")) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    const { error: deleteError } = await supabase
+      .from("workshop_channel")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editingId === id) resetForm();
+
+    setSuccess("Zpráva byla smazána.");
+    await loadPosts();
+  }
+
+  function formatDate(value) {
+    if (!value) return "-";
+
+    return new Date(value).toLocaleString("cs-CZ", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div className="standard-page workshop-page">
+      <header className="standard-page-head">
+        <div>
+          <span className="page-eyebrow">INTERNÍ KANÁL</span>
+          <h1>Dílna</h1>
+          <p>
+            Informace pro administrátory a dispečery. Obsah může upravovat
+            pouze administrátor.
+          </p>
+        </div>
+
+        <div className={`access-pill ${canEdit ? "edit" : "read"}`}>
+          {canEdit ? "✎ ADMIN · ÚPRAVY POVOLENY" : "◉ DISPEČER · POUZE ČTENÍ"}
+        </div>
+      </header>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      {canEdit && (
+        <form className="panel workshop-editor" onSubmit={savePost}>
+          <div className="panel-section-head">
+            <div>
+              <span>{editingId ? "ÚPRAVA ZPRÁVY" : "NOVÁ ZPRÁVA"}</span>
+              <h2>{editingId ? "Upravit příspěvek" : "Přidat informaci pro dílnu"}</h2>
+            </div>
+
+            {editingId && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={resetForm}
+              >
+                Zrušit úpravu
+              </button>
+            )}
+          </div>
+
+          <div className="workshop-form-grid">
+            <label className="workshop-title-field">
+              <span>Nadpis</span>
+              <input
+                value={form.nadpis}
+                onChange={(e) =>
+                  setForm((old) => ({ ...old, nadpis: e.target.value }))
+                }
+                placeholder="Např. Vůz 3020 – plánovaná oprava"
+                maxLength={160}
+              />
+            </label>
+
+            <label>
+              <span>Priorita</span>
+              <select
+                value={form.priorita}
+                onChange={(e) =>
+                  setForm((old) => ({ ...old, priorita: e.target.value }))
+                }
+              >
+                <option value="BĚŽNÁ">Běžná</option>
+                <option value="DŮLEŽITÁ">Důležitá</option>
+                <option value="KRITICKÁ">Kritická</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="workshop-body-field">
+            <span>Obsah</span>
+            <textarea
+              value={form.obsah}
+              onChange={(e) =>
+                setForm((old) => ({ ...old, obsah: e.target.value }))
+              }
+              placeholder="Napiš informace pro administrátory a dispečery…"
+              rows={7}
+            />
+          </label>
+
+          <div className="workshop-editor-footer">
+            <label className="workshop-pin-check">
+              <input
+                type="checkbox"
+                checked={form.pripnuto}
+                onChange={(e) =>
+                  setForm((old) => ({
+                    ...old,
+                    pripnuto: e.target.checked,
+                  }))
+                }
+              />
+              <span>Připnout nahoře</span>
+            </label>
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={saving}
+            >
+              {saving
+                ? "Ukládám…"
+                : editingId
+                ? "💾 Uložit změny"
+                : "＋ Publikovat do Dílny"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <section className="panel workshop-feed">
+        <div className="panel-section-head">
+          <div>
+            <span>PŘEHLED</span>
+            <h2>Zprávy z dílny</h2>
+          </div>
+          <span className="workshop-count">{posts.length}</span>
+        </div>
+
+        {loading ? (
+          <div className="empty">Načítám zprávy…</div>
+        ) : posts.length === 0 ? (
+          <div className="empty">
+            V kanálu Dílna zatím není žádná zpráva.
+          </div>
+        ) : (
+          <div className="workshop-posts">
+            {posts.map((post) => {
+              const author = profiles[String(post.created_by)];
+              const editor = profiles[String(post.updated_by)];
+              const changed =
+                post.updated_at &&
+                post.created_at &&
+                new Date(post.updated_at).getTime() >
+                  new Date(post.created_at).getTime() + 1000;
+
+              return (
+                <article
+                  key={post.id}
+                  className={`workshop-post ${
+                    post.pripnuto ? "pinned" : ""
+                  } priority-${String(post.priorita || "BĚŽNÁ")
+                    .normalize("NFD")
+                    .replace(/[\\u0300-\\u036f]/g, "")
+                    .toLowerCase()}`}
+                >
+                  <div className="workshop-post-main">
+                    <div className="workshop-post-topline">
+                      <div className="workshop-post-badges">
+                        {post.pripnuto && (
+                          <span className="workshop-badge pinned">
+                            📌 Připnuto
+                          </span>
+                        )}
+                        <span
+                          className={`workshop-badge priority ${String(
+                            post.priorita || "BĚŽNÁ"
+                          )
+                            .normalize("NFD")
+                            .replace(/[\\u0300-\\u036f]/g, "")
+                            .toLowerCase()}`}
+                        >
+                          {post.priorita || "BĚŽNÁ"}
+                        </span>
+                      </div>
+
+                      <time>{formatDate(post.updated_at || post.created_at)}</time>
+                    </div>
+
+                    <h3>{post.nadpis}</h3>
+                    <p>{post.obsah}</p>
+
+                    <footer>
+                      <span>
+                        Autor: <strong>{author?.jmeno || "Administrátor"}</strong>
+                      </span>
+                      {changed && (
+                        <span>
+                          Upravil: <strong>{editor?.jmeno || "Administrátor"}</strong>
+                        </span>
+                      )}
+                    </footer>
+                  </div>
+
+                  {canEdit && (
+                    <div className="workshop-post-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => startEdit(post)}
+                      >
+                        ✏️ Upravit
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() => deletePost(post.id)}
+                      >
+                        Smazat
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 const DASHBOARD_IMAGES = [
   "/dashboard/dashboard-1.webp",
   "/dashboard/dashboard-2.webp",
@@ -10593,17 +11052,48 @@ function App() {
 
     setProfileLoading(true);
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, jmeno, role, created_at")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    async function readProfile() {
+      return supabase
+        .from("profiles")
+        .select("id, jmeno, role, created_at")
+        .eq("id", authUser.id)
+        .maybeSingle();
+    }
+
+    let { data, error } = await readProfile();
+
+    if (
+      !error &&
+      (!data || !normalizeRole(data.role))
+    ) {
+      const { error: syncError } = await supabase.rpc(
+        "sync_my_profile_from_invite"
+      );
+
+      if (syncError) {
+        console.warn(
+          "PROFILE ROLE SYNC:",
+          syncError.message
+        );
+      } else {
+        const refreshed = await readProfile();
+        data = refreshed.data;
+        error = refreshed.error;
+      }
+    }
 
     if (error) {
       console.error("PROFILE ERROR:", error);
       setProfile(null);
     } else {
-      setProfile(data || null);
+      setProfile(
+        data
+          ? {
+              ...data,
+              role: normalizeRole(data.role),
+            }
+          : null
+      );
     }
 
     setProfileLoading(false);
@@ -10634,6 +11124,28 @@ function App() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const profileChannel = supabase
+      .channel(`profile-role-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${user.id}`,
+        },
+        () => loadProfile(user)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+    };
+  }, [user?.id]);
 
   async function checkSession() {
     const { data, error } =
@@ -10716,7 +11228,7 @@ function App() {
     );
   }
 
-  const role = profile?.role?.toLowerCase() || "";
+  const role = normalizeRole(profile?.role);
   const roleName = getRoleName(role);
 
   const manageVehicles = canManageVehicles(role);
@@ -10823,6 +11335,9 @@ function App() {
               Dashboard
             </button>
 
+            <div className="menu-divider compact" />
+            <div className="menu-section-label">Provoz</div>
+
             <button
               className={
                 page === "departures"
@@ -10880,6 +11395,9 @@ function App() {
               Členové
             </button>
 
+            <div className="menu-divider compact" />
+            <div className="menu-section-label">Moje agenda</div>
+
             {useReports && (
               <button
                 className={
@@ -10909,6 +11427,22 @@ function App() {
               <span>📝</span>
               Žádost o přidělení vozidla
             </button>
+
+            <div className="menu-divider compact" />
+            <div className="menu-section-label">Komunikace</div>
+
+            {canViewWorkshop(role) && (
+              <button
+                className={page === "workshop" ? "active" : ""}
+                onClick={() => setPage("workshop")}
+              >
+                <span>🔧</span>
+                Dílna
+                <span className="menu-access-mini">
+                  {role === ROLE_ADMIN ? "EDIT" : "READ"}
+                </span>
+              </button>
+            )}
 
             <button
               className={page === "notifications" ? "active" : ""}
@@ -11108,7 +11642,13 @@ function App() {
           </div>
         </aside>
 
-        <main className="content">
+        <main
+          className={`content ${
+            page === "dashboard"
+              ? "content-dashboard"
+              : "content-standard"
+          }`}
+        >
           {page === "dashboard" && (
             <div className="dashboard-photo-page">
               <section className="dashboard-photo-hero">
@@ -11475,6 +12015,14 @@ function App() {
               profile={profile}
             />
           )}
+
+          {page === "workshop" &&
+            canViewWorkshop(role) && (
+              <WorkshopChannel
+                user={user}
+                role={role}
+              />
+            )}
 
           {page === "notifications" && <Notifications user={user} role={role} />}
           {page === "releaseRequests" && <VehicleReleaseRequests user={user} profile={profile} />}
@@ -20417,6 +20965,498 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .sidebar > .section-title {
     padding-left: 8px;
+  }
+}
+
+
+/* =========================================================
+   PŘEHLEDNĚJŠÍ APLIKACE – DASHBOARD BEZE ZMĚNY
+========================================================= */
+.content-standard {
+  background:
+    radial-gradient(circle at top right, rgba(37,99,235,.055), transparent 30%),
+    #f4f7fb;
+  min-height: 100vh;
+}
+
+.content-standard > * {
+  max-width: 1680px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.content-standard .topbar {
+  background: rgba(255,255,255,.78);
+  border: 1px solid #e5eaf1;
+  border-radius: 18px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 28px rgba(15,23,42,.04);
+  backdrop-filter: blur(10px);
+}
+
+.content-standard .topbar h1 {
+  font-size: 25px;
+  letter-spacing: -.025em;
+  color: #111827;
+}
+
+.content-standard .topbar p {
+  margin: 7px 0 0;
+  line-height: 1.5;
+}
+
+.content-standard .panel {
+  border: 1px solid #e4e9f0;
+  box-shadow: 0 10px 30px rgba(15,23,42,.045);
+}
+
+.content-standard .panel h2 {
+  color: #111827;
+  letter-spacing: -.015em;
+}
+
+.content-standard input,
+.content-standard select,
+.content-standard textarea {
+  transition:
+    border-color .16s ease,
+    box-shadow .16s ease,
+    background .16s ease;
+}
+
+.content-standard input:focus,
+.content-standard select:focus,
+.content-standard textarea:focus {
+  outline: none;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.11);
+}
+
+.content-standard .primary-button,
+.content-standard .secondary-button,
+.content-standard .delete-button {
+  min-height: 38px;
+  transition:
+    transform .14s ease,
+    box-shadow .14s ease,
+    background .14s ease;
+}
+
+.content-standard .primary-button:hover:not(:disabled),
+.content-standard .secondary-button:hover:not(:disabled),
+.content-standard .delete-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.content-standard .primary-button {
+  box-shadow: 0 5px 14px rgba(37,99,235,.18);
+}
+
+.menu-divider.compact {
+  margin: 10px 8px 7px;
+}
+
+.menu-section-label {
+  letter-spacing: .08em;
+}
+
+.menu-access-mini {
+  margin-left: auto;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.08);
+  color: #8fa3bf;
+}
+
+.menu button.active .menu-access-mini,
+.menu button:hover .menu-access-mini {
+  background: rgba(255,255,255,.16);
+  color: white;
+}
+
+/* =========================================================
+   STANDARD PAGE HEADER
+========================================================= */
+.standard-page {
+  width: 100%;
+}
+
+.standard-page-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  margin-bottom: 22px;
+  padding: 3px 2px;
+}
+
+.standard-page-head h1 {
+  margin: 4px 0 7px;
+  font-size: 28px;
+  letter-spacing: -.035em;
+  color: #111827;
+}
+
+.standard-page-head p {
+  margin: 0;
+  max-width: 760px;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+.page-eyebrow {
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .13em;
+  color: #2563eb;
+}
+
+.access-pill {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .05em;
+  border: 1px solid;
+}
+
+.access-pill.edit {
+  color: #166534;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.access-pill.read {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+/* =========================================================
+   KANÁL DÍLNA
+========================================================= */
+.panel-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.panel-section-head > div > span {
+  display: block;
+  margin-bottom: 4px;
+  color: #2563eb;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .11em;
+}
+
+.panel-section-head h2 {
+  margin: 0;
+}
+
+.workshop-editor {
+  scroll-margin-top: 24px;
+}
+
+.workshop-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 14px;
+}
+
+.workshop-editor label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.workshop-editor input,
+.workshop-editor select,
+.workshop-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dce3ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 11px 12px;
+  color: #0f172a;
+  font: inherit;
+}
+
+.workshop-editor textarea {
+  resize: vertical;
+  min-height: 145px;
+  line-height: 1.55;
+}
+
+.workshop-body-field {
+  display: block;
+  margin-top: 14px;
+}
+
+.workshop-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.workshop-pin-check {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.workshop-pin-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.workshop-pin-check span {
+  margin: 0 !important;
+}
+
+.workshop-count {
+  display: inline-flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workshop-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.workshop-post {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 17px 18px;
+  border: 1px solid #e5eaf1;
+  border-left-width: 4px;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.workshop-post.priority-bezna {
+  border-left-color: #94a3b8;
+}
+
+.workshop-post.priority-dulezita {
+  border-left-color: #f59e0b;
+}
+
+.workshop-post.priority-kriticka {
+  border-left-color: #ef4444;
+}
+
+.workshop-post.pinned {
+  background: #fbfdff;
+  border-color: #bfdbfe;
+  box-shadow: 0 6px 18px rgba(37,99,235,.055);
+}
+
+.workshop-post-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.workshop-post-topline time {
+  color: #94a3b8;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.workshop-post-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workshop-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .04em;
+}
+
+.workshop-badge.pinned {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.workshop-badge.priority.bezna {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.workshop-badge.priority.dulezita {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.workshop-badge.priority.kriticka {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.workshop-post h3 {
+  margin: 10px 0 7px;
+  color: #0f172a;
+  font-size: 17px;
+}
+
+.workshop-post p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workshop-post footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 13px;
+  color: #94a3b8;
+  font-size: 9px;
+}
+
+.workshop-post footer strong {
+  color: #64748b;
+}
+
+.workshop-post-actions {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  gap: 7px;
+}
+
+/* =========================================================
+   DARK MODE – NOVÉ STANDARDNÍ ČÁSTI
+========================================================= */
+.app.dark-mode .content-standard {
+  background:
+    radial-gradient(circle at top right, rgba(59,130,246,.08), transparent 30%),
+    #0b1220;
+}
+
+.app.dark-mode .content-standard .topbar,
+.app.dark-mode .content-standard .panel,
+.app.dark-mode .workshop-post {
+  background: #101a2b;
+  border-color: #243147;
+  box-shadow: none;
+}
+
+.app.dark-mode .content-standard .topbar h1,
+.app.dark-mode .content-standard .panel h2,
+.app.dark-mode .standard-page-head h1,
+.app.dark-mode .workshop-post h3 {
+  color: #f8fafc;
+}
+
+.app.dark-mode .content-standard .topbar p,
+.app.dark-mode .standard-page-head p,
+.app.dark-mode .workshop-post p {
+  color: #9aa9bd;
+}
+
+.app.dark-mode .workshop-editor label > span {
+  color: #cbd5e1;
+}
+
+.app.dark-mode .workshop-editor input,
+.app.dark-mode .workshop-editor select,
+.app.dark-mode .workshop-editor textarea {
+  background: #0b1423;
+  border-color: #2b3950;
+  color: #f8fafc;
+}
+
+.app.dark-mode .workshop-post.pinned {
+  background: #10213a;
+  border-color: #294c7c;
+}
+
+.app.dark-mode .workshop-post footer strong {
+  color: #cbd5e1;
+}
+
+.app.dark-mode .access-pill.edit {
+  color: #86efac;
+  border-color: #22543d;
+  background: #10261d;
+}
+
+.app.dark-mode .access-pill.read {
+  color: #93c5fd;
+  border-color: #294c7c;
+  background: #10213a;
+}
+
+@media (max-width: 760px) {
+  .content-standard {
+    padding-top: 76px !important;
+  }
+
+  .standard-page-head {
+    flex-direction: column;
+  }
+
+  .workshop-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workshop-editor-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workshop-post {
+    grid-template-columns: 1fr;
+  }
+
+  .workshop-post-actions {
+    flex-direction: row;
+    align-self: stretch;
+  }
+
+  .workshop-post-actions button {
+    flex: 1;
+  }
+
+  .workshop-post-topline {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
