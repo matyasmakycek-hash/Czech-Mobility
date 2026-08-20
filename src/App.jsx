@@ -11503,6 +11503,682 @@ function WorkshopChannel({ user, role }) {
 ========================================================= */
 
 
+
+function VehicleOrdersChannel({ user, role }) {
+  const canEdit = canEditWorkshop(role);
+  const [orders, setOrders] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [form, setForm] = useState({
+    provozovna_id: "",
+    vyrobce: "",
+    model: "",
+    pocet: 1,
+    cena_ks: "",
+    dodavatel: "",
+    termin_dodani: "",
+    priorita: "BĚŽNÁ",
+    stav: "POPTÁVKA",
+    poznamka: "",
+  });
+
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      provozovna_id: "",
+      vyrobce: "",
+      model: "",
+      pocet: 1,
+      cena_ks: "",
+      dodavatel: "",
+      termin_dodani: "",
+      priorita: "BĚŽNÁ",
+      stav: "POPTÁVKA",
+      poznamka: "",
+    });
+  }
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+
+    const [
+      { data: orderData, error: orderError },
+      { data: branchData, error: branchError },
+    ] = await Promise.all([
+      supabase
+        .from("workshop_vehicle_orders")
+        .select(
+          "id,provozovna_id,vyrobce,model,pocet,cena_ks,dodavatel,termin_dodani,priorita,stav,poznamka,created_by,updated_by,created_at,updated_at"
+        )
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("provozovny")
+        .select("id,kod,nazev")
+        .order("kod", { ascending: true }),
+    ]);
+
+    if (orderError || branchError) {
+      setError(
+        orderError?.message ||
+          branchError?.message ||
+          "Nepodařilo se načíst objednávky vozů."
+      );
+      setLoading(false);
+      return;
+    }
+
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+
+    setOrders(orderData || []);
+    setBranches(
+      (branchData || []).filter((branch) =>
+        allowed.has(String(branch.kod || "").trim().toUpperCase())
+      )
+    );
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadData();
+
+    const channel = supabase
+      .channel("vehicle-orders-channel-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_vehicle_orders",
+        },
+        () => loadData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function saveOrder(e) {
+    e.preventDefault();
+
+    if (!canEdit) return;
+
+    if (!form.provozovna_id) {
+      setError("Vyber provozovnu.");
+      return;
+    }
+
+    if (!form.vyrobce.trim()) {
+      setError("Vyplň výrobce vozu.");
+      return;
+    }
+
+    if (!form.model.trim()) {
+      setError("Vyplň typ / model vozu.");
+      return;
+    }
+
+    const count = Math.max(1, Number(form.pocet) || 1);
+    const price =
+      String(form.cena_ks || "").trim() === ""
+        ? null
+        : Number(String(form.cena_ks).replace(",", "."));
+
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      setError("Cena za jeden vůz musí být platné nezáporné číslo.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      provozovna_id: Number(form.provozovna_id),
+      vyrobce: form.vyrobce.trim(),
+      model: form.model.trim(),
+      pocet: count,
+      cena_ks: price,
+      dodavatel: form.dodavatel.trim() || null,
+      termin_dodani: form.termin_dodani || null,
+      priorita: form.priorita,
+      stav: form.stav,
+      poznamka: form.poznamka.trim() || null,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    const result = editingId
+      ? await supabase
+          .from("workshop_vehicle_orders")
+          .update(payload)
+          .eq("id", editingId)
+      : await supabase.from("workshop_vehicle_orders").insert({
+          ...payload,
+          stav: "POPTÁVKA",
+          created_by: user.id,
+        });
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editingId
+        ? "Objednávka vozu byla upravena."
+        : "Nová objednávka vozu byla vytvořena."
+    );
+    resetForm();
+    await loadData();
+    setSaving(false);
+  }
+
+  function startEdit(order) {
+    if (!canEdit) return;
+
+    setEditingId(order.id);
+    setForm({
+      provozovna_id: order.provozovna_id
+        ? String(order.provozovna_id)
+        : "",
+      vyrobce: order.vyrobce || "",
+      model: order.model || "",
+      pocet: order.pocet || 1,
+      cena_ks: order.cena_ks ?? "",
+      dodavatel: order.dodavatel || "",
+      termin_dodani: order.termin_dodani || "",
+      priorita: order.priorita || "BĚŽNÁ",
+      stav: order.stav || "POPTÁVKA",
+      poznamka: order.poznamka || "",
+    });
+
+    window.setTimeout(() => {
+      document
+        .querySelector(".vehicle-orders-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 30);
+  }
+
+  async function updateStatus(id, stav) {
+    if (!canEdit) return;
+
+    const { error: statusError } = await supabase
+      .from("workshop_vehicle_orders")
+      .update({
+        stav,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (statusError) {
+      setError(statusError.message);
+      return;
+    }
+
+    setSuccess("Stav objednávky vozu byl změněn.");
+    await loadData();
+  }
+
+  async function deleteOrder(id) {
+    if (!canEdit) return;
+
+    if (!window.confirm("Opravdu chceš objednávku vozu smazat?")) {
+      return;
+    }
+
+    const { error: deleteError } = await supabase
+      .from("workshop_vehicle_orders")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editingId === id) resetForm();
+    setSuccess("Objednávka vozu byla smazána.");
+    await loadData();
+  }
+
+  function branchCode(id) {
+    return (
+      branches.find(
+        (branch) => String(branch.id) === String(id)
+      )?.kod || "-"
+    );
+  }
+
+  function formatMoney(value) {
+    if (value == null || value === "") return "—";
+
+    return `${Number(value).toLocaleString("cs-CZ", {
+      maximumFractionDigits: 2,
+    })} Kč`;
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+
+    return new Date(value).toLocaleDateString("cs-CZ", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
+
+  const activeOrders = orders.filter(
+    (order) => !["DODÁNO", "ZRUŠENO"].includes(order.stav)
+  );
+
+  const totalVehicles = orders.reduce(
+    (sum, order) => sum + Number(order.pocet || 0),
+    0
+  );
+
+  const orderedValue = orders
+    .filter((order) =>
+      ["OBJEDNÁNO", "VE VÝROBĚ", "NA CESTĚ", "DODÁNO"].includes(order.stav)
+    )
+    .reduce(
+      (sum, order) =>
+        sum +
+        Number(order.cena_ks || 0) *
+          Number(order.pocet || 0),
+      0
+    );
+
+  return (
+    <div className="standard-page vehicle-orders-page">
+      <header className="standard-page-head">
+        <div>
+          <span className="page-eyebrow">NÁKUP VOZIDEL</span>
+          <h1>Objednávky vozů</h1>
+          <p>
+            Samostatný kanál pro evidenci nových objednávek vozidel.
+            Přístup mají pouze administrátoři a dispečeři.
+          </p>
+        </div>
+
+        <div className="access-pill edit">
+          ADMIN + DISPEČER
+        </div>
+      </header>
+
+      {error && <div className="error-box">{error}</div>}
+      {success && <div className="success-box">{success}</div>}
+
+      <div className="budget-summary-grid">
+        <div className="budget-summary-card">
+          <span>Objednávky</span>
+          <strong>{orders.length}</strong>
+        </div>
+
+        <div className="budget-summary-card">
+          <span>Aktivní objednávky</span>
+          <strong>{activeOrders.length}</strong>
+        </div>
+
+        <div className="budget-summary-card">
+          <span>Celkem vozů</span>
+          <strong>{totalVehicles}</strong>
+        </div>
+
+        <div className="budget-summary-card">
+          <span>Objednáno za</span>
+          <strong>{formatMoney(orderedValue)}</strong>
+        </div>
+      </div>
+
+      <form
+        className="panel vehicle-orders-editor"
+        onSubmit={saveOrder}
+      >
+        <div className="panel-section-head">
+          <div>
+            <span>
+              {editingId ? "ÚPRAVA OBJEDNÁVKY" : "NOVÁ OBJEDNÁVKA"}
+            </span>
+            <h2>
+              {editingId ? "Upravit objednávku vozu" : "Objednat nový vůz"}
+            </h2>
+          </div>
+
+          {editingId && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={resetForm}
+            >
+              Zrušit úpravu
+            </button>
+          )}
+        </div>
+
+        <div className="vehicle-order-grid">
+          <label>
+            <span>Provozovna *</span>
+            <select
+              value={form.provozovna_id}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  provozovna_id: e.target.value,
+                }))
+              }
+            >
+              <option value="">Vyber provozovnu</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={String(branch.id)}>
+                  {branch.kod} · {branch.nazev}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Výrobce *</span>
+            <input
+              value={form.vyrobce}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  vyrobce: e.target.value,
+                }))
+              }
+              placeholder="Např. SOR, Iveco, Mercedes-Benz"
+            />
+          </label>
+
+          <label>
+            <span>Typ / model *</span>
+            <input
+              value={form.model}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  model: e.target.value,
+                }))
+              }
+              placeholder="Např. NS 12, Crossway LE"
+            />
+          </label>
+
+          <label>
+            <span>Počet vozů</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={form.pocet}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  pocet: e.target.value,
+                }))
+              }
+            />
+          </label>
+
+          <label>
+            <span>Cena za vůz</span>
+            <input
+              inputMode="decimal"
+              value={form.cena_ks}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  cena_ks: e.target.value,
+                }))
+              }
+              placeholder="Kč"
+            />
+          </label>
+
+          <label>
+            <span>Dodavatel</span>
+            <input
+              value={form.dodavatel}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  dodavatel: e.target.value,
+                }))
+              }
+              placeholder="Název dodavatele / výrobce"
+            />
+          </label>
+
+          <label>
+            <span>Termín dodání</span>
+            <div className="vehicle-order-date-wrap">
+              <input
+                type="date"
+                value={form.termin_dodani}
+                onChange={(e) =>
+                  setForm((old) => ({
+                    ...old,
+                    termin_dodani: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </label>
+
+          <label>
+            <span>Priorita</span>
+            <select
+              value={form.priorita}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  priorita: e.target.value,
+                }))
+              }
+            >
+              <option value="BĚŽNÁ">Běžná</option>
+              <option value="DŮLEŽITÁ">Důležitá</option>
+              <option value="KRITICKÁ">Kritická</option>
+            </select>
+          </label>
+
+          {editingId && (
+            <label>
+              <span>Stav</span>
+              <select
+                value={form.stav}
+                onChange={(e) =>
+                  setForm((old) => ({
+                    ...old,
+                    stav: e.target.value,
+                  }))
+                }
+              >
+                <option value="POPTÁVKA">Poptávka</option>
+                <option value="SCHVÁLENO">Schváleno</option>
+                <option value="OBJEDNÁNO">Objednáno</option>
+                <option value="VE VÝROBĚ">Ve výrobě</option>
+                <option value="NA CESTĚ">Na cestě</option>
+                <option value="DODÁNO">Dodáno</option>
+                <option value="ZRUŠENO">Zrušeno</option>
+              </select>
+            </label>
+          )}
+
+          <label className="vehicle-order-wide">
+            <span>Poznámka</span>
+            <textarea
+              rows={4}
+              value={form.poznamka}
+              onChange={(e) =>
+                setForm((old) => ({
+                  ...old,
+                  poznamka: e.target.value,
+                }))
+              }
+              placeholder="Výbava, pohon, délka vozu, počet dveří, specifikace..."
+            />
+          </label>
+        </div>
+
+        <div className="part-order-actions">
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={saving}
+          >
+            {saving
+              ? "Ukládám…"
+              : editingId
+              ? "💾 Uložit změny"
+              : "🚌 Vytvořit objednávku vozu"}
+          </button>
+        </div>
+      </form>
+
+      <section className="panel vehicle-orders-list-panel">
+        <div className="panel-section-head">
+          <div>
+            <span>PŘEHLED</span>
+            <h2>Objednané vozy</h2>
+          </div>
+          <span className="workshop-count">{orders.length}</span>
+        </div>
+
+        {loading ? (
+          <div className="empty">Načítám objednávky vozů…</div>
+        ) : orders.length === 0 ? (
+          <div className="empty">
+            Zatím není vytvořena žádná objednávka vozu.
+          </div>
+        ) : (
+          <div className="vehicle-orders-list">
+            {orders.map((order) => {
+              const total =
+                order.cena_ks == null
+                  ? null
+                  : Number(order.cena_ks) *
+                    Number(order.pocet || 1);
+
+              return (
+                <article key={order.id} className="vehicle-order-card">
+                  <div className="vehicle-order-card-main">
+                    <div className="vehicle-order-card-top">
+                      <div className="vehicle-order-badges">
+                        <span className="branch-budget-code">
+                          {branchCode(order.provozovna_id)}
+                        </span>
+
+                        <span
+                          className={`vehicle-order-status status-${String(
+                            order.stav || ""
+                          )
+                            .normalize("NFD")
+                            .replace(/[\u0300-\u036f]/g, "")
+                            .replace(/\s+/g, "-")
+                            .toLowerCase()}`}
+                        >
+                          {order.stav}
+                        </span>
+
+                        <span className="part-priority">
+                          {order.priorita}
+                        </span>
+                      </div>
+
+                      {order.termin_dodani && (
+                        <span className="vehicle-order-delivery">
+                          Dodání: {formatDate(order.termin_dodani)}
+                        </span>
+                      )}
+                    </div>
+
+                    <h3>
+                      {order.vyrobce} {order.model}
+                    </h3>
+
+                    <div className="vehicle-order-meta">
+                      <span>
+                        <strong>Počet:</strong> {order.pocet} ks
+                      </span>
+
+                      {order.dodavatel && (
+                        <span>
+                          <strong>Dodavatel:</strong> {order.dodavatel}
+                        </span>
+                      )}
+
+                      {order.cena_ks != null && (
+                        <span>
+                          <strong>Cena / vůz:</strong>{" "}
+                          {formatMoney(order.cena_ks)}
+                        </span>
+                      )}
+
+                      {total != null && (
+                        <span>
+                          <strong>Celkem:</strong>{" "}
+                          {formatMoney(total)}
+                        </span>
+                      )}
+                    </div>
+
+                    {order.poznamka && (
+                      <p>{order.poznamka}</p>
+                    )}
+                  </div>
+
+                  <div className="vehicle-order-card-actions">
+                    <select
+                      value={order.stav}
+                      onChange={(e) =>
+                        updateStatus(order.id, e.target.value)
+                      }
+                    >
+                      <option value="POPTÁVKA">Poptávka</option>
+                      <option value="SCHVÁLENO">Schváleno</option>
+                      <option value="OBJEDNÁNO">Objednáno</option>
+                      <option value="VE VÝROBĚ">Ve výrobě</option>
+                      <option value="NA CESTĚ">Na cestě</option>
+                      <option value="DODÁNO">Dodáno</option>
+                      <option value="ZRUŠENO">Zrušeno</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => startEdit(order)}
+                    >
+                      ✏️ Upravit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() => deleteOrder(order.id)}
+                    >
+                      Smazat
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function PartOrdersChannel({ user, role }) {
   const canEdit = canEditWorkshop(role);
   const [orders, setOrders] = useState([]);
@@ -13168,6 +13844,16 @@ function App() {
 
             {canViewWorkshop(role) && (
               <button
+                className={page === "vehicleOrders" ? "active" : ""}
+                onClick={() => setPage("vehicleOrders")}
+              >
+                <span>🚌</span>
+                Objednávky vozů
+              </button>
+            )}
+
+            {canViewWorkshop(role) && (
+              <button
                 className={page === "partOrders" ? "active" : ""}
                 onClick={() => setPage("partOrders")}
               >
@@ -13761,6 +14447,14 @@ function App() {
           {page === "workshop" &&
             canViewWorkshop(role) && (
               <WorkshopChannel
+                user={user}
+                role={role}
+              />
+            )}
+
+          {page === "vehicleOrders" &&
+            canViewWorkshop(role) && (
+              <VehicleOrdersChannel
                 user={user}
                 role={role}
               />
@@ -23805,6 +24499,261 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .part-orders-channel .part-order-card:hover {
   border-color: #3a4961;
+}
+
+
+/* =========================================================
+   KANÁL – OBJEDNÁVKY VOZŮ
+========================================================= */
+.vehicle-orders-page .budget-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.vehicle-orders-editor {
+  margin-bottom: 18px;
+}
+
+.vehicle-order-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.vehicle-order-grid label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.vehicle-order-grid input,
+.vehicle-order-grid select,
+.vehicle-order-grid textarea,
+.vehicle-order-card-actions select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dce3ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 11px;
+  color: #0f172a;
+  font: inherit;
+}
+
+.vehicle-order-grid textarea {
+  resize: vertical;
+}
+
+.vehicle-order-wide {
+  grid-column: span 3;
+}
+
+.vehicle-order-date-wrap {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #dce3ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 11px;
+}
+
+.vehicle-order-date-wrap input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.vehicle-orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vehicle-order-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 16px;
+  padding: 16px 17px;
+  border: 1px solid #e5eaf1;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.vehicle-order-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.vehicle-order-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vehicle-order-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .04em;
+}
+
+.vehicle-order-status.status-schvaleno {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.vehicle-order-status.status-objednano {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.vehicle-order-status.status-ve-vyrobe {
+  background: #fefce8;
+  color: #a16207;
+}
+
+.vehicle-order-status.status-na-ceste {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vehicle-order-status.status-dodano {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.vehicle-order-status.status-zruseno {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.vehicle-order-delivery {
+  color: #64748b;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.vehicle-order-card h3 {
+  margin: 10px 0 8px;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.vehicle-order-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 15px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.vehicle-order-meta strong {
+  color: #334155;
+}
+
+.vehicle-order-card p {
+  margin: 11px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.vehicle-order-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  gap: 7px;
+}
+
+.app.dark-mode .vehicle-order-grid label > span {
+  color: #cbd5e1;
+}
+
+.app.dark-mode .vehicle-order-grid input,
+.app.dark-mode .vehicle-order-grid select,
+.app.dark-mode .vehicle-order-grid textarea,
+.app.dark-mode .vehicle-order-date-wrap,
+.app.dark-mode .vehicle-order-card-actions select,
+.app.dark-mode .vehicle-order-card {
+  background: #0b1423;
+  border-color: #2b3950;
+  color: #f8fafc;
+}
+
+.app.dark-mode .vehicle-order-date-wrap input {
+  background: transparent;
+}
+
+.app.dark-mode .vehicle-order-card h3,
+.app.dark-mode .vehicle-order-meta strong {
+  color: #f8fafc;
+}
+
+.app.dark-mode .vehicle-order-meta,
+.app.dark-mode .vehicle-order-card p,
+.app.dark-mode .vehicle-order-delivery {
+  color: #9aa9bd;
+}
+
+@media (max-width: 1000px) {
+  .vehicle-orders-page .budget-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vehicle-order-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vehicle-order-wide {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 650px) {
+  .vehicle-orders-page .budget-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vehicle-order-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vehicle-order-wide {
+    grid-column: span 1;
+  }
+
+  .vehicle-order-card {
+    grid-template-columns: 1fr;
+  }
+
+  .vehicle-order-card-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .vehicle-order-card-actions select,
+  .vehicle-order-card-actions button {
+    flex: 1 1 135px;
+  }
+
+  .vehicle-order-card-top {
+    flex-direction: column;
+  }
 }
 
 `;
