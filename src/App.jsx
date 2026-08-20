@@ -6541,6 +6541,7 @@ function ShiftReservations({
 
   const [editingReservation, setEditingReservation] = useState(null);
   const [reservationView, setReservationView] = useState("upcoming");
+  const [reservationSection, setReservationSection] = useState("new");
 
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [loadingConnections, setLoadingConnections] = useState(false);
@@ -6903,6 +6904,7 @@ function ShiftReservations({
       const targetCourseId = String(initialTarget.courseId);
 
       setEditingReservation(null);
+      setReservationSection("new");
       setDate(targetDate);
       setBranchId(targetBranchId);
       setCourseId("");
@@ -7120,6 +7122,7 @@ function ShiftReservations({
 
     setError("");
     setSuccess("");
+    setReservationSection("new");
 
     const { data: reservationLinks, error: linksError } =
       await supabase
@@ -7265,6 +7268,8 @@ function ShiftReservations({
       loadReservations(),
     ]);
 
+    setReservationView("upcoming");
+    setReservationSection("overview");
     setSaving(false);
   }
 
@@ -7419,44 +7424,80 @@ function ShiftReservations({
         </div>
       </div>
 
-      <div className="reservation-overview-grid">
-        <div className="reservation-overview-card">
-          <span>📅</span>
-          <div>
-            <small>Dnes</small>
-            <strong>{todayCount}</strong>
-          </div>
-        </div>
+      <div className="reservation-main-tabs">
+        <button
+          type="button"
+          className={reservationSection === "new" ? "active" : ""}
+          onClick={() => setReservationSection("new")}
+        >
+          <span className="reservation-main-tab-icon">
+            {editingReservation ? "✏️" : "＋"}
+          </span>
+          <span>
+            <strong>
+              {editingReservation ? "Upravit rezervaci" : "Nová rezervace"}
+            </strong>
+            <small>Vyber den, turnus a spoje</small>
+          </span>
+        </button>
 
-        <div className="reservation-overview-card">
-          <span>→</span>
-          <div>
-            <small>Nadcházející</small>
-            <strong>{upcomingCount}</strong>
-          </div>
-        </div>
-
-        <div className="reservation-overview-card">
-          <span>⏱</span>
-          <div>
-            <small>Jízda dopředu</small>
-            <strong>{upcomingMinutes} min</strong>
-          </div>
-        </div>
-
-        <div className="reservation-overview-card">
-          <span>✓</span>
-          <div>
-            <small>Celkem rezervací</small>
-            <strong>{reservations.length}</strong>
-          </div>
-        </div>
+        <button
+          type="button"
+          className={reservationSection === "overview" ? "active" : ""}
+          onClick={() => setReservationSection("overview")}
+        >
+          <span className="reservation-main-tab-icon">📋</span>
+          <span>
+            <strong>
+              {manage ? "Přehled rezervací" : "Moje rezervace"}
+            </strong>
+            <small>
+              {upcomingCount} nadcházejících · {reservations.length} celkem
+            </small>
+          </span>
+        </button>
       </div>
+
+      {reservationSection === "overview" && (
+        <div className="reservation-overview-grid">
+          <div className="reservation-overview-card">
+            <span>📅</span>
+            <div>
+              <small>Dnes</small>
+              <strong>{todayCount}</strong>
+            </div>
+          </div>
+
+          <div className="reservation-overview-card">
+            <span>→</span>
+            <div>
+              <small>Nadcházející</small>
+              <strong>{upcomingCount}</strong>
+            </div>
+          </div>
+
+          <div className="reservation-overview-card">
+            <span>⏱</span>
+            <div>
+              <small>Jízda dopředu</small>
+              <strong>{upcomingMinutes} min</strong>
+            </div>
+          </div>
+
+          <div className="reservation-overview-card">
+            <span>✓</span>
+            <div>
+              <small>Celkem rezervací</small>
+              <strong>{reservations.length}</strong>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error-box">{error}</div>}
       {success && <div className="success-box">{success}</div>}
 
-      {editingReservation && (
+      {reservationSection === "new" && editingReservation && (
         <div className="reservation-edit-banner">
           <div className="reservation-edit-banner-icon">✏️</div>
 
@@ -7489,7 +7530,62 @@ function ShiftReservations({
         </div>
       )}
 
-      <div
+      {reservationSection === "new" && (
+        <>
+          <div className="reservation-steps">
+            <div className="reservation-step done">
+              <span>1</span>
+              <div>
+                <strong>Den a provozovna</strong>
+                <small>{date && branchId ? "Vybráno" : "Vyber údaje"}</small>
+              </div>
+            </div>
+
+            <div
+              className={[
+                "reservation-step",
+                courseId ? "done" : branchId ? "active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              <span>2</span>
+              <div>
+                <strong>Turnus</strong>
+                <small>
+                  {selectedCourse?.nazev ||
+                    (branchId ? "Vyber turnus" : "Čeká na provozovnu")}
+                </small>
+              </div>
+            </div>
+
+            <div
+              className={[
+                "reservation-step",
+                selectedMinutes >= 50
+                  ? "done"
+                  : courseId
+                  ? "active"
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              <span>3</span>
+              <div>
+                <strong>Spoje a potvrzení</strong>
+                <small>
+                  {selectedRows.length
+                    ? `${selectedMinutes} min · ${selectedRows.length} spojů`
+                    : courseId
+                    ? "Vyber souvislý úsek"
+                    : "Čeká na turnus"}
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div
         className={[
           "reservation-builder",
           "panel",
@@ -7639,6 +7735,21 @@ function ShiftReservations({
               >
                 Vymazat výběr
               </button>
+            </div>
+          </div>
+
+          <div className="reservation-current-context">
+            <div>
+              <span>Datum</span>
+              <strong>{formatShortDate(date)}</strong>
+            </div>
+            <div>
+              <span>Provozovna</span>
+              <strong>{branchById(branchId)?.nazev || "—"}</strong>
+            </div>
+            <div>
+              <span>Turnus</span>
+              <strong>{selectedCourse?.nazev || "—"}</strong>
             </div>
           </div>
 
@@ -7816,6 +7927,10 @@ function ShiftReservations({
         </div>
       )}
 
+        </>
+      )}
+
+      {reservationSection === "overview" && (
       <div className="reservation-list-panel panel">
         <div className="reservation-list-head">
           <div>
@@ -7830,14 +7945,24 @@ function ShiftReservations({
             </p>
           </div>
 
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={loadReservations}
-            disabled={loadingReservations}
-          >
-            ↻ Obnovit
-          </button>
+          <div className="reservation-list-head-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setReservationSection("new")}
+            >
+              ＋ Nová rezervace
+            </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={loadReservations}
+              disabled={loadingReservations}
+            >
+              ↻ Obnovit
+            </button>
+          </div>
         </div>
 
         <div className="reservation-view-tabs">
@@ -8055,6 +8180,7 @@ function ShiftReservations({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -24889,6 +25015,299 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .vehicle-budget-orders {
   border-color: #243147;
+}
+
+
+/* =========================================================
+   REZERVACE SMĚN V3 – JASNÉ SEKCE A POSTUP
+========================================================= */
+.reservation-main-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.reservation-main-tabs > button {
+  appearance: none;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid #dce5ef;
+  border-radius: 14px;
+  background: #fff;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(15,23,42,.035);
+  transition:
+    border-color .15s ease,
+    background .15s ease,
+    box-shadow .15s ease,
+    transform .15s ease;
+}
+
+.reservation-main-tabs > button:hover {
+  border-color: #b9c8db;
+  transform: translateY(-1px);
+}
+
+.reservation-main-tabs > button.active {
+  border-color: #93c5fd;
+  background: #f5f9ff;
+  box-shadow: 0 6px 18px rgba(37,99,235,.08);
+}
+
+.reservation-main-tab-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #eef2f7;
+  color: #475569;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.reservation-main-tabs > button.active .reservation-main-tab-icon {
+  background: #2563eb;
+  color: #fff;
+}
+
+.reservation-main-tabs strong,
+.reservation-main-tabs small {
+  display: block;
+}
+
+.reservation-main-tabs strong {
+  color: #1e293b;
+  font-size: 11px;
+}
+
+.reservation-main-tabs small {
+  margin-top: 3px;
+  color: #7b8799;
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.reservation-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.reservation-step {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #dde5ef;
+  border-radius: 11px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reservation-step > span {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e8edf4;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.reservation-step strong,
+.reservation-step small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservation-step strong {
+  color: #334155;
+  font-size: 8px;
+}
+
+.reservation-step small {
+  margin-top: 2px;
+  color: #8a97aa;
+  font-size: 6.5px;
+}
+
+.reservation-step.active {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.reservation-step.active > span {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.reservation-step.done {
+  border-color: #bbf7d0;
+  background: #f7fdf9;
+}
+
+.reservation-step.done > span {
+  background: #16a34a;
+  color: #fff;
+}
+
+.reservation-current-context {
+  display: grid;
+  grid-template-columns: 150px minmax(160px, .8fr) minmax(130px, .7fr);
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.reservation-current-context > div {
+  min-width: 0;
+  padding: 4px 7px;
+}
+
+.reservation-current-context span,
+.reservation-current-context strong {
+  display: block;
+}
+
+.reservation-current-context span {
+  color: #8b98aa;
+  font-size: 6px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.reservation-current-context strong {
+  margin-top: 2px;
+  color: #263247;
+  font-size: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservation-list-head-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.reservation-list-panel {
+  min-height: 260px;
+}
+
+.reservation-list-panel .reservation-view-tabs {
+  margin-top: 2px;
+}
+
+/* dark */
+.app.dark-mode .reservation-main-tabs > button,
+.app.dark-mode .reservation-step {
+  background: #111927;
+  border-color: #29364a;
+}
+
+.app.dark-mode .reservation-main-tabs > button.active {
+  background: #14243a;
+  border-color: #315b8e;
+}
+
+.app.dark-mode .reservation-main-tabs strong,
+.app.dark-mode .reservation-step strong {
+  color: #edf3fb;
+}
+
+.app.dark-mode .reservation-main-tabs small,
+.app.dark-mode .reservation-step small {
+  color: #8e9caf;
+}
+
+.app.dark-mode .reservation-main-tab-icon,
+.app.dark-mode .reservation-step > span {
+  background: #263449;
+  color: #b1bfd1;
+}
+
+.app.dark-mode .reservation-main-tabs > button.active .reservation-main-tab-icon {
+  background: #2563eb;
+  color: #fff;
+}
+
+.app.dark-mode .reservation-step.active {
+  background: #12243d;
+  border-color: #294f80;
+}
+
+.app.dark-mode .reservation-step.done {
+  background: #10271b;
+  border-color: #28583b;
+}
+
+.app.dark-mode .reservation-step.done > span {
+  background: #15803d;
+  color: #fff;
+}
+
+.app.dark-mode .reservation-current-context {
+  background: #101827;
+  border-color: #29364a;
+}
+
+.app.dark-mode .reservation-current-context span {
+  color: #8290a4;
+}
+
+.app.dark-mode .reservation-current-context strong {
+  color: #edf3fb;
+}
+
+@media (max-width: 700px) {
+  .reservation-main-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-current-context {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-list-head-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reservation-list-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 420px) {
+  .reservation-list-head-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 `;
