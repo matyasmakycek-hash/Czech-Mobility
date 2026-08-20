@@ -12875,6 +12875,7 @@ function BranchBudget({ role }) {
   const [branches, setBranches] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [vehicleOrders, setVehicleOrders] = useState([]);
   const [budgetDrafts, setBudgetDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
@@ -12889,6 +12890,7 @@ function BranchBudget({ role }) {
       { data: branchData, error: branchError },
       { data: budgetData, error: budgetError },
       { data: orderData, error: orderError },
+      { data: vehicleOrderData, error: vehicleOrderError },
     ] = await Promise.all([
       supabase
         .from("provozovny")
@@ -12903,13 +12905,25 @@ function BranchBudget({ role }) {
           "id,provozovna_id,nazev_dilu,mnozstvi,cena_ks,stav,created_at"
         )
         .in("stav", ["OBJEDNÁNO", "NA CESTĚ", "DORUČENO"]),
+      supabase
+        .from("workshop_vehicle_orders")
+        .select(
+          "id,provozovna_id,vyrobce,model,pocet,cena_ks,stav,created_at"
+        )
+        .in("stav", ["OBJEDNÁNO", "VE VÝROBĚ", "NA CESTĚ", "DODÁNO"]),
     ]);
 
-    if (branchError || budgetError || orderError) {
+    if (
+      branchError ||
+      budgetError ||
+      orderError ||
+      vehicleOrderError
+    ) {
       setError(
         branchError?.message ||
           budgetError?.message ||
           orderError?.message ||
+          vehicleOrderError?.message ||
           "Nepodařilo se načíst rozpočet."
       );
       setLoading(false);
@@ -12924,6 +12938,7 @@ function BranchBudget({ role }) {
     setBranches(filteredBranches);
     setBudgets(budgetData || []);
     setOrders(orderData || []);
+    setVehicleOrders(vehicleOrderData || []);
 
     const drafts = {};
     filteredBranches.forEach((branch) => {
@@ -12961,6 +12976,15 @@ function BranchBudget({ role }) {
         },
         () => loadBudgetData()
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_vehicle_orders",
+        },
+        () => loadBudgetData()
+      )
       .subscribe();
 
     return () => {
@@ -12968,7 +12992,7 @@ function BranchBudget({ role }) {
     };
   }, []);
 
-  function spentForBranch(branchId) {
+  function partSpentForBranch(branchId) {
     return orders
       .filter(
         (order) =>
@@ -12982,6 +13006,29 @@ function BranchBudget({ role }) {
             Number(order.mnozstvi || 0),
         0
       );
+  }
+
+  function vehicleSpentForBranch(branchId) {
+    return vehicleOrders
+      .filter(
+        (order) =>
+          String(order.provozovna_id) === String(branchId) &&
+          order.cena_ks != null
+      )
+      .reduce(
+        (sum, order) =>
+          sum +
+          Number(order.cena_ks || 0) *
+            Number(order.pocet || 0),
+        0
+      );
+  }
+
+  function spentForBranch(branchId) {
+    return (
+      partSpentForBranch(branchId) +
+      vehicleSpentForBranch(branchId)
+    );
   }
 
   function formatMoney(value) {
@@ -13052,9 +13099,8 @@ function BranchBudget({ role }) {
           <span className="page-eyebrow">FINANCE DÍLNY</span>
           <h1>Rozpočet provozoven</h1>
           <p>
-            Objednané díly se automaticky započítávají podle provozovny.
-            Požadavky bez stavu Objednáno / Na cestě / Doručeno se zatím
-            do čerpání nepočítají.
+            Objednané díly i nové vozy se automaticky odečítají z rozpočtu
+            příslušné provozovny. U vozů se počítá cena za vůz × počet kusů.
           </p>
         </div>
 
@@ -13093,7 +13139,9 @@ function BranchBudget({ role }) {
                 String(item.provozovna_id) === String(branch.id)
             );
             const budgetAmount = Number(budget?.castka || 0);
-            const spent = spentForBranch(branch.id);
+            const partSpent = partSpentForBranch(branch.id);
+            const vehicleSpent = vehicleSpentForBranch(branch.id);
+            const spent = partSpent + vehicleSpent;
             const remaining = budgetAmount - spent;
             const ratio =
               budgetAmount > 0
@@ -13101,6 +13149,17 @@ function BranchBudget({ role }) {
                 : 0;
 
             const branchOrders = orders
+              .filter(
+                (order) =>
+                  String(order.provozovna_id) === String(branch.id)
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.created_at).getTime() -
+                  new Date(a.created_at).getTime()
+              );
+
+            const branchVehicleOrders = vehicleOrders
               .filter(
                 (order) =>
                   String(order.provozovna_id) === String(branch.id)
@@ -13126,18 +13185,30 @@ function BranchBudget({ role }) {
                   </div>
                 </div>
 
-                <div className="branch-budget-numbers">
+                <div className="branch-budget-numbers budget-five">
                   <div>
                     <span>Rozpočet</span>
                     <strong>{formatMoney(budgetAmount)}</strong>
                   </div>
                   <div>
-                    <span>Čerpáno</span>
+                    <span>Díly</span>
+                    <strong>{formatMoney(partSpent)}</strong>
+                  </div>
+                  <div>
+                    <span>Vozy</span>
+                    <strong>{formatMoney(vehicleSpent)}</strong>
+                  </div>
+                  <div>
+                    <span>Čerpáno celkem</span>
                     <strong>{formatMoney(spent)}</strong>
                   </div>
                   <div>
                     <span>Využití</span>
-                    <strong>{budgetAmount > 0 ? `${ratio.toFixed(0)} %` : "—"}</strong>
+                    <strong>
+                      {budgetAmount > 0
+                        ? `${ratio.toFixed(0)} %`
+                        : "—"}
+                    </strong>
                   </div>
                 </div>
 
@@ -13180,9 +13251,39 @@ function BranchBudget({ role }) {
                   </div>
                 )}
 
+                <div className="budget-order-list vehicle-budget-orders">
+                  <div className="budget-order-list-head">
+                    <strong>🚌 Objednané vozy</strong>
+                    <span>{branchVehicleOrders.length}</span>
+                  </div>
+
+                  {branchVehicleOrders.length === 0 ? (
+                    <small>Žádné objednané vozy.</small>
+                  ) : (
+                    branchVehicleOrders.slice(0, 8).map((order) => (
+                      <div key={order.id} className="budget-order-row">
+                        <div>
+                          <strong>
+                            {order.vyrobce} {order.model}
+                          </strong>
+                          <small>
+                            {order.pocet} ks · {order.stav}
+                          </small>
+                        </div>
+                        <strong>
+                          {formatMoney(
+                            Number(order.cena_ks || 0) *
+                              Number(order.pocet || 0)
+                          )}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+
                 <div className="budget-order-list">
                   <div className="budget-order-list-head">
-                    <strong>Objednané díly</strong>
+                    <strong>🛒 Objednané díly</strong>
                     <span>{branchOrders.length}</span>
                   </div>
 
@@ -24754,6 +24855,40 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .vehicle-order-card-top {
     flex-direction: column;
   }
+}
+
+
+/* =========================================================
+   ROZPOČET – OBJEDNÁVKY VOZŮ
+========================================================= */
+.branch-budget-numbers.budget-five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.vehicle-budget-orders {
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.vehicle-budget-orders + .budget-order-list {
+  margin-top: 10px;
+}
+
+@media (max-width: 1150px) {
+  .branch-budget-numbers.budget-five {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .branch-budget-numbers.budget-five {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app.dark-mode .vehicle-budget-orders {
+  border-color: #243147;
 }
 
 `;
