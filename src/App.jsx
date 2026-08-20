@@ -10399,6 +10399,8 @@ function WorkshopChannel({ user, role }) {
   const canEdit = canEditWorkshop(role);
   const [posts, setPosts] = useState([]);
   const [partOrders, setPartOrders] = useState([]);
+  const [workshopVehicles, setWorkshopVehicles] = useState([]);
+  const [loadingWorkshopVehicles, setLoadingWorkshopVehicles] = useState(false);
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -10449,6 +10451,34 @@ function WorkshopChannel({ user, role }) {
       priorita: "BĚŽNÁ",
       stav: "POŽADAVEK",
     });
+  }
+
+  async function loadWorkshopVehicles() {
+    setLoadingWorkshopVehicles(true);
+
+    const { data, error: vehicleError } = await supabase
+      .from("vozy")
+      .select("id,cislo,vyrobce,typ,spz")
+      .order("cislo", { ascending: true });
+
+    if (vehicleError) {
+      console.error("WORKSHOP VEHICLES:", vehicleError);
+      setWorkshopVehicles([]);
+      setLoadingWorkshopVehicles(false);
+      return;
+    }
+
+    setWorkshopVehicles(
+      (data || []).sort((a, b) =>
+        String(a.cislo || "").localeCompare(
+          String(b.cislo || ""),
+          "cs",
+          { numeric: true, sensitivity: "base" }
+        )
+      )
+    );
+
+    setLoadingWorkshopVehicles(false);
   }
 
   async function loadPartOrders() {
@@ -10667,6 +10697,7 @@ function WorkshopChannel({ user, role }) {
   useEffect(() => {
     loadPosts();
     loadPartOrders();
+    loadWorkshopVehicles();
 
     const channel = supabase
       .channel("workshop-channel-live")
@@ -10980,6 +11011,7 @@ function WorkshopChannel({ user, role }) {
             <label>
               <span>Vůz</span>
               <input
+                list="workshop-vehicle-options"
                 value={partForm.vuz}
                 onChange={(e) =>
                   setPartForm((old) => ({
@@ -10987,8 +11019,32 @@ function WorkshopChannel({ user, role }) {
                     vuz: e.target.value,
                   }))
                 }
-                placeholder="Např. 3020"
+                placeholder={
+                  loadingWorkshopVehicles
+                    ? "Načítám vozy..."
+                    : "Napiš např. 332"
+                }
+                autoComplete="off"
               />
+              <datalist id="workshop-vehicle-options">
+                {workshopVehicles.map((vehicle) => (
+                  <option
+                    key={vehicle.id}
+                    value={String(vehicle.cislo || "")}
+                  >
+                    {[
+                      vehicle.vyrobce,
+                      vehicle.typ,
+                      vehicle.spz,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </option>
+                ))}
+              </datalist>
+              <small className="vehicle-autocomplete-help">
+                Začni psát číslo vozu — třeba 332 — a nabídnou se odpovídající vozy.
+              </small>
             </label>
 
             <label>
@@ -11087,6 +11143,37 @@ function WorkshopChannel({ user, role }) {
               />
             </label>
           </div>
+
+          {partForm.vuz &&
+            workshopVehicles.some(
+              (vehicle) =>
+                String(vehicle.cislo || "") ===
+                String(partForm.vuz || "")
+            ) && (
+              <div className="selected-workshop-vehicle">
+                {(() => {
+                  const vehicle = workshopVehicles.find(
+                    (item) =>
+                      String(item.cislo || "") ===
+                      String(partForm.vuz || "")
+                  );
+
+                  return (
+                    <>
+                      <span className="selected-workshop-vehicle-icon">🚌</span>
+                      <div>
+                        <strong>Vybraný vůz {vehicle?.cislo}</strong>
+                        <small>
+                          {[vehicle?.vyrobce, vehicle?.typ, vehicle?.spz]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </small>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
           <div className="part-order-actions">
             {editingPartOrderId && (
@@ -22223,6 +22310,67 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .part-order-actions {
     flex-direction: column;
   }
+}
+
+
+/* =========================================================
+   DÍLNA – VYHLEDÁVACÍ VÝBĚR VOZU
+========================================================= */
+.vehicle-autocomplete-help {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.selected-workshop-vehicle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.selected-workshop-vehicle-icon {
+  flex: 0 0 auto;
+  font-size: 18px;
+}
+
+.selected-workshop-vehicle strong,
+.selected-workshop-vehicle small {
+  display: block;
+}
+
+.selected-workshop-vehicle strong {
+  color: #1e40af;
+  font-size: 11px;
+}
+
+.selected-workshop-vehicle small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 9px;
+}
+
+.app.dark-mode .vehicle-autocomplete-help {
+  color: #91a3bc;
+}
+
+.app.dark-mode .selected-workshop-vehicle {
+  background: #10213a;
+  border-color: #294c7c;
+}
+
+.app.dark-mode .selected-workshop-vehicle strong {
+  color: #bfdbfe;
+}
+
+.app.dark-mode .selected-workshop-vehicle small {
+  color: #91a3bc;
 }
 
 `;
