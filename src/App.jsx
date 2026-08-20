@@ -10398,17 +10398,31 @@ function AuditLog() {
 function WorkshopChannel({ user, role }) {
   const canEdit = canEditWorkshop(role);
   const [posts, setPosts] = useState([]);
+  const [partOrders, setPartOrders] = useState([]);
   const [profiles, setProfiles] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [editingPartOrderId, setEditingPartOrderId] = useState(null);
   const [form, setForm] = useState({
     nadpis: "",
     obsah: "",
     priorita: "BĚŽNÁ",
     pripnuto: false,
+  });
+  const [partForm, setPartForm] = useState({
+    nazev_dilu: "",
+    katalogove_cislo: "",
+    mnozstvi: 1,
+    vuz: "",
+    dodavatel: "",
+    odkaz: "",
+    cena_ks: "",
+    poznamka: "",
+    priorita: "BĚŽNÁ",
+    stav: "POŽADAVEK",
   });
 
   function resetForm() {
@@ -10419,6 +10433,187 @@ function WorkshopChannel({ user, role }) {
       priorita: "BĚŽNÁ",
       pripnuto: false,
     });
+  }
+
+  function resetPartForm() {
+    setEditingPartOrderId(null);
+    setPartForm({
+      nazev_dilu: "",
+      katalogove_cislo: "",
+      mnozstvi: 1,
+      vuz: "",
+      dodavatel: "",
+      odkaz: "",
+      cena_ks: "",
+      poznamka: "",
+      priorita: "BĚŽNÁ",
+      stav: "POŽADAVEK",
+    });
+  }
+
+  async function loadPartOrders() {
+    const { data, error: orderError } = await supabase
+      .from("workshop_part_orders")
+      .select(
+        "id,nazev_dilu,katalogove_cislo,mnozstvi,vuz,dodavatel,odkaz,cena_ks,poznamka,priorita,stav,created_by,updated_by,created_at,updated_at"
+      )
+      .order("created_at", { ascending: false });
+
+    if (orderError) {
+      setError(orderError.message);
+      setPartOrders([]);
+      return [];
+    }
+
+    const rows = data || [];
+    setPartOrders(rows);
+    return rows;
+  }
+
+  async function savePartOrder(e) {
+    e.preventDefault();
+
+    if (!partForm.nazev_dilu.trim()) {
+      setError("Vyplň název dílu.");
+      return;
+    }
+
+    const quantity = Math.max(1, Number(partForm.mnozstvi) || 1);
+    const price =
+      String(partForm.cena_ks || "").trim() === ""
+        ? null
+        : Number(String(partForm.cena_ks).replace(",", "."));
+
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      setError("Cena za kus musí být platné nezáporné číslo.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    const payload = {
+      nazev_dilu: partForm.nazev_dilu.trim(),
+      katalogove_cislo: partForm.katalogove_cislo.trim() || null,
+      mnozstvi: quantity,
+      vuz: partForm.vuz.trim() || null,
+      dodavatel: partForm.dodavatel.trim() || null,
+      odkaz: partForm.odkaz.trim() || null,
+      cena_ks: price,
+      poznamka: partForm.poznamka.trim() || null,
+      priorita: partForm.priorita,
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    let result;
+
+    if (editingPartOrderId) {
+      if (!canEdit) {
+        setError("Objednávku může upravovat pouze administrátor.");
+        setSaving(false);
+        return;
+      }
+
+      result = await supabase
+        .from("workshop_part_orders")
+        .update({
+          ...payload,
+          stav: partForm.stav,
+        })
+        .eq("id", editingPartOrderId);
+    } else {
+      result = await supabase
+        .from("workshop_part_orders")
+        .insert({
+          ...payload,
+          stav: "POŽADAVEK",
+          created_by: user.id,
+        });
+    }
+
+    if (result.error) {
+      setError(result.error.message);
+      setSaving(false);
+      return;
+    }
+
+    setSuccess(
+      editingPartOrderId
+        ? "Objednávka dílu byla upravena."
+        : "Požadavek na díl byl vytvořen."
+    );
+    resetPartForm();
+    await loadPartOrders();
+    setSaving(false);
+  }
+
+  function editPartOrder(order) {
+    if (!canEdit) return;
+
+    setEditingPartOrderId(order.id);
+    setPartForm({
+      nazev_dilu: order.nazev_dilu || "",
+      katalogove_cislo: order.katalogove_cislo || "",
+      mnozstvi: order.mnozstvi || 1,
+      vuz: order.vuz || "",
+      dodavatel: order.dodavatel || "",
+      odkaz: order.odkaz || "",
+      cena_ks: order.cena_ks ?? "",
+      poznamka: order.poznamka || "",
+      priorita: order.priorita || "BĚŽNÁ",
+      stav: order.stav || "POŽADAVEK",
+    });
+
+    window.setTimeout(() => {
+      document
+        .querySelector(".part-order-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 30);
+  }
+
+  async function updatePartOrderStatus(id, stav) {
+    if (!canEdit) return;
+
+    const { error: statusError } = await supabase
+      .from("workshop_part_orders")
+      .update({
+        stav,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (statusError) {
+      setError(statusError.message);
+      return;
+    }
+
+    setSuccess("Stav objednávky byl změněn.");
+    await loadPartOrders();
+  }
+
+  async function deletePartOrder(id) {
+    if (!canEdit) return;
+
+    if (!window.confirm("Opravdu chceš objednávku dílu smazat?")) {
+      return;
+    }
+
+    const { error: deleteError } = await supabase
+      .from("workshop_part_orders")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editingPartOrderId === id) resetPartForm();
+    setSuccess("Objednávka dílu byla smazána.");
+    await loadPartOrders();
   }
 
   async function loadPosts() {
@@ -10471,6 +10666,7 @@ function WorkshopChannel({ user, role }) {
 
   useEffect(() => {
     loadPosts();
+    loadPartOrders();
 
     const channel = supabase
       .channel("workshop-channel-live")
@@ -10482,6 +10678,15 @@ function WorkshopChannel({ user, role }) {
           table: "workshop_channel",
         },
         () => loadPosts()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "workshop_part_orders",
+        },
+        () => loadPartOrders()
       )
       .subscribe();
 
@@ -10713,6 +10918,316 @@ function WorkshopChannel({ user, role }) {
           </div>
         </form>
       )}
+
+      <section className="panel part-orders-panel">
+        <div className="panel-section-head">
+          <div>
+            <span>OBJEDNÁVKY DÍLŮ</span>
+            <h2>Díly a materiál</h2>
+          </div>
+          <span className="workshop-count">{partOrders.length}</span>
+        </div>
+
+        <form
+          className="part-order-editor"
+          onSubmit={savePartOrder}
+        >
+          <div className="part-order-grid">
+            <label className="part-order-wide">
+              <span>Název dílu *</span>
+              <input
+                value={partForm.nazev_dilu}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    nazev_dilu: e.target.value,
+                  }))
+                }
+                placeholder="Např. brzdové destičky"
+              />
+            </label>
+
+            <label>
+              <span>Katalogové číslo</span>
+              <input
+                value={partForm.katalogove_cislo}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    katalogove_cislo: e.target.value,
+                  }))
+                }
+                placeholder="OEM / SKU"
+              />
+            </label>
+
+            <label>
+              <span>Množství</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={partForm.mnozstvi}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    mnozstvi: e.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Vůz</span>
+              <input
+                value={partForm.vuz}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    vuz: e.target.value,
+                  }))
+                }
+                placeholder="Např. 3020"
+              />
+            </label>
+
+            <label>
+              <span>Dodavatel</span>
+              <input
+                value={partForm.dodavatel}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    dodavatel: e.target.value,
+                  }))
+                }
+                placeholder="Název dodavatele"
+              />
+            </label>
+
+            <label>
+              <span>Cena / ks</span>
+              <input
+                inputMode="decimal"
+                value={partForm.cena_ks}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    cena_ks: e.target.value,
+                  }))
+                }
+                placeholder="Kč"
+              />
+            </label>
+
+            <label>
+              <span>Priorita</span>
+              <select
+                value={partForm.priorita}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    priorita: e.target.value,
+                  }))
+                }
+              >
+                <option value="BĚŽNÁ">Běžná</option>
+                <option value="DŮLEŽITÁ">Důležitá</option>
+                <option value="KRITICKÁ">Kritická</option>
+              </select>
+            </label>
+
+            {editingPartOrderId && canEdit && (
+              <label>
+                <span>Stav</span>
+                <select
+                  value={partForm.stav}
+                  onChange={(e) =>
+                    setPartForm((old) => ({
+                      ...old,
+                      stav: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="POŽADAVEK">Požadavek</option>
+                  <option value="OBJEDNÁNO">Objednáno</option>
+                  <option value="NA CESTĚ">Na cestě</option>
+                  <option value="DORUČENO">Doručeno</option>
+                  <option value="ZRUŠENO">Zrušeno</option>
+                </select>
+              </label>
+            )}
+
+            <label className="part-order-wide">
+              <span>Odkaz na díl</span>
+              <input
+                value={partForm.odkaz}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    odkaz: e.target.value,
+                  }))
+                }
+                placeholder="https://..."
+              />
+            </label>
+
+            <label className="part-order-wide">
+              <span>Poznámka</span>
+              <textarea
+                rows={3}
+                value={partForm.poznamka}
+                onChange={(e) =>
+                  setPartForm((old) => ({
+                    ...old,
+                    poznamka: e.target.value,
+                  }))
+                }
+                placeholder="Proč je díl potřeba, specifikace, termín..."
+              />
+            </label>
+          </div>
+
+          <div className="part-order-actions">
+            {editingPartOrderId && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={resetPartForm}
+              >
+                Zrušit úpravu
+              </button>
+            )}
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={saving}
+            >
+              {saving
+                ? "Ukládám…"
+                : editingPartOrderId
+                ? "💾 Uložit objednávku"
+                : "🛒 Vytvořit požadavek na díl"}
+            </button>
+          </div>
+
+          {!canEdit && (
+            <small className="part-order-help">
+              Jako dispečer můžeš vytvořit požadavek. Další úpravy a změny
+              stavu provádí administrátor.
+            </small>
+          )}
+        </form>
+
+        <div className="part-orders-list">
+          {partOrders.length === 0 ? (
+            <div className="empty">Zatím není objednaný žádný díl.</div>
+          ) : (
+            partOrders.map((order) => {
+              const total =
+                order.cena_ks == null
+                  ? null
+                  : Number(order.cena_ks) * Number(order.mnozstvi || 1);
+
+              return (
+                <article key={order.id} className="part-order-card">
+                  <div className="part-order-main">
+                    <div className="part-order-top">
+                      <div>
+                        <span
+                          className={`part-status status-${String(order.stav || "")
+                            .normalize("NFD")
+                            .replace(/[\\u0300-\\u036f]/g, "")
+                            .replace(/\s+/g, "-")
+                            .toLowerCase()}`}
+                        >
+                          {order.stav}
+                        </span>
+                        <span className="part-priority">
+                          {order.priorita}
+                        </span>
+                      </div>
+                      <time>{formatDate(order.updated_at || order.created_at)}</time>
+                    </div>
+
+                    <h3>{order.nazev_dilu}</h3>
+
+                    <div className="part-order-meta">
+                      <span><strong>Množství:</strong> {order.mnozstvi} ks</span>
+                      {order.vuz && <span><strong>Vůz:</strong> {order.vuz}</span>}
+                      {order.katalogove_cislo && (
+                        <span><strong>Kat. č.:</strong> {order.katalogove_cislo}</span>
+                      )}
+                      {order.dodavatel && (
+                        <span><strong>Dodavatel:</strong> {order.dodavatel}</span>
+                      )}
+                      {order.cena_ks != null && (
+                        <span>
+                          <strong>Cena:</strong>{" "}
+                          {Number(order.cena_ks).toLocaleString("cs-CZ")} Kč/ks
+                        </span>
+                      )}
+                      {total != null && (
+                        <span>
+                          <strong>Celkem:</strong>{" "}
+                          {total.toLocaleString("cs-CZ")} Kč
+                        </span>
+                      )}
+                    </div>
+
+                    {order.poznamka && <p>{order.poznamka}</p>}
+
+                    {order.odkaz && (
+                      <a
+                        className="part-order-link"
+                        href={order.odkaz}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        🔗 Otevřít odkaz na díl
+                      </a>
+                    )}
+                  </div>
+
+                  {canEdit && (
+                    <div className="part-order-admin">
+                      <select
+                        value={order.stav}
+                        onChange={(e) =>
+                          updatePartOrderStatus(order.id, e.target.value)
+                        }
+                      >
+                        <option value="POŽADAVEK">Požadavek</option>
+                        <option value="OBJEDNÁNO">Objednáno</option>
+                        <option value="NA CESTĚ">Na cestě</option>
+                        <option value="DORUČENO">Doručeno</option>
+                        <option value="ZRUŠENO">Zrušeno</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => editPartOrder(order)}
+                      >
+                        ✏️ Upravit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() => deletePartOrder(order.id)}
+                      >
+                        Smazat
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
 
       <section className="panel workshop-feed">
         <div className="panel-section-head">
@@ -21456,6 +21971,256 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
   .workshop-post-topline {
     align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+
+/* =========================================================
+   DÍLNA – OBJEDNÁVKY DÍLŮ
+========================================================= */
+.part-orders-panel {
+  margin-bottom: 18px;
+}
+
+.part-order-editor {
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.part-order-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.part-order-grid label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.part-order-grid input,
+.part-order-grid select,
+.part-order-grid textarea,
+.part-order-admin select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dce3ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 11px;
+  color: #0f172a;
+  font: inherit;
+}
+
+.part-order-grid textarea {
+  resize: vertical;
+}
+
+.part-order-wide {
+  grid-column: span 2;
+}
+
+.part-order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.part-order-help {
+  display: block;
+  margin-top: 8px;
+  color: #64748b;
+}
+
+.part-orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.part-order-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 16px;
+  border: 1px solid #e5eaf1;
+  border-radius: 13px;
+  padding: 15px 16px;
+  background: #fff;
+}
+
+.part-order-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.part-order-top > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.part-order-top time {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.part-order-card h3 {
+  margin: 9px 0 8px;
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.part-order-card p {
+  margin: 10px 0 0;
+  color: #64748b;
+  white-space: pre-wrap;
+}
+
+.part-order-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.part-order-meta strong {
+  color: #334155;
+}
+
+.part-status,
+.part-priority {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .04em;
+}
+
+.part-status {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.part-status.status-objednano {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.part-status.status-na-ceste {
+  background: #fefce8;
+  color: #a16207;
+}
+
+.part-status.status-doruceno {
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.part-status.status-zruseno {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.part-priority {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.part-order-link {
+  display: inline-flex;
+  margin-top: 10px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.part-order-link:hover {
+  text-decoration: underline;
+}
+
+.part-order-admin {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  gap: 7px;
+}
+
+.app.dark-mode .part-order-editor {
+  border-bottom-color: #243147;
+}
+
+.app.dark-mode .part-order-grid label > span {
+  color: #cbd5e1;
+}
+
+.app.dark-mode .part-order-grid input,
+.app.dark-mode .part-order-grid select,
+.app.dark-mode .part-order-grid textarea,
+.app.dark-mode .part-order-admin select,
+.app.dark-mode .part-order-card {
+  background: #0b1423;
+  border-color: #2b3950;
+  color: #f8fafc;
+}
+
+.app.dark-mode .part-order-card h3,
+.app.dark-mode .part-order-meta strong {
+  color: #f8fafc;
+}
+
+.app.dark-mode .part-order-meta,
+.app.dark-mode .part-order-card p,
+.app.dark-mode .part-order-help {
+  color: #9aa9bd;
+}
+
+@media (max-width: 900px) {
+  .part-order-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .part-order-wide {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 650px) {
+  .part-order-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .part-order-wide {
+    grid-column: span 1;
+  }
+
+  .part-order-card {
+    grid-template-columns: 1fr;
+  }
+
+  .part-order-admin {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .part-order-admin select,
+  .part-order-admin button {
+    flex: 1 1 130px;
+  }
+
+  .part-order-actions {
     flex-direction: column;
   }
 }
