@@ -13496,7 +13496,13 @@ function App() {
   const [profileLoading, setProfileLoading] =
     useState(false);
 
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(() => {
+    try {
+      return localStorage.getItem("cm-current-page") || "dashboard";
+    } catch {
+      return "dashboard";
+    }
+  });
   const [vehicleToOpen, setVehicleToOpen] = useState(null);
   const [reservationTarget, setReservationTarget] = useState(null);
   const [stkSoonVehicles, setStkSoonVehicles] = useState([]);
@@ -13878,6 +13884,40 @@ function App() {
   }
 
   const role = normalizeRole(profile?.role);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cm-current-page", page);
+    } catch {
+      // localStorage nemusí být dostupný např. v privátním režimu.
+    }
+  }, [page]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const adminOnlyPages = new Set([
+      "adminUsers",
+      "adminVehicleRequests",
+      "adminConnections",
+      "audit",
+    ]);
+
+    const workshopPages = new Set([
+      "workshop",
+      "partOrders",
+      "vehicleOrders",
+      "budget",
+    ]);
+
+    if (
+      (adminOnlyPages.has(page) && role !== ROLE_ADMIN && role !== ROLE_DISPECER) ||
+      (workshopPages.has(page) && !canViewWorkshop(role))
+    ) {
+      setPage("dashboard");
+    }
+  }, [profile, role, page]);
+
   const roleName = getRoleName(role);
 
   const manageVehicles = canManageVehicles(role);
