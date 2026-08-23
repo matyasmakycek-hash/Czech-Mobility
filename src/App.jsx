@@ -4779,6 +4779,16 @@ function Notifications({ user, role }) {
     return profiles.find((profile) => String(profile.id) === String(id));
   }
 
+  function getSenderName(notification) {
+    if (!notification?.odesilatel_id) {
+      return "Systém";
+    }
+
+    const sender = getProfile(notification.odesilatel_id);
+
+    return sender?.jmeno || "Neznámý uživatel";
+  }
+
 
   // Jedna rozesílka může mít v DB více řádků (jeden pro každého příjemce).
   // V administraci je ale zobrazíme jako JEDNU kartu.
@@ -4884,18 +4894,13 @@ function Notifications({ user, role }) {
   }
 
   async function loadProfiles() {
-    if (!manage) {
-      setProfiles([]);
-      return;
-    }
-
     const { data, error: profilesError } = await supabase
       .from("profiles")
       .select("id, jmeno, role")
       .order("jmeno", { ascending: true });
 
     if (profilesError) {
-      setError(profilesError.message);
+      console.error("NOTIFICATION PROFILES:", profilesError);
       setProfiles([]);
       return;
     }
@@ -4939,7 +4944,7 @@ function Notifications({ user, role }) {
 
   useEffect(() => {
     loadProfiles();
-  }, [manage]);
+  }, [user?.id, manage]);
 
   useEffect(() => {
     return () => {
@@ -5619,6 +5624,13 @@ function Notifications({ user, role }) {
                 )}
               </div>
 
+              <div className="notification-sender">
+                <span className="notification-sender-avatar">👤</span>
+                <span>
+                  Odeslal: <strong>{getSenderName(notification)}</strong>
+                </span>
+              </div>
+
               <div className="notification-message">
                 {notification.zprava}
               </div>
@@ -5730,9 +5742,19 @@ function Notifications({ user, role }) {
                       </span>
                     </div>
 
-                    <div className="notification-recipient-summary">
-                      <strong>Příjemci:</strong>{" "}
-                      {getGroupRecipientNames(group)}
+                    <div className="notification-sent-meta-row">
+                      <div className="notification-sender">
+                        <span className="notification-sender-avatar">👤</span>
+                        <span>
+                          Odeslal:{" "}
+                          <strong>{getSenderName(notification)}</strong>
+                        </span>
+                      </div>
+
+                      <div className="notification-recipient-summary">
+                        <strong>Příjemci:</strong>{" "}
+                        {getGroupRecipientNames(group)}
+                      </div>
                     </div>
 
                     {editing ? (
@@ -25307,6 +25329,81 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 @media (max-width: 420px) {
   .reservation-list-head-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* =========================================================
+   OZNÁMENÍ – VIDITELNÝ ODESÍLATEL
+========================================================= */
+.notification-sender {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 3px;
+  padding: 6px 9px;
+  border: 1px solid #dbe5f0;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 9px;
+}
+
+.notification-sender-avatar {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e8eef6;
+  font-size: 10px;
+}
+
+.notification-sender strong {
+  color: #1e293b;
+  font-weight: 800;
+}
+
+.notification-sent-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.notification-sent-meta-row .notification-sender {
+  margin: 0;
+}
+
+.notification-sent-meta-row .notification-recipient-summary {
+  margin: 0;
+}
+
+.app.dark-mode .notification-sender {
+  background: #111b2b;
+  border-color: #2b3950;
+  color: #91a3bc;
+}
+
+.app.dark-mode .notification-sender-avatar {
+  background: #263449;
+}
+
+.app.dark-mode .notification-sender strong {
+  color: #f1f5f9;
+}
+
+@media (max-width: 650px) {
+  .notification-sender {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .notification-sent-meta-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
