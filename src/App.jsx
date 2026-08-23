@@ -25610,6 +25610,35 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   }
 }
 
+
+/* =========================================================
+   DARK MODE – DETAIL ČLENA / HISTORIE SMĚN
+========================================================= */
+.app.dark-mode .member-report-card {
+  background: #111927;
+  color: #e7edf7;
+  border-color: #263245;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .16);
+}
+
+.app.dark-mode .member-report-card strong {
+  color: #f4f7fb;
+}
+
+.app.dark-mode .member-report-card small,
+.app.dark-mode .member-report-date small {
+  color: #94a2b8;
+}
+
+.app.dark-mode .member-reports-list {
+  color: #e7edf7;
+}
+
+.app.dark-mode .member-report-card:hover {
+  background: #151f30;
+  border-color: #34445d;
+}
+
 `;
 
 export default App;
