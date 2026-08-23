@@ -13497,8 +13497,15 @@ function App() {
     useState(false);
 
   const [page, setPage] = useState(() => {
+    if (typeof window === "undefined") {
+      return "dashboard";
+    }
+
     try {
-      return localStorage.getItem("cm-current-page") || "dashboard";
+      const savedPage =
+        window.localStorage.getItem("cm-current-page");
+
+      return savedPage || "dashboard";
     } catch {
       return "dashboard";
     }
@@ -13522,6 +13529,8 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRegister, setShowRegister] =
     useState(false);
+
+  const role = normalizeRole(profile?.role);
 
   async function loadDashboardStats() {
     const todayDate = new Date();
@@ -13621,6 +13630,45 @@ function App() {
     };
   }, [darkMode]);
 
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      window.localStorage.setItem("cm-current-page", page);
+    } catch {
+      // Když localStorage není dostupný, web normálně pokračuje.
+    }
+  }, [page]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const adminOnlyPages = new Set([
+      "adminUsers",
+      "adminVehicleRequests",
+      "adminConnections",
+      "audit",
+    ]);
+
+    const workshopPages = new Set([
+      "workshop",
+      "partOrders",
+      "vehicleOrders",
+      "budget",
+    ]);
+
+    const noAccess =
+      (adminOnlyPages.has(page) &&
+        role !== ROLE_ADMIN &&
+        role !== ROLE_DISPECER) ||
+      (workshopPages.has(page) &&
+        !canViewWorkshop(role));
+
+    if (noAccess) {
+      setPage("dashboard");
+    }
+  }, [profile, role, page]);
 
   async function loadUnreadNotifications(targetUser = user) {
     if (!targetUser?.id) {
@@ -13882,41 +13930,6 @@ function App() {
       </>
     );
   }
-
-  const role = normalizeRole(profile?.role);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cm-current-page", page);
-    } catch {
-      // localStorage nemusí být dostupný např. v privátním režimu.
-    }
-  }, [page]);
-
-  useEffect(() => {
-    if (!profile) return;
-
-    const adminOnlyPages = new Set([
-      "adminUsers",
-      "adminVehicleRequests",
-      "adminConnections",
-      "audit",
-    ]);
-
-    const workshopPages = new Set([
-      "workshop",
-      "partOrders",
-      "vehicleOrders",
-      "budget",
-    ]);
-
-    if (
-      (adminOnlyPages.has(page) && role !== ROLE_ADMIN && role !== ROLE_DISPECER) ||
-      (workshopPages.has(page) && !canViewWorkshop(role))
-    ) {
-      setPage("dashboard");
-    }
-  }, [profile, role, page]);
 
   const roleName = getRoleName(role);
 
