@@ -6553,6 +6553,7 @@ function ShiftReservations({
   const [courseId, setCourseId] = useState("");
   const [connections, setConnections] = useState([]);
   const [occupiedIds, setOccupiedIds] = useState(new Set());
+  const [occupiedBy, setOccupiedBy] = useState({});
 
   const [rangeStart, setRangeStart] = useState(null);
   const [rangeEnd, setRangeEnd] = useState(null);
@@ -6707,6 +6708,11 @@ function ShiftReservations({
     return filtered;
   }
 
+  function clearOccupiedConnections() {
+    setOccupiedIds(new Set());
+    setOccupiedBy({});
+  }
+
   function restoreRange(realTrips, restoreIds = []) {
     if (!restoreIds.length) {
       setRangeStart(null);
@@ -6742,7 +6748,7 @@ function ShiftReservations({
   ) {
     if (!targetCourseId) {
       setConnections([]);
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
       setRangeStart(null);
       setRangeEnd(null);
       return [];
@@ -6762,7 +6768,7 @@ function ShiftReservations({
     if (loadError) {
       setError(loadError.message);
       setConnections([]);
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
       setLoadingConnections(false);
       return [];
     }
@@ -6774,37 +6780,49 @@ function ShiftReservations({
     setConnections(realTrips);
 
     if (realTrips.length === 0) {
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
       restoreRange([], []);
       setLoadingConnections(false);
       return [];
     }
 
-    const ids = realTrips.map((row) => row.id);
-
     const { data: occupied, error: occupiedError } =
-      await supabase
-        .from("rezervace_smen_spoje")
-        .select("rezervace_id,kurz_spoj_id")
-        .eq("datum", targetDate)
-        .in("kurz_spoj_id", ids);
+      await supabase.rpc("obsazenost_rezervace_smeny", {
+        p_datum: targetDate,
+        p_kurz_id: Number(targetCourseId),
+      });
 
     if (occupiedError) {
       setError(occupiedError.message);
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
     } else {
+      const visibleOccupied = (occupied || []).filter(
+        (row) =>
+          !excludedReservationId ||
+          String(row.rezervace_id) !==
+            String(excludedReservationId)
+      );
+
       setOccupiedIds(
         new Set(
-          (occupied || [])
-            .filter(
-              (row) =>
-                !excludedReservationId ||
-                String(row.rezervace_id) !==
-                  String(excludedReservationId)
-            )
-            .map((row) =>
-              String(row.kurz_spoj_id)
-            )
+          visibleOccupied.map((row) =>
+            String(row.kurz_spoj_id)
+          )
+        )
+      );
+
+      setOccupiedBy(
+        Object.fromEntries(
+          visibleOccupied.map((row) => [
+            String(row.kurz_spoj_id),
+            {
+              rezervace_id: row.rezervace_id,
+              uzivatel_id: row.uzivatel_id,
+              jmeno:
+                row.jmeno ||
+                "Neznámý zaměstnanec",
+            },
+          ])
         )
       );
     }
@@ -6819,30 +6837,54 @@ function ShiftReservations({
 
     setLoadingReservations(true);
 
-    let query = supabase
-      .from("rezervace_smen")
-      .select(
-        "id,uzivatel_id,datum,provozovna_id,kurz_id,od_spoj,do_spoj,pocet_spoju,minuty_jizdy,stav,created_at,updated_at"
-      )
-      .order("datum", { ascending: true })
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (!manage) {
-      query = query.eq("uzivatel_id", user.id);
-    }
-
-    const { data, error: loadError } = await query;
+    const { data, error: loadError } =
+      await supabase.rpc(
+        "prehled_rezervaci_smen_pro_vsechny"
+      );
 
     if (loadError) {
       setError(loadError.message);
       setReservations([]);
+      setReservationCourses({});
+      setReservationProfiles({});
       setLoadingReservations(false);
       return;
     }
 
     const loaded = data || [];
-    setReservations(loaded);
+
+    setReservations(
+      loaded.map((item) => ({
+        id: item.id,
+        uzivatel_id: item.uzivatel_id,
+        datum: item.datum,
+        provozovna_id: item.provozovna_id,
+        kurz_id: item.kurz_id,
+        od_spoj: item.od_spoj,
+        do_spoj: item.do_spoj,
+        pocet_spoju: item.pocet_spoju,
+        minuty_jizdy: item.minuty_jizdy,
+        stav: item.stav,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      }))
+    );
+
+    setReservationProfiles(
+      Object.fromEntries(
+        loaded
+          .filter((item) => item.uzivatel_id)
+          .map((item) => [
+            String(item.uzivatel_id),
+            {
+              id: item.uzivatel_id,
+              jmeno:
+                item.jmeno ||
+                "Neznámý zaměstnanec",
+            },
+          ])
+      )
+    );
 
     const courseIds = [
       ...new Set(
@@ -6868,36 +6910,6 @@ function ShiftReservations({
       );
     } else {
       setReservationCourses({});
-    }
-
-    if (manage) {
-      const userIds = [
-        ...new Set(
-          loaded
-            .map((item) => item.uzivatel_id)
-            .filter(Boolean)
-        ),
-      ];
-
-      if (userIds.length > 0) {
-        const { data: profileRows } = await supabase
-          .from("profiles")
-          .select("id,jmeno")
-          .in("id", userIds);
-
-        setReservationProfiles(
-          Object.fromEntries(
-            (profileRows || []).map((item) => [
-              String(item.id),
-              item,
-            ])
-          )
-        );
-      } else {
-        setReservationProfiles({});
-      }
-    } else {
-      setReservationProfiles({});
     }
 
     setLoadingReservations(false);
@@ -6931,7 +6943,7 @@ function ShiftReservations({
       setBranchId(targetBranchId);
       setCourseId("");
       setConnections([]);
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
       setRangeStart(null);
       setRangeEnd(null);
       setError("");
@@ -6995,7 +7007,7 @@ function ShiftReservations({
     setDate(value);
     setCourseId("");
     setConnections([]);
-    setOccupiedIds(new Set());
+    clearOccupiedConnections();
     resetTripSelection();
 
     if (branchId && value) {
@@ -7007,7 +7019,7 @@ function ShiftReservations({
     setBranchId(value);
     setCourseId("");
     setConnections([]);
-    setOccupiedIds(new Set());
+    clearOccupiedConnections();
     resetTripSelection();
 
     if (value && date) {
@@ -7030,7 +7042,7 @@ function ShiftReservations({
       );
     } else {
       setConnections([]);
-      setOccupiedIds(new Set());
+      clearOccupiedConnections();
     }
   }
 
@@ -7471,7 +7483,7 @@ function ShiftReservations({
           <span className="reservation-main-tab-icon">📋</span>
           <span>
             <strong>
-              {manage ? "Přehled rezervací" : "Moje rezervace"}
+              Přehled rezervací
             </strong>
             <small>
               {upcomingCount} nadcházejících · {reservations.length} celkem
@@ -7783,7 +7795,7 @@ function ShiftReservations({
               <i className="selected" /> Tvoje volba
             </span>
             <span>
-              <i className="occupied" /> Rezervované
+              <i className="occupied" /> Rezervované · se jménem
             </span>
           </div>
 
@@ -7856,11 +7868,20 @@ function ShiftReservations({
                       </span>
 
                       <span className="reservation-trip-state">
-                        {occupied
-                          ? "REZERVOVÁNO"
-                          : selected
-                          ? "VYBRÁNO"
-                          : "VOLNÉ"}
+                        <strong>
+                          {occupied
+                            ? "REZERVOVÁNO"
+                            : selected
+                            ? "VYBRÁNO"
+                            : "VOLNÉ"}
+                        </strong>
+
+                        {occupied && (
+                          <small>
+                            {occupiedBy[String(row.id)]?.jmeno ||
+                              "Neznámý zaměstnanec"}
+                          </small>
+                        )}
                       </span>
                     </button>
                   );
@@ -7958,12 +7979,10 @@ function ShiftReservations({
           <div>
             <span>PŘEHLED</span>
             <h2>
-              {manage
-                ? "Rezervace zaměstnanců"
-                : "Moje rezervace"}
+              Rezervace směn
             </h2>
             <p>
-              Rezervace jsou seskupené podle jednotlivých dnů.
+              Každý přihlášený vidí, kdo má konkrétní směnu rezervovanou.
             </p>
           </div>
 
@@ -8130,15 +8149,13 @@ function ShiftReservations({
                             </small>
                           </div>
 
-                          {manage && (
-                            <div className="reservation-card-person">
-                              <span>Zaměstnanec</span>
-                              <strong>
-                                {person?.jmeno ||
-                                  reservation.uzivatel_id}
-                              </strong>
-                            </div>
-                          )}
+                          <div className="reservation-card-person">
+                            <span>Rezervoval/a</span>
+                            <strong>
+                              {person?.jmeno ||
+                                "Neznámý zaměstnanec"}
+                            </strong>
+                          </div>
 
                           <div className="reservation-card-minutes">
                             <span>Skutečná jízda</span>
@@ -25537,6 +25554,59 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   .notification-sent-meta-row {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+
+/* =========================================================
+   REZERVACE – KDO MÁ SMĚNU REZERVOVANOU
+========================================================= */
+.reservation-trip-state {
+  display: flex !important;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.reservation-trip-state strong {
+  font-size: inherit;
+  line-height: 1.1;
+}
+
+.reservation-trip-state small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: #b45309;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservation-trip.occupied .reservation-trip-state small {
+  color: #b45309;
+}
+
+.reservation-card-person {
+  min-width: 130px;
+}
+
+.reservation-card-person strong {
+  overflow-wrap: anywhere;
+}
+
+.app.dark-mode .reservation-trip-state small,
+.app.dark-mode .reservation-trip.occupied .reservation-trip-state small {
+  color: #fbbf24;
+}
+
+@media (max-width: 700px) {
+  .reservation-trip-state small {
+    white-space: normal;
   }
 }
 
