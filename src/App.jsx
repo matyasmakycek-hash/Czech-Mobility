@@ -9026,14 +9026,14 @@ function Departures({
     }
   }
 
-  async function loadMonth() {
+  async function loadMonth({ silent = false } = {}) {
     if (!selectedProvozovna || !selectedMonth) {
       setRows([]);
-      setLoading(false);
+      if (!silent) setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError("");
 
     const [yearText, monthText] = selectedMonth.split("-");
@@ -9061,7 +9061,7 @@ function Departures({
       setRows(data || []);
     }
 
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   useEffect(() => {
@@ -9251,6 +9251,77 @@ function Departures({
     });
   }
 
+  function captureDepartureScrollPosition() {
+    if (
+      typeof window === "undefined" ||
+      typeof document === "undefined" ||
+      !editor
+    ) {
+      return null;
+    }
+
+    const selector =
+      `[data-departure-cell="${editor.vehicle.id}-${editor.day}"]`;
+
+    const cell = document.querySelector(selector);
+    const tableWrap = document.querySelector(
+      ".departures-table-wrap"
+    );
+
+    return {
+      selector,
+      scrollY: window.scrollY,
+      cellTop: cell
+        ? cell.getBoundingClientRect().top
+        : null,
+      tableScrollLeft: tableWrap
+        ? tableWrap.scrollLeft
+        : 0,
+    };
+  }
+
+  function restoreDepartureScrollPosition(snapshot) {
+    if (
+      !snapshot ||
+      typeof window === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+
+    // Dvě RAF počkají na React render i přepočet layoutu.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const cell = document.querySelector(snapshot.selector);
+        const tableWrap = document.querySelector(
+          ".departures-table-wrap"
+        );
+
+        let targetY = snapshot.scrollY;
+
+        if (cell && snapshot.cellTop != null) {
+          const currentTop =
+            cell.getBoundingClientRect().top;
+
+          targetY =
+            window.scrollY +
+            (currentTop - snapshot.cellTop);
+        }
+
+        window.scrollTo({
+          top: Math.max(0, targetY),
+          left: window.scrollX,
+          behavior: "auto",
+        });
+
+        if (tableWrap) {
+          tableWrap.scrollLeft =
+            snapshot.tableScrollLeft;
+        }
+      });
+    });
+  }
+
   function toggleCourse(courseId) {
     const id = String(courseId);
 
@@ -9305,6 +9376,9 @@ function Departures({
       setError("Vyber alespoň jednu výpravu / pořadí.");
       return;
     }
+
+    const scrollSnapshot =
+      captureDepartureScrollPosition();
 
     const selectedCourses = cellForm.kurz_ids
       .map((id) =>
@@ -9413,13 +9487,17 @@ function Departures({
     );
 
     closeEditor();
-    await loadMonth();
+    await loadMonth({ silent: true });
     setSaving(false);
+    restoreDepartureScrollPosition(scrollSnapshot);
   }
 
   async function deleteEntry() {
     const existingRows = editor?.rows || [];
     if (existingRows.length === 0) return;
+
+    const scrollSnapshot =
+      captureDepartureScrollPosition();
 
     if (
       !window.confirm(
@@ -9449,8 +9527,9 @@ function Departures({
 
     setSuccess("Všechny výpravy byly z vozu pro tento den odebrány.");
     closeEditor();
-    await loadMonth();
+    await loadMonth({ silent: true });
     setSaving(false);
+    restoreDepartureScrollPosition(scrollSnapshot);
   }
 
   function changeMonth(offset) {
@@ -9824,6 +9903,7 @@ function Departures({
                     return (
                       <td
                         key={day}
+                        data-departure-cell={`${vehicle.id}-${day}`}
                         className={[
                           "departure-cell",
                           info.weekend ? "weekend" : "",
