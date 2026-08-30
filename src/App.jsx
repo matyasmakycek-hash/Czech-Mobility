@@ -9592,7 +9592,11 @@ function Departures({
         {
           key: "ostatni",
           title: "Ostatní",
-          courses: courseRows.filter((course) => !course.typ_vozu),
+          courses: courseRows.filter(
+            (course) =>
+              course.typ_vozu !== "SOLO" &&
+              course.typ_vozu !== "KLOUB"
+          ),
         },
       ];
 
