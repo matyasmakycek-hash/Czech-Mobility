@@ -385,17 +385,64 @@ function getCourseVariantLabel(value) {
   return "";
 }
 
-const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN", "KAM"];
+const MAIN_PROVOZOVNA_CODES = [
+  "WRO",
+  "400",
+  "BUK",
+  "BRE",
+  "BRN",
+  "KAM", // Kameniště
+  "OLO", // Olomouc
+];
+
+function normalizeProvozovnaName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ł/g, "l")
+    .replace(/Ł/g, "l")
+    .toLowerCase()
+    .trim();
+}
+
+function isMainProvozovna(provozovna) {
+  const code = String(provozovna?.kod || "")
+    .toUpperCase()
+    .trim();
+  const name = normalizeProvozovnaName(provozovna?.nazev);
+
+  return (
+    MAIN_PROVOZOVNA_CODES.includes(code) ||
+    name === "400" ||
+    name === "breclavsko" ||
+    name.startsWith("brno") ||
+    name === "bukovec" ||
+    name.includes("wroclaw") ||
+    name.includes("breslau") ||
+    name.includes("kameniste") ||
+    name.includes("olomouc")
+  );
+}
 
 function getMainProvozovny(provozovny = []) {
-  return MAIN_PROVOZOVNA_CODES
-    .map((code) =>
-      provozovny.find(
-        (provozovna) =>
-          String(provozovna.kod || "").toUpperCase().trim() === code
-      )
-    )
-    .filter(Boolean);
+  return provozovny
+    .filter(isMainProvozovna)
+    .sort((a, b) => {
+      const aCode = String(a?.kod || "").toUpperCase().trim();
+      const bCode = String(b?.kod || "").toUpperCase().trim();
+      const aIndex = MAIN_PROVOZOVNA_CODES.indexOf(aCode);
+      const bIndex = MAIN_PROVOZOVNA_CODES.indexOf(bCode);
+
+      if (aIndex >= 0 && bIndex >= 0) return aIndex - bIndex;
+      if (aIndex >= 0) return -1;
+      if (bIndex >= 0) return 1;
+
+      return String(a?.nazev || "").localeCompare(
+        String(b?.nazev || ""),
+        "cs",
+        { sensitivity: "base" }
+      );
+    });
 }
 
 function ProvozovnaSelect({
@@ -8362,20 +8409,8 @@ function AdminConnections() {
       if (!branch) return false;
 
       const code = getBranchCode(course).toUpperCase();
-      const name = String(branch.nazev || "").toUpperCase();
 
-      const allowed =
-        ["WRO", "400", "BUK", "BRE", "BRN", "KAM"].includes(code) ||
-        name === "400" ||
-        name.includes("BŘECLAV") ||
-        name.includes("BRECLAV") ||
-        name.includes("BRNO") ||
-        name.includes("BUKOVEC") ||
-        name.includes("WROCŁAW") ||
-        name.includes("WROCLAW") ||
-        name.includes("BRESLAU");
-
-      if (!allowed) return false;
+      if (!isMainProvozovna(branch)) return false;
 
       const needle = search.trim().toLowerCase();
       if (!needle) return true;
@@ -8990,17 +9025,7 @@ function Departures({
         .trim();
     }
 
-    const allowed = provozovny.filter((provozovna) => {
-      const name = normalizeBranchName(provozovna.nazev);
-
-      return (
-        name === "400" ||
-        name === "breclavsko" ||
-        name.startsWith("brno") ||
-        name === "bukovec" ||
-        name.includes("wroclaw")
-      );
-    });
+    const allowed = getMainProvozovny(provozovny);
 
     const preferred =
       allowed.find(
@@ -9134,17 +9159,7 @@ function Departures({
       .trim();
   }
 
-  const departureProvozovny = provozovny.filter((provozovna) => {
-    const name = normalizeBranchName(provozovna.nazev);
-
-    return (
-      name === "400" ||
-      name === "breclavsko" ||
-      name.startsWith("brno") ||
-      name === "bukovec" ||
-      name.includes("wroclaw")
-    );
-  });
+  const departureProvozovny = getMainProvozovny(provozovny);
 
   const visibleVehicles = vehicles.filter(
     (vehicle) =>
@@ -10722,13 +10737,7 @@ function WorkshopChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
-
-    setWorkshopBranches(
-      (data || []).filter((branch) =>
-        allowed.has(String(branch.kod || "").trim().toUpperCase())
-      )
-    );
+    setWorkshopBranches(getMainProvozovny(data || []));
   }
 
   async function loadWorkshopVehicles() {
@@ -11817,14 +11826,8 @@ function VehicleOrdersChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
-
     setOrders(orderData || []);
-    setBranches(
-      (branchData || []).filter((branch) =>
-        allowed.has(String(branch.kod || "").trim().toUpperCase())
-      )
-    );
+    setBranches(getMainProvozovny(branchData || []));
     setLoading(false);
   }
 
@@ -12501,8 +12504,6 @@ function PartOrdersChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
-
     setOrders(orderData || []);
     setVehicles(
       (vehicleData || []).sort((a, b) =>
@@ -12513,11 +12514,7 @@ function PartOrdersChannel({ user, role }) {
         )
       )
     );
-    setBranches(
-      (branchData || []).filter((branch) =>
-        allowed.has(String(branch.kod || "").trim().toUpperCase())
-      )
-    );
+    setBranches(getMainProvozovny(branchData || []));
     setLoading(false);
   }
 
@@ -13175,10 +13172,7 @@ function BranchBudget({ role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
-    const filteredBranches = (branchData || []).filter((branch) =>
-      allowed.has(String(branch.kod || "").trim().toUpperCase())
-    );
+    const filteredBranches = getMainProvozovny(branchData || []);
 
     setBranches(filteredBranches);
     setBudgets(budgetData || []);
