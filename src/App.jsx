@@ -385,7 +385,7 @@ function getCourseVariantLabel(value) {
   return "";
 }
 
-const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN"];
+const MAIN_PROVOZOVNA_CODES = ["WRO", "400", "BUK", "BRE", "BRN", "KAM"];
 
 function getMainProvozovny(provozovny = []) {
   return MAIN_PROVOZOVNA_CODES
@@ -8365,7 +8365,7 @@ function AdminConnections() {
       const name = String(branch.nazev || "").toUpperCase();
 
       const allowed =
-        ["WRO", "400", "BUK", "BRE", "BRN"].includes(code) ||
+        ["WRO", "400", "BUK", "BRE", "BRN", "KAM"].includes(code) ||
         name === "400" ||
         name.includes("BŘECLAV") ||
         name.includes("BRECLAV") ||
@@ -10722,7 +10722,7 @@ function WorkshopChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
 
     setWorkshopBranches(
       (data || []).filter((branch) =>
@@ -11817,7 +11817,7 @@ function VehicleOrdersChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
 
     setOrders(orderData || []);
     setBranches(
@@ -12501,7 +12501,7 @@ function PartOrdersChannel({ user, role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
 
     setOrders(orderData || []);
     setVehicles(
@@ -13175,7 +13175,7 @@ function BranchBudget({ role }) {
       return;
     }
 
-    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN"]);
+    const allowed = new Set(["WRO", "400", "BUK", "BRE", "BRN", "KAM"]);
     const filteredBranches = (branchData || []).filter((branch) =>
       allowed.has(String(branch.kod || "").trim().toUpperCase())
     );
