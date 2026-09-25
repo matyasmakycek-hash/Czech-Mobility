@@ -9,6 +9,12 @@ const ROLE_ADMIN = "admin";
 const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
 const ROLE_DKV = "dkv_lichkov";
+const ROLE_OPTIONS = [
+  [ROLE_RIDIC, "Řidič"],
+  [ROLE_DISPECER, "Dispečer"],
+  [ROLE_DKV, "DKV Lichkov"],
+  [ROLE_ADMIN, "Administrátor"],
+];
 
 function normalizeRole(value) {
   const role = String(value || "")
@@ -25,60 +31,68 @@ function normalizeRole(value) {
   return "";
 }
 
+function getAssignedRoles(value) {
+  const selected = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? (Array.isArray(value.roles) && value.roles.length ? value.roles : [value.role])
+      : [value];
+  return [...new Set(selected.map(normalizeRole).filter(Boolean))];
+}
+
+function hasRole(value, target) {
+  return getAssignedRoles(value).includes(target);
+}
+
+// Zachováme původní jednosloupcovou roli pro existující databázová pravidla.
+function getPrimaryRole(roles) {
+  const selected = getAssignedRoles(roles);
+  return [ROLE_ADMIN, ROLE_DISPECER, ROLE_RIDIC, ROLE_DKV]
+    .find((item) => selected.includes(item)) || ROLE_RIDIC;
+}
+
 function canManageVehicles(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canManageReports(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canManageUsers(role) {
-  return normalizeRole(role) === ROLE_ADMIN;
+  return hasRole(role, ROLE_ADMIN);
 }
 
 function canUseReports(role) {
-  role = normalizeRole(role);
-  return (
-    role === ROLE_ADMIN ||
-    role === ROLE_DISPECER ||
-    role === ROLE_RIDIC
-  );
+  return [ROLE_ADMIN, ROLE_DISPECER, ROLE_RIDIC]
+    .some((item) => hasRole(role, item));
 }
 
 function canManageNews(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canViewWorkshop(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canEditWorkshop(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canViewBudget(role) {
-  role = normalizeRole(role);
-  return role === ROLE_ADMIN || role === ROLE_DISPECER;
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
 }
 
 function canEditBudget(role) {
-  return normalizeRole(role) === ROLE_ADMIN;
+  return hasRole(role, ROLE_ADMIN);
 }
 
 function getRoleName(role) {
-  role = normalizeRole(role);
-  if (role === ROLE_ADMIN) return "Administrátor";
-  if (role === ROLE_DISPECER) return "Dispečer";
-  if (role === ROLE_RIDIC) return "Řidič";
-  if (role === ROLE_DKV) return "DKV Lichkov";
-  return "Neznámá role";
+  const names = getAssignedRoles(role)
+    .map((item) => ROLE_OPTIONS.find(([key]) => key === item)?.[1])
+    .filter(Boolean);
+  return names.length ? names.join(" · ") : "Neznámá role";
 }
 
 /* =========================================================
@@ -194,7 +208,7 @@ function Register({ onRegistered }) {
     const { data: invite, error: inviteError } =
       await supabase
         .from("user_invites")
-        .select("id, email, jmeno, role, used")
+        .select("id, email, jmeno, role, roles, used")
         .eq("email", cleanEmail)
         .eq("used", false)
         .maybeSingle();
@@ -229,14 +243,15 @@ function Register({ onRegistered }) {
       return;
     }
 
-    const inviteRole = normalizeRole(invite.role) || ROLE_RIDIC;
+    const inviteRoles = getAssignedRoles(invite);
 
     const { error: profileError } =
       await supabase.from("profiles").upsert(
         {
           id: data.user.id,
           jmeno: invite.jmeno || cleanName,
-          role: inviteRole,
+          role: getPrimaryRole(inviteRoles),
+          roles: inviteRoles,
         },
         { onConflict: "id" }
       );
@@ -488,6 +503,28 @@ function ProvozovnaSelect({
    SPRÁVA UŽIVATELŮ
 ========================================================= */
 
+function RoleCheckboxes({ roles, onChange, label }) {
+  const selected = getAssignedRoles(roles);
+  return (
+    <fieldset className="role-checkboxes">
+      <legend>{label}</legend>
+      {ROLE_OPTIONS.map(([key, name]) => (
+        <label key={key}>
+          <input
+            type="checkbox"
+            checked={selected.includes(key)}
+            disabled={selected.length === 1 && selected.includes(key)}
+            onChange={(event) => onChange(event.target.checked
+              ? [...selected, key]
+              : selected.filter((item) => item !== key))}
+          />
+          {name}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function AdminUsers() {
   const [users, setUsers] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -504,7 +541,7 @@ function AdminUsers() {
   const emptyForm = {
     jmeno: "",
     email: "",
-    role: ROLE_RIDIC,
+    roles: [ROLE_RIDIC],
   };
 
   const [form, setForm] = useState(emptyForm);
@@ -512,7 +549,7 @@ function AdminUsers() {
   async function loadUsers() {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, jmeno, role, created_at")
+      .select("id, jmeno, role, roles, created_at")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -526,7 +563,7 @@ function AdminUsers() {
   async function loadInvites() {
     const { data, error } = await supabase
       .from("user_invites")
-      .select("id, email, jmeno, role, used, created_at")
+      .select("id, email, jmeno, role, roles, used, created_at")
       .order("created_at", { ascending: false });
 
     if (!error) {
@@ -600,7 +637,8 @@ function AdminUsers() {
       .insert({
         email,
         jmeno: name,
-        role: form.role,
+        role: getPrimaryRole(form.roles),
+        roles: getAssignedRoles(form.roles),
         used: false,
       });
 
@@ -619,21 +657,27 @@ function AdminUsers() {
     setSaving(false);
   }
 
-  async function changeRole(id, role) {
+  async function changeRoles(id, roles) {
     setError("");
     setSuccess("");
 
+    const next = getAssignedRoles(roles);
+    setUsers((current) => current.map((item) => item.id === id
+      ? { ...item, role: getPrimaryRole(next), roles: next }
+      : item));
+
     const { error } = await supabase
       .from("profiles")
-      .update({ role })
+      .update({ role: getPrimaryRole(next), roles: next })
       .eq("id", id);
 
     if (error) {
       setError(error.message);
+      await loadUsers();
       return;
     }
 
-    setSuccess("Role uživatele byla změněna.");
+    setSuccess("Role uživatele byly změněny.");
 
     await loadUsers();
   }
@@ -661,7 +705,7 @@ function AdminUsers() {
   const filteredUsers = users.filter((user) => {
     return (
       filterRole === "Vše" ||
-      user.role === filterRole
+      hasRole(user, filterRole)
     );
   });
 
@@ -689,26 +733,26 @@ function AdminUsers() {
         <div className="admin-user-stat">
           <span>Administrátoři</span>
           <strong>
-            {users.filter((u) => u.role === ROLE_ADMIN).length}
+            {users.filter((u) => hasRole(u, ROLE_ADMIN)).length}
           </strong>
         </div>
 
         <div className="admin-user-stat">
           <span>Dispečeři</span>
           <strong>
-            {users.filter((u) => u.role === ROLE_DISPECER).length}
+            {users.filter((u) => hasRole(u, ROLE_DISPECER)).length}
           </strong>
         </div>
 
         <div className="admin-user-stat">
           <span>Řidiči</span>
           <strong>
-            {users.filter((u) => u.role === ROLE_RIDIC).length}
+            {users.filter((u) => hasRole(u, ROLE_RIDIC)).length}
           </strong>
         </div>
         <div className="admin-user-stat">
           <span>DKV Lichkov</span>
-          <strong>{users.filter((u) => u.role === ROLE_DKV).length}</strong>
+          <strong>{users.filter((u) => hasRole(u, ROLE_DKV)).length}</strong>
         </div>
       </div>
 
@@ -777,26 +821,11 @@ function AdminUsers() {
                   />
                 </div>
 
-                <div>
-                  <label>Role</label>
-
-                  <select
-                    value={form.role}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        role: e.target.value,
-                      })
-                    }
-                  >
-                    <option value={ROLE_RIDIC}>Řidič</option>
-                    <option value={ROLE_DISPECER}>Dispečer</option>
-                    <option value={ROLE_DKV}>DKV Lichkov</option>
-                    <option value={ROLE_ADMIN}>
-                      Administrátor
-                    </option>
-                  </select>
-                </div>
+                <RoleCheckboxes
+                  label="Role (lze vybrat více)"
+                  roles={form.roles}
+                  onChange={(roles) => setForm({ ...form, roles })}
+                />
               </div>
 
               <div className="form-buttons">
@@ -852,7 +881,7 @@ function AdminUsers() {
 
                 <div>
                   <small>Role</small>
-                  <strong>{getRoleName(user.role)}</strong>
+                  <strong>{getRoleName(user)}</strong>
                 </div>
 
                 <div>
@@ -867,19 +896,11 @@ function AdminUsers() {
                   </strong>
                 </div>
 
-                <select
-                  value={user.role || ROLE_RIDIC}
-                  onChange={(e) =>
-                    changeRole(user.id, e.target.value)
-                  }
-                >
-                  <option value={ROLE_RIDIC}>Řidič</option>
-                  <option value={ROLE_DISPECER}>Dispečer</option>
-                  <option value={ROLE_DKV}>DKV Lichkov</option>
-                  <option value={ROLE_ADMIN}>
-                    Administrátor
-                  </option>
-                </select>
+                <RoleCheckboxes
+                  label={`Upravit role: ${user.jmeno || "uživatel"}`}
+                  roles={getAssignedRoles(user)}
+                  onChange={(roles) => changeRoles(user.id, roles)}
+                />
               </div>
             ))}
           </div>
@@ -910,7 +931,7 @@ function AdminUsers() {
 
                 <div>
                   <small>Role</small>
-                  <strong>{getRoleName(invite.role)}</strong>
+                  <strong>{getRoleName(invite)}</strong>
                 </div>
 
                 <span className="pending-label">
@@ -2335,7 +2356,7 @@ function ReportForm({
                     value={user.id}
                   >
                     {user.jmeno || user.id} —{" "}
-                    {getRoleName(user.role)}
+                    {getRoleName(user)}
                   </option>
                 ))}
               </select>
@@ -2795,7 +2816,7 @@ function AdminReports() {
 
         supabase
           .from("profiles")
-          .select("id, jmeno, role")
+          .select("id, jmeno, role, roles")
           .order("jmeno", { ascending: true }),
       ]);
 
@@ -3090,7 +3111,7 @@ function News({ user, profile, role }) {
   const [selectedNews, setSelectedNews] = useState(null);
 
   const canManage = canManageNews(role);
-  const isDriver = role === ROLE_RIDIC;
+  const isDriver = hasRole(role, ROLE_RIDIC);
 
   const emptyForm = {
     nadpis: "",
@@ -3151,7 +3172,7 @@ function News({ user, profile, role }) {
       const { data: profileData, error: profileError } =
         await supabase
           .from("profiles")
-          .select("id, jmeno, role")
+          .select("id, jmeno, role, roles")
           .order("jmeno", { ascending: true });
 
       if (profileError) {
@@ -3354,7 +3375,7 @@ function News({ user, profile, role }) {
   function getDriverProfiles() {
     return profiles.filter(
       (profileItem) =>
-        profileItem.role?.toLowerCase() === ROLE_RIDIC
+        hasRole(profileItem, ROLE_RIDIC)
     );
   }
 
@@ -4523,7 +4544,7 @@ function Members({ user }) {
     const [membersResult, reportsResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("id, jmeno, role, created_at")
+        .select("id, jmeno, role, roles, created_at")
         .order("jmeno", { ascending: true }),
       supabase
         .from("vykazy")
@@ -4596,7 +4617,7 @@ function Members({ user }) {
               ← Zpět na členy
             </button>
             <h1>{selectedMember.jmeno || "Bez jména"}</h1>
-            <p>{getRoleName(selectedMember.role)}</p>
+            <p>{getRoleName(selectedMember)}</p>
           </div>
 
           <div className="profile-badge">
@@ -4759,7 +4780,7 @@ function Members({ user }) {
 
                   <div className="member-card-main">
                     <strong>{member.jmeno || "Bez jména"}</strong>
-                    <small>{getRoleName(member.role)}</small>
+                    <small>{getRoleName(member)}</small>
                   </div>
 
                   <div className="member-card-stat">
@@ -4793,7 +4814,7 @@ function Members({ user }) {
 ========================================================= */
 function Notifications({ user, role }) {
   const manage = canManageVehicles(role);
-  const isDriver = role === ROLE_RIDIC;
+  const isDriver = hasRole(role, ROLE_RIDIC);
 
   const [items, setItems] = useState([]);
   const [sentItems, setSentItems] = useState([]);
@@ -4892,7 +4913,7 @@ function Notifications({ user, role }) {
 
     const driverItems = group.items.filter((notification) => {
       const profile = getProfile(notification.uzivatel_id);
-      return profile?.role === ROLE_RIDIC;
+      return hasRole(profile, ROLE_RIDIC);
     });
 
     if (driverItems.length === 0) {
@@ -4953,7 +4974,7 @@ function Notifications({ user, role }) {
   async function loadProfiles() {
     const { data, error: profilesError } = await supabase
       .from("profiles")
-      .select("id, jmeno, role")
+      .select("id, jmeno, role, roles")
       .order("jmeno", { ascending: true });
 
     if (profilesError) {
@@ -5540,7 +5561,7 @@ function Notifications({ user, role }) {
 
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {profile.jmeno || profile.id} — {getRoleName(profile.role)}
+                      {profile.jmeno || profile.id} — {getRoleName(profile)}
                     </option>
                   ))}
                 </select>
@@ -6034,7 +6055,7 @@ function AdminCourses() {
       .order("nazev", { ascending: true });
 
     if (loadError) {
-      setError(loadError.message);
+      setError(getDkvSaveError(loadError));
       setCourses([]);
     } else {
       setCourses(data || []);
@@ -11165,7 +11186,7 @@ function WorkshopChannel({ user, role }) {
         </div>
 
         <div className={`access-pill ${canEdit ? "edit" : "read"}`}>
-          {role === ROLE_ADMIN
+          {hasRole(role, ROLE_ADMIN)
             ? "✎ ADMIN · ÚPRAVY POVOLENY"
             : "✎ DISPEČER · ÚPRAVY POVOLENY"}
         </div>
@@ -13588,6 +13609,17 @@ const emptyTrain = {
   poznamka: "",
 };
 
+function getDkvSaveError(error) {
+  if (error?.code === "23505") return "Toto evidenční číslo už je v DKV Lichkov zapsané.";
+  if (error?.code === "42P01" || error?.code === "PGRST205")
+    return "Databázová tabulka DKV Lichkov ještě neexistuje. Spusť přiložený SQL skript v Supabase.";
+  if (error?.code === "42501" || /row-level security|permission denied/i.test(error?.message || ""))
+    return "Nemáš oprávnění ukládat záznamy DKV. Zkontroluj přidělené role a databázová pravidla.";
+  if (error?.code === "PGRST116")
+    return "Záznam nebyl nalezen nebo nemáš oprávnění ho upravit. Obnov seznam vozidel.";
+  return error?.message || "Uložení se nepodařilo. Zkus to znovu.";
+}
+
 function DkvLichkov({ role }) {
   const [trains, setTrains] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -13677,13 +13709,11 @@ function DkvLichkov({ role }) {
 
     setSaving(true);
     const result = editingId
-      ? await supabase.from("dkv_lichkov_vozidla").update(payload).eq("id", editingId)
-      : await supabase.from("dkv_lichkov_vozidla").insert(payload);
+      ? await supabase.from("dkv_lichkov_vozidla").update(payload).eq("id", editingId).select("id").single()
+      : await supabase.from("dkv_lichkov_vozidla").insert(payload).select("id").single();
     setSaving(false);
-    if (result.error) {
-      setError(result.error.code === "23505"
-        ? "Toto evidenční číslo už je v DKV Lichkov zapsané."
-        : result.error.message);
+    if (result.error || !result.data?.id) {
+      setError(getDkvSaveError(result.error));
       return;
     }
     setSuccess(editingId ? "Záznam byl upraven." : "Kolejové vozidlo bylo přidáno.");
@@ -13695,12 +13725,14 @@ function DkvLichkov({ role }) {
     if (!window.confirm(`Smazat vozidlo ${train.evidencni_cislo}?`)) return;
     setError("");
     setSuccess("");
-    const { error: deleteError } = await supabase
+    const { data: deleted, error: deleteError } = await supabase
       .from("dkv_lichkov_vozidla")
       .delete()
-      .eq("id", train.id);
-    if (deleteError) {
-      setError(deleteError.message);
+      .eq("id", train.id)
+      .select("id")
+      .single();
+    if (deleteError || !deleted?.id) {
+      setError(getDkvSaveError(deleteError));
       return;
     }
     if (editingId === train.id) closeForm();
@@ -13852,7 +13884,8 @@ function App() {
   const [showRegister, setShowRegister] =
     useState(false);
 
-  const role = normalizeRole(profile?.role);
+  const role = getAssignedRoles(profile);
+  const dkvOnly = role.length === 1 && hasRole(role, ROLE_DKV);
 
   async function loadDashboardStats() {
     const todayDate = new Date();
@@ -13981,18 +14014,18 @@ function App() {
     ]);
 
     const noAccess =
-      (role === ROLE_DKV && page !== "dashboard" && page !== "dkvLichkov") ||
-      (page === "dkvLichkov" && role !== ROLE_DKV && role !== ROLE_ADMIN) ||
+      (dkvOnly && page !== "dashboard" && page !== "dkvLichkov") ||
+      (page === "dkvLichkov" && !hasRole(role, ROLE_DKV) && !hasRole(role, ROLE_ADMIN)) ||
       (adminOnlyPages.has(page) &&
-        role !== ROLE_ADMIN &&
-        role !== ROLE_DISPECER) ||
+        !hasRole(role, ROLE_ADMIN) &&
+        !hasRole(role, ROLE_DISPECER)) ||
       (workshopPages.has(page) &&
         !canViewWorkshop(role));
 
     if (noAccess) {
       setPage("dashboard");
     }
-  }, [profile, role, page]);
+  }, [profile, page]);
 
   async function loadUnreadNotifications(targetUser = user) {
     if (!targetUser?.id) {
@@ -14082,7 +14115,7 @@ function App() {
     async function readProfile() {
       return supabase
         .from("profiles")
-        .select("id, jmeno, role, created_at")
+        .select("id, jmeno, role, roles, created_at")
         .eq("id", authUser.id)
         .maybeSingle();
     }
@@ -14118,6 +14151,7 @@ function App() {
           ? {
               ...data,
               role: normalizeRole(data.role),
+              roles: getAssignedRoles(data),
             }
           : null
       );
@@ -14361,7 +14395,10 @@ function App() {
               Dashboard
             </button>
 
-            {(role === ROLE_DKV || role === ROLE_ADMIN) && (
+            <div className="menu-divider compact" />
+            <div className="menu-section-label">Provoz</div>
+
+            {(hasRole(role, ROLE_DKV) || hasRole(role, ROLE_ADMIN)) && (
               <button
                 className={page === "dkvLichkov" ? "active" : ""}
                 onClick={() => setPage("dkvLichkov")}
@@ -14371,9 +14408,7 @@ function App() {
               </button>
             )}
 
-            {role !== ROLE_DKV && <>
-            <div className="menu-divider compact" />
-            <div className="menu-section-label">Provoz</div>
+            {!dkvOnly && <>
 
             <button
               className={
@@ -14715,7 +14750,7 @@ function App() {
               : "content-standard"
           }`}
         >
-          {page === "dashboard" && role === ROLE_DKV && (
+          {page === "dashboard" && dkvOnly && (
             <div className="panel">
               <h1>DKV Lichkov</h1>
               <p>Evidence kolejových vozidel je připravená pro tvou roli.</p>
@@ -14723,7 +14758,7 @@ function App() {
             </div>
           )}
 
-          {page === "dashboard" && role !== ROLE_DKV && (
+          {page === "dashboard" && !dkvOnly && (
             <div className="dashboard-photo-page">
               <section className="dashboard-photo-hero">
                 <div className="dashboard-slides" aria-hidden="true">
@@ -15036,11 +15071,11 @@ function App() {
             </div>
           )}
 
-          {page === "dkvLichkov" && (role === ROLE_DKV || role === ROLE_ADMIN) && (
+          {page === "dkvLichkov" && (hasRole(role, ROLE_DKV) || hasRole(role, ROLE_ADMIN)) && (
             <DkvLichkov role={role} />
           )}
 
-          {role !== ROLE_DKV && <>
+          {!dkvOnly && <>
           {page === "departures" && (
             <Departures
               role={role}
@@ -25938,6 +25973,19 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   border-color: #34445d;
   color: #e7edf7;
 }
+.role-checkboxes {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+}
+.role-checkboxes legend { padding: 0 4px; font-weight: 700; }
+.role-checkboxes label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
+.role-checkboxes input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
+.app.dark-mode .role-checkboxes { border-color: #34445d; }
 
 `;
 
