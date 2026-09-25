@@ -8,6 +8,7 @@ import { supabase } from "./supabase";
 const ROLE_ADMIN = "admin";
 const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
+const ROLE_DKV = "dkv_lichkov";
 
 function normalizeRole(value) {
   const role = String(value || "")
@@ -19,6 +20,7 @@ function normalizeRole(value) {
   if (role === "admin" || role === "administrator") return ROLE_ADMIN;
   if (role === "dispecer" || role === "dispatcher") return ROLE_DISPECER;
   if (role === "ridic" || role === "driver") return ROLE_RIDIC;
+  if (role === ROLE_DKV || role === "dkv lichkov") return ROLE_DKV;
 
   return "";
 }
@@ -75,6 +77,7 @@ function getRoleName(role) {
   if (role === ROLE_ADMIN) return "Administrátor";
   if (role === ROLE_DISPECER) return "Dispečer";
   if (role === ROLE_RIDIC) return "Řidič";
+  if (role === ROLE_DKV) return "DKV Lichkov";
   return "Neznámá role";
 }
 
@@ -703,6 +706,10 @@ function AdminUsers() {
             {users.filter((u) => u.role === ROLE_RIDIC).length}
           </strong>
         </div>
+        <div className="admin-user-stat">
+          <span>DKV Lichkov</span>
+          <strong>{users.filter((u) => u.role === ROLE_DKV).length}</strong>
+        </div>
       </div>
 
       {error && (
@@ -784,6 +791,7 @@ function AdminUsers() {
                   >
                     <option value={ROLE_RIDIC}>Řidič</option>
                     <option value={ROLE_DISPECER}>Dispečer</option>
+                    <option value={ROLE_DKV}>DKV Lichkov</option>
                     <option value={ROLE_ADMIN}>
                       Administrátor
                     </option>
@@ -814,6 +822,7 @@ function AdminUsers() {
             <option value="Vše">Vše</option>
             <option value={ROLE_ADMIN}>Administrátoři</option>
             <option value={ROLE_DISPECER}>Dispečeři</option>
+            <option value={ROLE_DKV}>DKV Lichkov</option>
             <option value={ROLE_RIDIC}>Řidiči</option>
           </select>
         </div>
@@ -866,6 +875,7 @@ function AdminUsers() {
                 >
                   <option value={ROLE_RIDIC}>Řidič</option>
                   <option value={ROLE_DISPECER}>Dispečer</option>
+                  <option value={ROLE_DKV}>DKV Lichkov</option>
                   <option value={ROLE_ADMIN}>
                     Administrátor
                   </option>
@@ -13560,6 +13570,223 @@ function BranchBudget({ role }) {
   );
 }
 
+/* =========================================================
+   DKV LICHKOV – EVIDENCE KOLEJOVÝCH VOZIDEL
+========================================================= */
+
+const emptyTrain = {
+  evidencni_cislo: "",
+  druh: "Lokomotiva",
+  rada: "",
+  trakce: "Dieselová",
+  vyrobce: "",
+  rok_vyroby: "",
+  domovske_depo: "Lichkov",
+  stav: "Provozní",
+  posledni_prohlidka: "",
+  pristi_prohlidka: "",
+  poznamka: "",
+};
+
+function DkvLichkov({ role }) {
+  const [trains, setTrains] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(emptyTrain);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Vše");
+
+  async function loadTrains() {
+    setLoading(true);
+    const { data, error: loadError } = await supabase
+      .from("dkv_lichkov_vozidla")
+      .select("*")
+      .order("evidencni_cislo", { ascending: true });
+    if (loadError) {
+      setError(loadError.message);
+      setTrains([]);
+    } else {
+      setTrains(data || []);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadTrains();
+  }, []);
+
+  function change(field, value) {
+    setForm((old) => ({ ...old, [field]: value }));
+  }
+
+  function beginEdit(train) {
+    setEditingId(train.id);
+    setForm({
+      ...emptyTrain,
+      ...train,
+      rok_vyroby: train.rok_vyroby ?? "",
+      posledni_prohlidka: train.posledni_prohlidka || "",
+      pristi_prohlidka: train.pristi_prohlidka || "",
+    });
+    setShowForm(true);
+    setError("");
+    setSuccess("");
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyTrain);
+  }
+
+  async function saveTrain(event) {
+    event.preventDefault();
+    if (saving) return;
+    setError("");
+    setSuccess("");
+    if (
+      form.posledni_prohlidka &&
+      form.pristi_prohlidka &&
+      form.pristi_prohlidka < form.posledni_prohlidka
+    ) {
+      setError("Příští prohlídka nemůže předcházet poslední prohlídce.");
+      return;
+    }
+
+    const payload = {
+      evidencni_cislo: form.evidencni_cislo.trim(),
+      druh: form.druh,
+      rada: form.rada.trim() || null,
+      trakce: form.trakce,
+      vyrobce: form.vyrobce.trim() || null,
+      rok_vyroby: form.rok_vyroby === "" ? null : Number(form.rok_vyroby),
+      domovske_depo: form.domovske_depo.trim(),
+      stav: form.stav,
+      posledni_prohlidka: form.posledni_prohlidka || null,
+      pristi_prohlidka: form.pristi_prohlidka || null,
+      poznamka: form.poznamka.trim() || null,
+    };
+    if (!payload.evidencni_cislo || !payload.domovske_depo) {
+      setError("Vyplň evidenční číslo a domovské depo.");
+      return;
+    }
+
+    setSaving(true);
+    const result = editingId
+      ? await supabase.from("dkv_lichkov_vozidla").update(payload).eq("id", editingId)
+      : await supabase.from("dkv_lichkov_vozidla").insert(payload);
+    setSaving(false);
+    if (result.error) {
+      setError(result.error.code === "23505"
+        ? "Toto evidenční číslo už je v DKV Lichkov zapsané."
+        : result.error.message);
+      return;
+    }
+    setSuccess(editingId ? "Záznam byl upraven." : "Kolejové vozidlo bylo přidáno.");
+    closeForm();
+    await loadTrains();
+  }
+
+  async function deleteTrain(train) {
+    if (!window.confirm(`Smazat vozidlo ${train.evidencni_cislo}?`)) return;
+    setError("");
+    setSuccess("");
+    const { error: deleteError } = await supabase
+      .from("dkv_lichkov_vozidla")
+      .delete()
+      .eq("id", train.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+    if (editingId === train.id) closeForm();
+    setSuccess("Záznam byl smazán.");
+    await loadTrains();
+  }
+
+  const visibleTrains = trains.filter((train) => {
+    const text = `${train.evidencni_cislo} ${train.rada || ""} ${train.vyrobce || ""} ${train.domovske_depo}`.toLocaleLowerCase("cs");
+    return (statusFilter === "Vše" || train.stav === statusFilter) &&
+      text.includes(search.trim().toLocaleLowerCase("cs"));
+  });
+
+  return (
+    <div className="dkv-page">
+      <div className="topbar">
+        <div>
+          <h1>DKV Lichkov</h1>
+          <p>Evidence lokomotiv, jednotek a železničních vozů</p>
+        </div>
+        <div className="profile-badge">{getRoleName(role)}</div>
+      </div>
+
+      {error && <div className="error-box" role="alert">{error}</div>}
+      {success && <div className="success-box" role="status">{success}</div>}
+
+      <div className="panel">
+        <div className="users-toolbar">
+          <div><h2>Kolejová vozidla ({trains.length})</h2><p className="muted">Správa vozového parku DKV Lichkov.</p></div>
+          <button type="button" className="primary-button" onClick={() => {
+            if (showForm && !editingId) closeForm();
+            else { setEditingId(null); setForm(emptyTrain); setShowForm(true); setError(""); }
+          }}>{showForm && !editingId ? "Zavřít" : "+ Přidat vozidlo"}</button>
+        </div>
+
+        {showForm && (
+          <div className="crud-form">
+            <h3>{editingId ? "Upravit kolejové vozidlo" : "Přidat kolejové vozidlo"}</h3>
+            <form onSubmit={saveTrain}>
+              <div className="form-grid">
+                <div><label htmlFor="dkv-number">Evidenční číslo *</label><input id="dkv-number" value={form.evidencni_cislo} onChange={(e) => change("evidencni_cislo", e.target.value)} placeholder="např. 754 012-3" required maxLength={50} /></div>
+                <div><label htmlFor="dkv-kind">Druh vozidla</label><select id="dkv-kind" value={form.druh} onChange={(e) => change("druh", e.target.value)}>{["Lokomotiva", "Motorová jednotka", "Elektrická jednotka", "Osobní vůz", "Nákladní vůz", "Jiné"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                <div><label htmlFor="dkv-class">Řada</label><input id="dkv-class" value={form.rada} onChange={(e) => change("rada", e.target.value)} placeholder="např. 754" maxLength={50} /></div>
+                <div><label htmlFor="dkv-traction">Trakce</label><select id="dkv-traction" value={form.trakce} onChange={(e) => change("trakce", e.target.value)}>{["Dieselová", "Elektrická", "Bez vlastního pohonu", "Jiná"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                <div><label htmlFor="dkv-maker">Výrobce</label><input id="dkv-maker" value={form.vyrobce} onChange={(e) => change("vyrobce", e.target.value)} maxLength={120} /></div>
+                <div><label htmlFor="dkv-year">Rok výroby</label><input id="dkv-year" type="number" min="1800" max="2100" value={form.rok_vyroby} onChange={(e) => change("rok_vyroby", e.target.value)} /></div>
+                <div><label htmlFor="dkv-depot">Domovské depo *</label><input id="dkv-depot" value={form.domovske_depo} onChange={(e) => change("domovske_depo", e.target.value)} required maxLength={120} /></div>
+                <div><label htmlFor="dkv-status">Stav</label><select id="dkv-status" value={form.stav} onChange={(e) => change("stav", e.target.value)}>{["Provozní", "V opravě", "Odstavené", "Mimo provoz"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                <div><label htmlFor="dkv-last-check">Poslední prohlídka</label><input id="dkv-last-check" type="date" value={form.posledni_prohlidka} onChange={(e) => change("posledni_prohlidka", e.target.value)} /></div>
+                <div><label htmlFor="dkv-next-check">Příští prohlídka</label><input id="dkv-next-check" type="date" value={form.pristi_prohlidka} onChange={(e) => change("pristi_prohlidka", e.target.value)} /></div>
+                <div className="dkv-wide"><label htmlFor="dkv-note">Poznámka</label><textarea id="dkv-note" rows="3" maxLength={2000} value={form.poznamka} onChange={(e) => change("poznamka", e.target.value)} /></div>
+              </div>
+              <div className="form-buttons"><button type="submit" className="primary-button" disabled={saving}>{saving ? "Ukládání..." : "Uložit"}</button><button type="button" className="secondary-button" onClick={closeForm}>Zrušit</button></div>
+            </form>
+          </div>
+        )}
+
+        <div className="dkv-filters">
+          <label htmlFor="dkv-search">Hledat vozidlo</label>
+          <input id="dkv-search" type="search" placeholder="Číslo, řada, výrobce nebo depo" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <label htmlFor="dkv-filter">Stav</label>
+          <select id="dkv-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>{["Vše", "Provozní", "V opravě", "Odstavené", "Mimo provoz"].map((item) => <option key={item}>{item}</option>)}</select>
+        </div>
+
+        {loading ? <div className="empty">Načítání vozidel...</div> : visibleTrains.length === 0 ? <div className="empty">{trains.length ? "Žádné vozidlo neodpovídá filtru." : "Zatím nejsou zapsaná žádná kolejová vozidla."}</div> : (
+          <div className="dkv-list">{visibleTrains.map((train) => (
+            <article className="dkv-card" key={train.id}>
+              <div className="dkv-card-head"><strong>{train.evidencni_cislo}</strong><span>{train.stav}</span></div>
+              <div className="dkv-card-details">
+                <div><small>Druh / řada</small><strong>{train.druh}{train.rada ? ` · ${train.rada}` : ""}</strong></div>
+                <div><small>Trakce</small><strong>{train.trakce}</strong></div>
+                <div><small>Výrobce / rok</small><strong>{train.vyrobce || "—"}{train.rok_vyroby ? ` · ${train.rok_vyroby}` : ""}</strong></div>
+                <div><small>Domovské depo</small><strong>{train.domovske_depo}</strong></div>
+                <div><small>Poslední prohlídka</small><strong>{train.posledni_prohlidka ? new Date(`${train.posledni_prohlidka}T12:00:00`).toLocaleDateString("cs-CZ") : "—"}</strong></div>
+                <div><small>Příští prohlídka</small><strong>{train.pristi_prohlidka ? new Date(`${train.pristi_prohlidka}T12:00:00`).toLocaleDateString("cs-CZ") : "—"}</strong></div>
+              </div>
+              {train.poznamka && <p className="dkv-note">{train.poznamka}</p>}
+              <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => beginEdit(train)}>Upravit</button><button type="button" className="delete-button" onClick={() => deleteTrain(train)}>Smazat</button></div>
+            </article>
+          ))}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const DASHBOARD_IMAGES = [
   "/dashboard/dashboard-1.webp",
   "/dashboard/dashboard-2.webp",
@@ -13754,6 +13981,8 @@ function App() {
     ]);
 
     const noAccess =
+      (role === ROLE_DKV && page !== "dashboard" && page !== "dkvLichkov") ||
+      (page === "dkvLichkov" && role !== ROLE_DKV && role !== ROLE_ADMIN) ||
       (adminOnlyPages.has(page) &&
         role !== ROLE_ADMIN &&
         role !== ROLE_DISPECER) ||
@@ -14132,6 +14361,17 @@ function App() {
               Dashboard
             </button>
 
+            {(role === ROLE_DKV || role === ROLE_ADMIN) && (
+              <button
+                className={page === "dkvLichkov" ? "active" : ""}
+                onClick={() => setPage("dkvLichkov")}
+              >
+                <span>🚆</span>
+                DKV Lichkov
+              </button>
+            )}
+
+            {role !== ROLE_DKV && <>
             <div className="menu-divider compact" />
             <div className="menu-section-label">Provoz</div>
 
@@ -14395,6 +14635,7 @@ function App() {
                 Správa uživatelů
               </button>
             )}
+            </>}
           </nav>
 
           <div className="theme-switch-wrap">
@@ -14474,7 +14715,15 @@ function App() {
               : "content-standard"
           }`}
         >
-          {page === "dashboard" && (
+          {page === "dashboard" && role === ROLE_DKV && (
+            <div className="panel">
+              <h1>DKV Lichkov</h1>
+              <p>Evidence kolejových vozidel je připravená pro tvou roli.</p>
+              <button type="button" className="primary-button" onClick={() => setPage("dkvLichkov")}>Otevřít evidenci vozidel</button>
+            </div>
+          )}
+
+          {page === "dashboard" && role !== ROLE_DKV && (
             <div className="dashboard-photo-page">
               <section className="dashboard-photo-hero">
                 <div className="dashboard-slides" aria-hidden="true">
@@ -14787,6 +15036,11 @@ function App() {
             </div>
           )}
 
+          {page === "dkvLichkov" && (role === ROLE_DKV || role === ROLE_ADMIN) && (
+            <DkvLichkov role={role} />
+          )}
+
+          {role !== ROLE_DKV && <>
           {page === "departures" && (
             <Departures
               role={role}
@@ -14910,6 +15164,7 @@ function App() {
             manageUsers && (
               <AdminUsers />
             )}
+          </>}
         </main>
       </div>
     </>
@@ -14921,6 +15176,38 @@ function App() {
 ========================================================= */
 
 const styles = `
+.dkv-page .dkv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+.dkv-page .dkv-filters input,
+.dkv-page .dkv-filters select,
+.dkv-page .dkv-wide textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fff;
+  color: #172033;
+}
+.dkv-page .dkv-filters input { flex: 1 1 220px; min-width: 0; }
+.dkv-page .dkv-wide { grid-column: 1 / -1; }
+.dkv-page .dkv-wide textarea { display: block; width: 100%; box-sizing: border-box; resize: vertical; }
+.dkv-page .dkv-list { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
+.dkv-page .dkv-card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px; background: #fff; color: #172033; min-width: 0; }
+.dkv-page .dkv-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
+.dkv-page .dkv-card-head > strong { font-size: 20px; overflow-wrap: anywhere; }
+.dkv-page .dkv-card-head > span { border-radius: 20px; padding: 5px 10px; background: #e0f2fe; color: #075985; white-space: nowrap; }
+.dkv-page .dkv-card-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.dkv-page .dkv-card-details > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dkv-page .dkv-card-details small { color: #64748b; }
+.dkv-page .dkv-card-details strong { overflow-wrap: anywhere; }
+.dkv-page .dkv-note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 16px 0 0; }
+.dkv-page .dkv-card .form-buttons { margin-top: 18px; }
+@media (max-width: 480px) { .dkv-page .dkv-card-details { grid-template-columns: 1fr; } }
 .member-summary-bar {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -25635,6 +25922,21 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 .app.dark-mode .member-report-card:hover {
   background: #151f30;
   border-color: #34445d;
+}
+
+.admin-user-stats { grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
+.app.dark-mode .dkv-page .dkv-card {
+  background: #111927;
+  color: #e7edf7;
+  border-color: #263245;
+}
+.app.dark-mode .dkv-page .dkv-card-details small { color: #94a2b8; }
+.app.dark-mode .dkv-page .dkv-filters input,
+.app.dark-mode .dkv-page .dkv-filters select,
+.app.dark-mode .dkv-page .dkv-wide textarea {
+  background: #0e1724;
+  border-color: #34445d;
+  color: #e7edf7;
 }
 
 `;
