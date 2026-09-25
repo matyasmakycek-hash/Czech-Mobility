@@ -9,10 +9,12 @@ const ROLE_ADMIN = "admin";
 const ROLE_DISPECER = "dispecer";
 const ROLE_RIDIC = "ridic";
 const ROLE_DKV = "dkv_lichkov";
+const ROLE_DKV_ADMIN = "dkv_lichkov_admin";
 const ROLE_OPTIONS = [
   [ROLE_RIDIC, "Řidič"],
   [ROLE_DISPECER, "Dispečer"],
   [ROLE_DKV, "DKV Lichkov"],
+  [ROLE_DKV_ADMIN, "DKV Lichkov admin"],
   [ROLE_ADMIN, "Administrátor"],
 ];
 
@@ -27,6 +29,7 @@ function normalizeRole(value) {
   if (role === "dispecer" || role === "dispatcher") return ROLE_DISPECER;
   if (role === "ridic" || role === "driver") return ROLE_RIDIC;
   if (role === ROLE_DKV || role === "dkv lichkov") return ROLE_DKV;
+  if (role === ROLE_DKV_ADMIN || role === "dkv lichkov admin") return ROLE_DKV_ADMIN;
 
   return "";
 }
@@ -47,8 +50,17 @@ function hasRole(value, target) {
 // Zachováme původní jednosloupcovou roli pro existující databázová pravidla.
 function getPrimaryRole(roles) {
   const selected = getAssignedRoles(roles);
-  return [ROLE_ADMIN, ROLE_DISPECER, ROLE_RIDIC, ROLE_DKV]
+  return [ROLE_ADMIN, ROLE_DISPECER, ROLE_RIDIC, ROLE_DKV_ADMIN, ROLE_DKV]
     .find((item) => selected.includes(item)) || ROLE_RIDIC;
+}
+
+function canViewDkv(role) {
+  return [ROLE_ADMIN, ROLE_DKV_ADMIN, ROLE_DKV]
+    .some((item) => hasRole(role, item));
+}
+
+function canEditDkv(role) {
+  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DKV_ADMIN);
 }
 
 function canManageVehicles(role) {
@@ -754,6 +766,10 @@ function AdminUsers() {
           <span>DKV Lichkov</span>
           <strong>{users.filter((u) => hasRole(u, ROLE_DKV)).length}</strong>
         </div>
+        <div className="admin-user-stat">
+          <span>DKV Lichkov admin</span>
+          <strong>{users.filter((u) => hasRole(u, ROLE_DKV_ADMIN)).length}</strong>
+        </div>
       </div>
 
       {error && (
@@ -852,6 +868,7 @@ function AdminUsers() {
             <option value={ROLE_ADMIN}>Administrátoři</option>
             <option value={ROLE_DISPECER}>Dispečeři</option>
             <option value={ROLE_DKV}>DKV Lichkov</option>
+            <option value={ROLE_DKV_ADMIN}>DKV Lichkov admin</option>
             <option value={ROLE_RIDIC}>Řidiči</option>
           </select>
         </div>
@@ -13614,13 +13631,14 @@ function getDkvSaveError(error) {
   if (error?.code === "42P01" || error?.code === "PGRST205")
     return "Databázová tabulka DKV Lichkov ještě neexistuje. Spusť přiložený SQL skript v Supabase.";
   if (error?.code === "42501" || /row-level security|permission denied/i.test(error?.message || ""))
-    return "Nemáš oprávnění ukládat záznamy DKV. Zkontroluj přidělené role a databázová pravidla.";
+    return "Záznamy DKV může měnit jen role DKV Lichkov admin nebo Administrátor. Zkontroluj přidělené role a SQL pravidla.";
   if (error?.code === "PGRST116")
-    return "Záznam nebyl nalezen nebo nemáš oprávnění ho upravit. Obnov seznam vozidel.";
+    return "Záznam nebyl nalezen nebo pro něj chybí oprávnění UPDATE. Spusť SQL opravu pro úpravy vozidel DKV.";
   return error?.message || "Uložení se nepodařilo. Zkus to znovu.";
 }
 
 function DkvLichkov({ role }) {
+  const editable = canEditDkv(role);
   const [trains, setTrains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -13639,7 +13657,7 @@ function DkvLichkov({ role }) {
       .select("*")
       .order("evidencni_cislo", { ascending: true });
     if (loadError) {
-      setError(loadError.message);
+      setError(getDkvSaveError(loadError));
       setTrains([]);
     } else {
       setTrains(data || []);
@@ -13656,6 +13674,7 @@ function DkvLichkov({ role }) {
   }
 
   function beginEdit(train) {
+    if (!editable) return;
     setEditingId(train.id);
     setForm({
       ...emptyTrain,
@@ -13677,6 +13696,7 @@ function DkvLichkov({ role }) {
 
   async function saveTrain(event) {
     event.preventDefault();
+    if (!editable) return;
     if (saving) return;
     setError("");
     setSuccess("");
@@ -13706,6 +13726,11 @@ function DkvLichkov({ role }) {
       setError("Vyplň evidenční číslo a domovské depo.");
       return;
     }
+    if (payload.rok_vyroby !== null &&
+        (!Number.isInteger(payload.rok_vyroby) || payload.rok_vyroby < 1800 || payload.rok_vyroby > 2100)) {
+      setError("Rok výroby musí být celé číslo od 1800 do 2100.");
+      return;
+    }
 
     setSaving(true);
     const result = editingId
@@ -13722,6 +13747,7 @@ function DkvLichkov({ role }) {
   }
 
   async function deleteTrain(train) {
+    if (!editable) return;
     if (!window.confirm(`Smazat vozidlo ${train.evidencni_cislo}?`)) return;
     setError("");
     setSuccess("");
@@ -13756,22 +13782,22 @@ function DkvLichkov({ role }) {
         <div className="profile-badge">{getRoleName(role)}</div>
       </div>
 
-      {error && <div className="error-box" role="alert">{error}</div>}
+      {error && !showForm && <div className="error-box" role="alert">{error}</div>}
       {success && <div className="success-box" role="status">{success}</div>}
 
       <div className="panel">
         <div className="users-toolbar">
-          <div><h2>Kolejová vozidla ({trains.length})</h2><p className="muted">Správa vozového parku DKV Lichkov.</p></div>
-          <button type="button" className="primary-button" onClick={() => {
+          <div><h2>Kolejová vozidla ({trains.length})</h2><p className="muted">{editable ? "Správa vozového parku DKV Lichkov." : "Přehled vozového parku DKV Lichkov."}</p></div>
+          {editable && <button type="button" className="primary-button" onClick={() => {
             if (showForm && !editingId) closeForm();
             else { setEditingId(null); setForm(emptyTrain); setShowForm(true); setError(""); }
-          }}>{showForm && !editingId ? "Zavřít" : "+ Přidat vozidlo"}</button>
+          }}>{showForm && !editingId ? "Zavřít" : "+ Přidat vozidlo"}</button>}
         </div>
 
-        {showForm && (
+        {editable && showForm && (
           <div className="crud-form">
             <h3>{editingId ? "Upravit kolejové vozidlo" : "Přidat kolejové vozidlo"}</h3>
-            <form onSubmit={saveTrain}>
+            <form onSubmit={saveTrain} noValidate>
               <div className="form-grid">
                 <div><label htmlFor="dkv-number">Evidenční číslo *</label><input id="dkv-number" value={form.evidencni_cislo} onChange={(e) => change("evidencni_cislo", e.target.value)} placeholder="např. 754 012-3" required maxLength={50} /></div>
                 <div><label htmlFor="dkv-kind">Druh vozidla</label><select id="dkv-kind" value={form.druh} onChange={(e) => change("druh", e.target.value)}>{["Lokomotiva", "Motorová jednotka", "Elektrická jednotka", "Osobní vůz", "Nákladní vůz", "Jiné"].map((item) => <option key={item}>{item}</option>)}</select></div>
@@ -13785,6 +13811,7 @@ function DkvLichkov({ role }) {
                 <div><label htmlFor="dkv-next-check">Příští prohlídka</label><input id="dkv-next-check" type="date" value={form.pristi_prohlidka} onChange={(e) => change("pristi_prohlidka", e.target.value)} /></div>
                 <div className="dkv-wide"><label htmlFor="dkv-note">Poznámka</label><textarea id="dkv-note" rows="3" maxLength={2000} value={form.poznamka} onChange={(e) => change("poznamka", e.target.value)} /></div>
               </div>
+              {error && <div className="error-box" role="alert">{error}</div>}
               <div className="form-buttons"><button type="submit" className="primary-button" disabled={saving}>{saving ? "Ukládání..." : "Uložit"}</button><button type="button" className="secondary-button" onClick={closeForm}>Zrušit</button></div>
             </form>
           </div>
@@ -13810,7 +13837,7 @@ function DkvLichkov({ role }) {
                 <div><small>Příští prohlídka</small><strong>{train.pristi_prohlidka ? new Date(`${train.pristi_prohlidka}T12:00:00`).toLocaleDateString("cs-CZ") : "—"}</strong></div>
               </div>
               {train.poznamka && <p className="dkv-note">{train.poznamka}</p>}
-              <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => beginEdit(train)}>Upravit</button><button type="button" className="delete-button" onClick={() => deleteTrain(train)}>Smazat</button></div>
+              {editable && <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => beginEdit(train)}>Upravit</button><button type="button" className="delete-button" onClick={() => deleteTrain(train)}>Smazat</button></div>}
             </article>
           ))}</div>
         )}
@@ -13885,7 +13912,7 @@ function App() {
     useState(false);
 
   const role = getAssignedRoles(profile);
-  const dkvOnly = role.length === 1 && hasRole(role, ROLE_DKV);
+  const dkvOnly = role.length > 0 && role.every((item) => item === ROLE_DKV || item === ROLE_DKV_ADMIN);
 
   async function loadDashboardStats() {
     const todayDate = new Date();
@@ -14015,7 +14042,7 @@ function App() {
 
     const noAccess =
       (dkvOnly && page !== "dashboard" && page !== "dkvLichkov") ||
-      (page === "dkvLichkov" && !hasRole(role, ROLE_DKV) && !hasRole(role, ROLE_ADMIN)) ||
+      (page === "dkvLichkov" && !canViewDkv(role)) ||
       (adminOnlyPages.has(page) &&
         !hasRole(role, ROLE_ADMIN) &&
         !hasRole(role, ROLE_DISPECER)) ||
@@ -14398,7 +14425,7 @@ function App() {
             <div className="menu-divider compact" />
             <div className="menu-section-label">Provoz</div>
 
-            {(hasRole(role, ROLE_DKV) || hasRole(role, ROLE_ADMIN)) && (
+            {canViewDkv(role) && (
               <button
                 className={page === "dkvLichkov" ? "active" : ""}
                 onClick={() => setPage("dkvLichkov")}
@@ -15071,7 +15098,7 @@ function App() {
             </div>
           )}
 
-          {page === "dkvLichkov" && (hasRole(role, ROLE_DKV) || hasRole(role, ROLE_ADMIN)) && (
+          {page === "dkvLichkov" && canViewDkv(role) && (
             <DkvLichkov role={role} />
           )}
 
