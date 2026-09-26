@@ -93,7 +93,8 @@ function canEditWorkshop(role) {
 }
 
 function canViewBudget(role) {
-  return hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER);
+  return [ROLE_ADMIN, ROLE_DISPECER, ROLE_DKV, ROLE_DKV_ADMIN]
+    .some((item) => hasRole(role, item));
 }
 
 function canEditBudget(role) {
@@ -13164,6 +13165,149 @@ function PartOrdersChannel({ user, role }) {
   );
 }
 
+function getDkvBudgetTotals(initialAmount, orders, jobs) {
+  const money = (value) => Math.round(Number(value || 0) * 100);
+  const expenses = orders
+    .filter((order) => order.stav !== "Zrušená")
+    .reduce((sum, order) => sum + money(order.castka_kc), 0);
+  const income = jobs
+    .filter((job) => ["Splněná", "Uhrazeno"].includes(job.stav))
+    .reduce((sum, job) => sum + money(job.prijem_kc), 0);
+  return {
+    expenses: expenses / 100,
+    income: income / 100,
+    remaining: (money(initialAmount) - expenses + income) / 100,
+  };
+}
+
+function DkvBudget({ role }) {
+  const canEdit = canEditBudget(role);
+  const [budget, setBudget] = useState(0);
+  const [draft, setDraft] = useState("0");
+  const [orders, setOrders] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadDkvBudget() {
+    setLoading(true);
+    const [budgetResult, orderResult, jobResult] = await Promise.all([
+      supabase.from("dkv_lichkov_rozpocet").select("castka").eq("id", 1).maybeSingle(),
+      supabase.from("dkv_lichkov_objednavky")
+        .select("id,cislo_objednavky,datum,castka_kc,stav").order("datum", { ascending: false }),
+      supabase.from("dkv_lichkov_prijmy")
+        .select("id,cislo_zakazky,datum,prijem_kc,stav").order("datum", { ascending: false }),
+    ]);
+    const loadError = budgetResult.error || orderResult.error || jobResult.error;
+    if (loadError) {
+      setLoadFailed(true);
+      setError(getDkvSaveError(loadError));
+    } else {
+      setLoadFailed(false);
+      const amount = Number(budgetResult.data?.castka || 0);
+      setBudget(amount);
+      setDraft(String(amount));
+      setOrders(orderResult.data || []);
+      setJobs(jobResult.data || []);
+      setError("");
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadDkvBudget();
+    const channel = supabase.channel("dkv-budget-live");
+    for (const table of ["dkv_lichkov_rozpocet", "dkv_lichkov_objednavky", "dkv_lichkov_prijmy"]) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, loadDkvBudget);
+    }
+    channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  async function saveBudget() {
+    if (!canEdit || saving) return;
+    const raw = draft.trim().replace(",", ".");
+    const amount = raw === "" ? 0 : Number(raw);
+    if (raw !== "" && (!/^\d+(?:\.\d{1,2})?$/.test(raw) || amount > 9999999999.99)) {
+      setError("Rozpočet musí být nezáporné číslo nejvýše na dvě desetinná místa.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const { error: saveError } = await supabase.from("dkv_lichkov_rozpocet")
+        .upsert({ id: 1, castka: amount, updated_at: new Date().toISOString() }, { onConflict: "id" });
+      if (saveError) throw saveError;
+      await loadDkvBudget();
+      setSuccess("Rozpočet DKV Lichkov byl uložen.");
+    } catch (saveError) {
+      setError(getDkvSaveError(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const formatMoney = (value) => `${Number(value).toLocaleString("cs-CZ", {
+    minimumFractionDigits: 0, maximumFractionDigits: 2,
+  })} Kč`;
+  const { expenses, income, remaining } = getDkvBudgetTotals(budget, orders, jobs);
+  const activeOrders = orders.filter((order) => order.stav !== "Zrušená");
+  const completedJobs = jobs.filter((job) => ["Splněná", "Uhrazeno"].includes(job.stav));
+
+  return (
+    <div className="standard-page budget-page">
+      <header className="standard-page-head">
+        <div>
+          <span className="page-eyebrow">FINANCE DKV LICHKOV</span>
+          <h1>Rozpočet DKV Lichkov</h1>
+          <p>Objednávky se odečítají z rozpočtu. Příjem ze zakázky se přičte po označení zakázky jako Splněná. Již uhrazené zakázky se počítají také.</p>
+        </div>
+        <div className={`access-pill ${canEdit ? "edit" : "read"}`}>
+          {canEdit ? "ADMIN · NASTAVENÍ ROZPOČTU" : "PŘEHLED ROZPOČTU"}
+        </div>
+      </header>
+
+      {error && <div className="error-box" role="alert">{error}</div>}
+      {success && <div className="success-box" role="status">{success}</div>}
+
+      {loading ? <div className="panel empty">Načítám rozpočet DKV…</div> : loadFailed ? null : <>
+        <div className="budget-summary-grid dkv-budget-summary">
+          <div className="budget-summary-card"><span>Základní rozpočet</span><strong>{formatMoney(budget)}</strong></div>
+          <div className="budget-summary-card"><span>Objednávky</span><strong>− {formatMoney(expenses)}</strong></div>
+          <div className="budget-summary-card"><span>Splněné zakázky</span><strong>+ {formatMoney(income)}</strong></div>
+          <div className="budget-summary-card"><span>Zbývá</span><strong className={remaining < 0 ? "negative" : ""}>{formatMoney(remaining)}</strong></div>
+        </div>
+
+        <section className="panel branch-budget-card">
+          {canEdit && <div className="budget-edit-row">
+            <label><span>Základní rozpočet DKV (Kč)</span><input inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value)} /></label>
+            <button type="button" className="primary-button" disabled={saving} onClick={saveBudget}>{saving ? "Ukládám…" : "Uložit rozpočet"}</button>
+          </div>}
+
+          <div className="budget-order-list">
+            <div className="budget-order-list-head"><strong>Objednávky DKV</strong><span>{activeOrders.length}</span></div>
+            {activeOrders.length === 0 ? <small>Žádné započítané objednávky.</small> : activeOrders.slice(0, 8).map((order) => <div key={order.id} className="budget-order-row">
+              <div><strong>{order.cislo_objednavky}</strong><small>{order.stav} · {order.datum}</small></div>
+              <strong>− {formatMoney(order.castka_kc || 0)}</strong>
+            </div>)}
+          </div>
+          <div className="budget-order-list">
+            <div className="budget-order-list-head"><strong>Splněné zakázky DKV</strong><span>{completedJobs.length}</span></div>
+            {completedJobs.length === 0 ? <small>Žádné splněné zakázky.</small> : completedJobs.slice(0, 8).map((job) => <div key={job.id} className="budget-order-row">
+              <div><strong>{job.cislo_zakazky}</strong><small>{job.stav} · {job.datum}</small></div>
+              <strong>+ {formatMoney(job.prijem_kc)}</strong>
+            </div>)}
+          </div>
+        </section>
+      </>}
+    </div>
+  );
+}
+
 function BranchBudget({ role }) {
   const canEdit = canEditBudget(role);
   const [branches, setBranches] = useState([]);
@@ -13648,20 +13792,20 @@ const DKV_MODULES = {
       { name: "objednatel", label: "Objednatel", required: true },
       { name: "popis", label: "Předmět objednávky", type: "textarea", required: true },
       { name: "stav", label: "Stav", options: ["Nová", "Potvrzená", "Probíhá", "Dokončená", "Zrušená"] },
-      { name: "castka_kc", label: "Cena (Kč)", type: "number", min: 0, step: "0.01" },
+      { name: "castka_kc", label: "Výdaj z rozpočtu (Kč)", type: "number", min: 0, step: "0.01", required: true },
       { name: "poznamka", label: "Poznámka", type: "textarea" },
     ],
   },
   prijmy: {
-    title: "Příjem ze zakázek",
+    title: "Zakázky a příjmy",
     table: "dkv_lichkov_prijmy",
     fields: [
       { name: "cislo_zakazky", label: "Číslo zakázky", required: true },
-      { name: "datum", label: "Datum příjmu", type: "date", required: true },
+      { name: "datum", label: "Datum zakázky", type: "date", required: true },
       { name: "objednatel", label: "Objednatel", required: true },
       { name: "popis", label: "Popis", type: "textarea" },
-      { name: "prijem_kc", label: "Příjem (Kč)", type: "number", min: 0, step: "0.01", required: true },
-      { name: "stav", label: "Stav platby", options: ["Očekává se", "Uhrazeno"] },
+      { name: "prijem_kc", label: "Příjem po splnění (Kč)", type: "number", min: 0, step: "0.01", required: true },
+      { name: "stav", label: "Stav zakázky", options: ["Rozpracovaná", "Splněná", "Očekává se", "Uhrazeno"] },
       { name: "poznamka", label: "Poznámka", type: "textarea" },
     ],
   },
@@ -13802,6 +13946,8 @@ function DkvRecords({ kind, editable, trains }) {
           else { setEditingId(null); setForm(empty()); setShowForm(true); setError(""); }
         }}>{showForm && !editingId ? "Zavřít" : "+ Přidat záznam"}</button>}
       </div>
+      {kind === "objednavky" && <p className="muted">Cena objednávky se odečte z rozpočtu DKV. Zrušená objednávka se nezapočítává.</p>}
+      {kind === "prijmy" && <p className="muted">Příjem se přičte do rozpočtu DKV, jakmile má zakázka stav Splněná. Dříve uložený stav Uhrazeno se započítává také.</p>}
       {error && !showForm && <div className="error-box" role="alert">{error}</div>}
       {success && <div className="success-box" role="status">{success}</div>}
 
@@ -13882,9 +14028,12 @@ function DkvLichkov({ role }) {
     setForm({
       ...emptyTrain,
       ...train,
+      rada: train.rada ?? "",
+      vyrobce: train.vyrobce ?? "",
       rok_vyroby: train.rok_vyroby ?? "",
       posledni_prohlidka: train.posledni_prohlidka || "",
       pristi_prohlidka: train.pristi_prohlidka || "",
+      poznamka: train.poznamka ?? "",
     });
     setShowForm(true);
     setError("");
@@ -13913,17 +14062,17 @@ function DkvLichkov({ role }) {
     }
 
     const payload = {
-      evidencni_cislo: form.evidencni_cislo.trim(),
+      evidencni_cislo: String(form.evidencni_cislo ?? "").trim(),
       druh: form.druh,
-      rada: form.rada.trim() || null,
+      rada: String(form.rada ?? "").trim() || null,
       trakce: form.trakce,
-      vyrobce: form.vyrobce.trim() || null,
-      rok_vyroby: form.rok_vyroby === "" ? null : Number(form.rok_vyroby),
-      domovske_depo: form.domovske_depo.trim(),
+      vyrobce: String(form.vyrobce ?? "").trim() || null,
+      rok_vyroby: form.rok_vyroby == null || form.rok_vyroby === "" ? null : Number(form.rok_vyroby),
+      domovske_depo: String(form.domovske_depo ?? "").trim(),
       stav: form.stav,
       posledni_prohlidka: form.posledni_prohlidka || null,
       pristi_prohlidka: form.pristi_prohlidka || null,
-      poznamka: form.poznamka.trim() || null,
+      poznamka: String(form.poznamka ?? "").trim() || null,
     };
     if (!payload.evidencni_cislo || !payload.domovske_depo) {
       setError("Vyplň evidenční číslo a domovské depo.");
@@ -13936,17 +14085,22 @@ function DkvLichkov({ role }) {
     }
 
     setSaving(true);
-    const result = editingId
-      ? await supabase.from("dkv_lichkov_vozidla").update(payload).eq("id", editingId).select("id").single()
-      : await supabase.from("dkv_lichkov_vozidla").insert(payload).select("id").single();
-    setSaving(false);
-    if (result.error || !result.data?.id) {
-      setError(getDkvSaveError(result.error));
-      return;
+    try {
+      const result = editingId
+        ? await supabase.from("dkv_lichkov_vozidla").update(payload).eq("id", editingId).select("id").single()
+        : await supabase.from("dkv_lichkov_vozidla").insert(payload).select("id").single();
+      if (result.error || !result.data?.id) {
+        setError(getDkvSaveError(result.error));
+        return;
+      }
+      setSuccess(editingId ? "Záznam byl upraven." : "Kolejové vozidlo bylo přidáno.");
+      closeForm();
+      await loadTrains();
+    } catch (saveError) {
+      setError(getDkvSaveError(saveError));
+    } finally {
+      setSaving(false);
     }
-    setSuccess(editingId ? "Záznam byl upraven." : "Kolejové vozidlo bylo přidáno.");
-    closeForm();
-    await loadTrains();
   }
 
   async function deleteTrain(train) {
@@ -13986,7 +14140,7 @@ function DkvLichkov({ role }) {
       </div>
 
       <nav className="dkv-tabs" aria-label="Agenda DKV Lichkov">
-        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Příjmy ze zakázek"], ["smeny", "Směny"], ["poruchy", "Poruchy"]].map(([key, label]) => (
+        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Zakázky a příjmy"], ["smeny", "Směny"], ["poruchy", "Poruchy"]].map(([key, label]) => (
           <button type="button" key={key} className={section === key ? "active" : ""} aria-current={section === key ? "page" : undefined} onClick={() => setSection(key)}>{label}</button>
         ))}
       </nav>
@@ -14249,12 +14403,12 @@ function App() {
       "workshop",
       "partOrders",
       "vehicleOrders",
-      "budget",
     ]);
 
     const noAccess =
-      (dkvOnly && page !== "dashboard" && page !== "dkvLichkov") ||
+      (dkvOnly && page !== "dashboard" && page !== "dkvLichkov" && page !== "budget") ||
       (page === "dkvLichkov" && !canViewDkv(role)) ||
+      (page === "budget" && !canViewBudget(role)) ||
       (adminOnlyPages.has(page) &&
         !hasRole(role, ROLE_ADMIN) &&
         !hasRole(role, ROLE_DISPECER)) ||
@@ -14644,6 +14798,13 @@ function App() {
               >
                 <span>🚆</span>
                 DKV Lichkov
+              </button>
+            )}
+
+            {dkvOnly && canViewBudget(role) && (
+              <button className={page === "budget" ? "active" : ""} onClick={() => setPage("budget")}>
+                <span>💰</span>
+                Rozpočet DKV
               </button>
             )}
 
@@ -15314,6 +15475,11 @@ function App() {
             <DkvLichkov role={role} />
           )}
 
+          {page === "budget" && canViewBudget(role) && <>
+            {(hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER)) && <BranchBudget role={role} />}
+            {canViewDkv(role) && <DkvBudget role={role} />}
+          </>}
+
           {!dkvOnly && <>
           {page === "departures" && (
             <Departures
@@ -15391,11 +15557,6 @@ function App() {
                 user={user}
                 role={role}
               />
-            )}
-
-          {page === "budget" &&
-            canViewBudget(role) && (
-              <BranchBudget role={role} />
             )}
 
           {page === "notifications" && <Notifications user={user} role={role} />}
@@ -25194,6 +25355,11 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   gap: 12px;
   margin-bottom: 16px;
 }
+
+.dkv-budget-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dkv-budget-summary strong.negative { color: #dc2626; }
+@media (max-width: 850px) { .dkv-budget-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .dkv-budget-summary { grid-template-columns: 1fr; } }
 
 .budget-summary-card {
   padding: 15px 16px;
