@@ -13637,8 +13637,211 @@ function getDkvSaveError(error) {
   return error?.message || "Uložení se nepodařilo. Zkus to znovu.";
 }
 
+const DKV_MODULES = {
+  objednavky: {
+    title: "Objednávky lokomotiv",
+    table: "dkv_lichkov_objednavky",
+    fields: [
+      { name: "cislo_objednavky", label: "Číslo objednávky", required: true },
+      { name: "datum", label: "Datum objednávky", type: "date", required: true },
+      { name: "evidencni_cislo", label: "Lokomotiva", required: true, train: true },
+      { name: "objednatel", label: "Objednatel", required: true },
+      { name: "popis", label: "Předmět objednávky", type: "textarea", required: true },
+      { name: "stav", label: "Stav", options: ["Nová", "Potvrzená", "Probíhá", "Dokončená", "Zrušená"] },
+      { name: "castka_kc", label: "Cena (Kč)", type: "number", min: 0, step: "0.01" },
+      { name: "poznamka", label: "Poznámka", type: "textarea" },
+    ],
+  },
+  prijmy: {
+    title: "Příjem ze zakázek",
+    table: "dkv_lichkov_prijmy",
+    fields: [
+      { name: "cislo_zakazky", label: "Číslo zakázky", required: true },
+      { name: "datum", label: "Datum příjmu", type: "date", required: true },
+      { name: "objednatel", label: "Objednatel", required: true },
+      { name: "popis", label: "Popis", type: "textarea" },
+      { name: "prijem_kc", label: "Příjem (Kč)", type: "number", min: 0, step: "0.01", required: true },
+      { name: "stav", label: "Stav platby", options: ["Očekává se", "Uhrazeno"] },
+      { name: "poznamka", label: "Poznámka", type: "textarea" },
+    ],
+  },
+  smeny: {
+    title: "Směny a zápisy směn",
+    table: "dkv_lichkov_smeny",
+    fields: [
+      { name: "datum", label: "Datum směny", type: "date", required: true },
+      { name: "zamestnanec", label: "Zaměstnanec", required: true },
+      { name: "evidencni_cislo", label: "Lokomotiva", train: true },
+      { name: "zacatek", label: "Začátek", type: "time", required: true },
+      { name: "konec", label: "Konec", type: "time" },
+      { name: "kilometry", label: "Ujeté kilometry", type: "number", min: 0, step: "0.1" },
+      { name: "spotreba_litry", label: "Spotřeba (l)", type: "number", min: 0, step: "0.1" },
+      { name: "stav", label: "Stav směny", options: ["Plánovaná", "Probíhá", "Uzavřená"] },
+      { name: "poznamka", label: "Zápis směny", type: "textarea" },
+    ],
+  },
+  poruchy: {
+    title: "Zápis poruch",
+    table: "dkv_lichkov_poruchy",
+    fields: [
+      { name: "datum", label: "Datum zjištění", type: "date", required: true },
+      { name: "evidencni_cislo", label: "Lokomotiva", required: true, train: true },
+      { name: "nazev", label: "Název poruchy", required: true },
+      { name: "popis", label: "Popis poruchy", type: "textarea", required: true },
+      { name: "zavaznost", label: "Závažnost", options: ["Běžná", "Vážná", "Odstavuje vozidlo"] },
+      { name: "stav", label: "Stav", options: ["Nahlášená", "V řešení", "Opravená"] },
+      { name: "poznamka", label: "Poznámka k řešení", type: "textarea" },
+    ],
+  },
+};
+
+function DkvRecords({ kind, editable, trains }) {
+  const config = DKV_MODULES[kind];
+  const empty = () => Object.fromEntries(config.fields.map((field) => [
+    field.name,
+    field.options?.[0] || (field.type === "date" && field.name === "datum" ? localDateIso() : ""),
+  ]));
+  const [rows, setRows] = useState([]);
+  const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadRows() {
+    setLoading(true);
+    const { data, error: loadError } = await supabase
+      .from(config.table).select("*").order("datum", { ascending: false });
+    if (loadError) setError(getDkvSaveError(loadError));
+    else setRows(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    setRows([]);
+    setForm(empty());
+    setEditingId(null);
+    setShowForm(false);
+    setError("");
+    setSuccess("");
+    loadRows();
+  }, [kind]);
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(empty());
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    if (!editable || saving) return;
+    setError("");
+    setSuccess("");
+    const payload = {};
+    for (const field of config.fields) {
+      const raw = String(form[field.name] ?? "").trim();
+      if (field.required && !raw) {
+        setError(`Vyplň pole „${field.label}“.`);
+        return;
+      }
+      if (field.type === "number" && raw) {
+        const number = Number(raw);
+        if (!Number.isFinite(number) || number < (field.min ?? 0)) {
+          setError(`Pole „${field.label}“ musí být nezáporné číslo.`);
+          return;
+        }
+        payload[field.name] = number;
+      } else {
+        payload[field.name] = raw || null;
+      }
+    }
+    setSaving(true);
+    const result = editingId
+      ? await supabase.from(config.table).update(payload).eq("id", editingId).select("id").single()
+      : await supabase.from(config.table).insert(payload).select("id").single();
+    setSaving(false);
+    if (result.error || !result.data?.id) {
+      setError(getDkvSaveError(result.error));
+      return;
+    }
+    closeForm();
+    setSuccess(editingId ? "Záznam byl upraven." : "Záznam byl přidán.");
+    await loadRows();
+  }
+
+  async function remove(row) {
+    if (!editable || !window.confirm("Smazat tento záznam?")) return;
+    setError("");
+    const { data, error: deleteError } = await supabase.from(config.table)
+      .delete().eq("id", row.id).select("id").single();
+    if (deleteError || !data?.id) {
+      setError(getDkvSaveError(deleteError));
+      return;
+    }
+    if (editingId === row.id) closeForm();
+    setSuccess("Záznam byl smazán.");
+    await loadRows();
+  }
+
+  function showValue(field, value) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (field.type === "date") return new Date(`${value}T12:00:00`).toLocaleDateString("cs-CZ");
+    if (field.type === "number") return `${Number(value).toLocaleString("cs-CZ")} ${field.name.endsWith("_kc") ? "Kč" : field.name === "spotreba_litry" ? "l" : field.name === "kilometry" ? "km" : ""}`.trim();
+    return String(value);
+  }
+
+  return (
+    <div className="panel dkv-records">
+      <div className="users-toolbar">
+        <div><h2>{config.title} ({rows.length})</h2><p className="muted">{editable ? "Záznamy DKV Lichkov" : "Přehled záznamů DKV Lichkov"}</p></div>
+        {editable && <button type="button" className="primary-button" onClick={() => {
+          if (showForm && !editingId) closeForm();
+          else { setEditingId(null); setForm(empty()); setShowForm(true); setError(""); }
+        }}>{showForm && !editingId ? "Zavřít" : "+ Přidat záznam"}</button>}
+      </div>
+      {error && !showForm && <div className="error-box" role="alert">{error}</div>}
+      {success && <div className="success-box" role="status">{success}</div>}
+
+      {editable && showForm && <div className="crud-form">
+        <h3>{editingId ? "Upravit záznam" : "Nový záznam"}</h3>
+        <form onSubmit={save} noValidate>
+          <div className="form-grid">
+            {config.fields.map((field) => <div key={field.name} className={field.type === "textarea" ? "dkv-wide" : ""}>
+              <label htmlFor={`dkv-${kind}-${field.name}`}>{field.label}{field.required ? " *" : ""}</label>
+              {field.options ? <select id={`dkv-${kind}-${field.name}`} value={form[field.name] ?? ""} onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))}>
+                {field.options.map((option) => <option key={option}>{option}</option>)}
+              </select> : field.type === "textarea" ? <textarea id={`dkv-${kind}-${field.name}`} rows="3" maxLength={2000} value={form[field.name] ?? ""} onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))} /> : <input
+                id={`dkv-${kind}-${field.name}`} type={field.type || "text"} min={field.min} step={field.step} maxLength={field.type === "number" ? undefined : 150}
+                list={field.train ? "dkv-train-numbers" : undefined}
+                value={field.type === "time" ? String(form[field.name] ?? "").slice(0, 5) : (form[field.name] ?? "")}
+                onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))}
+              />}
+            </div>)}
+          </div>
+          <datalist id="dkv-train-numbers">{trains.map((train) => <option key={train.id} value={train.evidencni_cislo} />)}</datalist>
+          {error && <div className="error-box" role="alert">{error}</div>}
+          <div className="form-buttons"><button type="submit" className="primary-button" disabled={saving}>{saving ? "Ukládání..." : "Uložit"}</button><button type="button" className="secondary-button" onClick={closeForm}>Zrušit</button></div>
+        </form>
+      </div>}
+
+      {loading ? <div className="empty">Načítání záznamů...</div> : rows.length === 0 ? <div className="empty">Zatím žádné záznamy.</div> : <div className="dkv-list">
+        {rows.map((row) => <article className="dkv-card" key={row.id}>
+          <div className="dkv-card-details">{config.fields.map((field) => <div key={field.name} className={field.type === "textarea" ? "dkv-wide" : ""}>
+            <small>{field.label}</small><strong>{showValue(field, row[field.name])}</strong>
+          </div>)}</div>
+          {editable && <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => { setEditingId(row.id); setForm(Object.fromEntries(config.fields.map((field) => [field.name, row[field.name] ?? ""]))); setShowForm(true); setError(""); setSuccess(""); }}>Upravit</button><button type="button" className="delete-button" onClick={() => remove(row)}>Smazat</button></div>}
+        </article>)}
+      </div>}
+    </div>
+  );
+}
+
 function DkvLichkov({ role }) {
   const editable = canEditDkv(role);
+  const [section, setSection] = useState("vozidla");
   const [trains, setTrains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -13782,6 +13985,14 @@ function DkvLichkov({ role }) {
         <div className="profile-badge">{getRoleName(role)}</div>
       </div>
 
+      <nav className="dkv-tabs" aria-label="Agenda DKV Lichkov">
+        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Příjmy ze zakázek"], ["smeny", "Směny"], ["poruchy", "Poruchy"]].map(([key, label]) => (
+          <button type="button" key={key} className={section === key ? "active" : ""} aria-current={section === key ? "page" : undefined} onClick={() => setSection(key)}>{label}</button>
+        ))}
+      </nav>
+
+      {section !== "vozidla" ? <DkvRecords key={section} kind={section} editable={editable} trains={trains} /> : <>
+
       {error && !showForm && <div className="error-box" role="alert">{error}</div>}
       {success && <div className="success-box" role="status">{success}</div>}
 
@@ -13842,6 +14053,7 @@ function DkvLichkov({ role }) {
           ))}</div>
         )}
       </div>
+      </>}
     </div>
   );
 }
@@ -15238,6 +15450,12 @@ function App() {
 ========================================================= */
 
 const styles = `
+.dkv-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 20px; }
+.dkv-tabs button { border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 14px; background: #fff; color: #172033; cursor: pointer; font: inherit; }
+.dkv-tabs button.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.dkv-records .dkv-card-details .dkv-wide { grid-column: 1 / -1; }
+.dkv-records .dkv-card-details strong { white-space: pre-wrap; }
+.dkv-records .error-box, .dkv-records .success-box { margin-top: 16px; }
 .dkv-page .dkv-filters {
   display: flex;
   flex-wrap: wrap;
@@ -26000,6 +26218,8 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   border-color: #34445d;
   color: #e7edf7;
 }
+.app.dark-mode .dkv-tabs button { background: #111927; border-color: #34445d; color: #e7edf7; }
+.app.dark-mode .dkv-tabs button.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
 .role-checkboxes {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
