@@ -2799,7 +2799,93 @@ function MyReports({ user }) {
    SPRÁVA VÝKAZŮ
 ========================================================= */
 
-function AdminReports() {
+function DkvFinancialReport() {
+  const [budget, setBudget] = useState(0);
+  const [orders, setOrders] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [month, setMonth] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function loadReport() {
+    setLoading(true);
+    try {
+      const [budgetResult, orderResult, jobResult] = await Promise.all([
+        supabase.from("dkv_lichkov_rozpocet").select("castka").eq("id", 1).maybeSingle(),
+        supabase.from("dkv_lichkov_objednavky")
+          .select("id,cislo_objednavky,datum,popis,castka_kc,stav"),
+        supabase.from("dkv_lichkov_prijmy")
+          .select("id,cislo_zakazky,datum,popis,prijem_kc,stav"),
+      ]);
+      const loadError = budgetResult.error || orderResult.error || jobResult.error;
+      if (loadError) throw loadError;
+      setBudget(Number(budgetResult.data?.castka || 0));
+      setOrders(orderResult.data || []);
+      setJobs(jobResult.data || []);
+      setError("");
+    } catch (loadError) {
+      setError(getDkvSaveError(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadReport();
+    const channel = supabase.channel("dkv-financial-report-live");
+    for (const table of ["dkv_lichkov_rozpocet", "dkv_lichkov_objednavky", "dkv_lichkov_prijmy"]) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, loadReport);
+    }
+    channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const matchesMonth = (record) => !month || String(record.datum || "").startsWith(month);
+  const periodOrders = orders.filter(matchesMonth);
+  const periodJobs = jobs.filter(matchesMonth);
+  const periodTotals = getDkvBudgetTotals(0, periodOrders, periodJobs);
+  const allTotals = getDkvBudgetTotals(budget, orders, jobs);
+  const entries = getDkvFinancialEntries(periodOrders, periodJobs)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || a.id.localeCompare(b.id));
+  const formatMoney = (amount) => `${Math.abs(Number(amount)).toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`;
+
+  return (
+    <section className="standard-page budget-page dkv-financial-report">
+      <header className="standard-page-head">
+        <div><span className="page-eyebrow">VÝKAZY DKV LICHKOV</span><h1>Finanční výkaz DKV</h1>
+          <p>Objednávky se vykazují jako výdaj, splněné a již uhrazené zakázky jako příjem. Zrušené objednávky a rozpracované zakázky se nezapočítávají.</p>
+        </div>
+      </header>
+      <div className="panel dkv-report-filter">
+        <label htmlFor="dkv-report-month">Období</label>
+        <input id="dkv-report-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+        {month && <button type="button" className="secondary-button" onClick={() => setMonth("")}>Všechna období</button>}
+        <button type="button" className="secondary-button" onClick={loadReport} disabled={loading}>Obnovit výkaz</button>
+      </div>
+      {error && <div className="error-box" role="alert">{error}</div>}
+      {loading ? <div className="panel empty">Načítám výkaz DKV…</div> : error ? null : <>
+        <div className="budget-summary-grid dkv-budget-summary">
+          <div className="budget-summary-card"><span>Výdaje za období</span><strong>− {formatMoney(periodTotals.expenses)}</strong></div>
+          <div className="budget-summary-card"><span>Příjmy za období</span><strong>+ {formatMoney(periodTotals.income)}</strong></div>
+          <div className="budget-summary-card"><span>Rozdíl za období</span><strong>{periodTotals.remaining < 0 ? "−" : "+"} {formatMoney(periodTotals.remaining)}</strong></div>
+          <div className="budget-summary-card"><span>Aktuálně zbývá v rozpočtu</span><strong className={allTotals.remaining < 0 ? "negative" : ""}>{allTotals.remaining < 0 ? "− " : ""}{formatMoney(allTotals.remaining)}</strong></div>
+        </div>
+        <div className="panel">
+          <h2>Položky výkazu ({entries.length})</h2>
+          <p className="muted">Základní rozpočet DKV: {formatMoney(budget)}. Aktuální zůstatek se počítá ze všech období.</p>
+          {entries.length === 0 ? <div className="empty">V tomto období nejsou započítané objednávky ani splněné zakázky.</div> : <div className="budget-order-list">
+            {entries.map((entry) => <div className="budget-order-row" key={entry.id}>
+              <div><strong>{entry.kind}: {entry.title}</strong><small>{entry.date ? new Date(`${entry.date}T12:00:00`).toLocaleDateString("cs-CZ") : "—"} · {entry.status}{entry.description ? ` · ${entry.description}` : ""}</small></div>
+              <strong>{entry.amount < 0 ? "−" : "+"} {formatMoney(entry.amount)}</strong>
+            </div>)}
+          </div>}
+        </div>
+      </>}
+    </section>
+  );
+}
+
+function AdminReports({ role }) {
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]);
 
@@ -3108,6 +3194,7 @@ function AdminReports() {
           </div>
         )}
       </div>
+      {canViewDkv(role) && <DkvFinancialReport />}
     </div>
   );
 }
@@ -13165,14 +13252,28 @@ function PartOrdersChannel({ user, role }) {
   );
 }
 
+function getDkvFinancialEntries(orders, jobs) {
+  return [
+    ...orders.filter((order) => order.stav !== "Zrušená").map((order) => ({
+      id: `objednavka-${order.id}`, date: order.datum, title: order.cislo_objednavky,
+      description: order.popis, kind: "Objednávka", status: order.stav,
+      amount: -Number(order.castka_kc || 0),
+    })),
+    ...jobs.filter((job) => ["Splněná", "Uhrazeno"].includes(job.stav)).map((job) => ({
+      id: `zakazka-${job.id}`, date: job.datum, title: job.cislo_zakazky,
+      description: job.popis, kind: "Zakázka", status: job.stav,
+      amount: Number(job.prijem_kc || 0),
+    })),
+  ];
+}
+
 function getDkvBudgetTotals(initialAmount, orders, jobs) {
   const money = (value) => Math.round(Number(value || 0) * 100);
-  const expenses = orders
-    .filter((order) => order.stav !== "Zrušená")
-    .reduce((sum, order) => sum + money(order.castka_kc), 0);
-  const income = jobs
-    .filter((job) => ["Splněná", "Uhrazeno"].includes(job.stav))
-    .reduce((sum, job) => sum + money(job.prijem_kc), 0);
+  const entries = getDkvFinancialEntries(orders, jobs);
+  const expenses = entries.filter((entry) => entry.kind === "Objednávka")
+    .reduce((sum, entry) => sum + money(-entry.amount), 0);
+  const income = entries.filter((entry) => entry.kind === "Zakázka")
+    .reduce((sum, entry) => sum + money(entry.amount), 0);
   return {
     expenses: expenses / 100,
     income: income / 100,
@@ -13817,7 +13918,9 @@ const DKV_MODULES = {
       { name: "zamestnanec", label: "Zaměstnanec", required: true },
       { name: "evidencni_cislo", label: "Lokomotiva", train: true },
       { name: "zacatek", label: "Začátek", type: "time", required: true },
+      { name: "misto_nastupu", label: "Místo nástupu" },
       { name: "konec", label: "Konec", type: "time" },
+      { name: "misto_ukonceni", label: "Místo ukončení" },
       { name: "kilometry", label: "Ujeté kilometry", type: "number", min: 0, step: "0.1" },
       { name: "spotreba_litry", label: "Spotřeba (l)", type: "number", min: 0, step: "0.1" },
       { name: "stav", label: "Stav směny", options: ["Plánovaná", "Probíhá", "Uzavřená"] },
@@ -13985,6 +14088,241 @@ function DkvRecords({ kind, editable, trains }) {
   );
 }
 
+const DKV_WEEKDAYS = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+
+function nextDkvShiftDate(shift, today = localDateIso()) {
+  if (shift.stav !== "Aktivní") return null;
+  const base = new Date(`${today}T12:00:00`);
+  for (let offset = 0; offset < 90; offset++) {
+    const day = new Date(base);
+    day.setDate(base.getDate() + offset);
+    const date = localDateIso(day);
+    if (date < shift.platnost_od || (shift.platnost_do && date > shift.platnost_do)) continue;
+    if ((shift.dny_v_tydnu || []).includes(day.getDay() || 7)) return date;
+  }
+  return null;
+}
+
+function DkvConsists({ editable, trains }) {
+  const empty = () => ({ oznaceni: "", linka: "", vychozi_stanice: "", cilova_stanice: "", vozy: [{ evidencni_cislo: "", typ: "Lokomotiva" }], poznamka: "" });
+  const [rows, setRows] = useState([]);
+  const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function load() {
+    setLoading(true);
+    const { data, error: loadError } = await supabase.from("dkv_lichkov_soupravy").select("*").order("oznaceni");
+    if (loadError) setError(getDkvSaveError(loadError));
+    else { setRows(data || []); setError(""); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+  function close() { setShowForm(false); setEditingId(null); setForm(empty()); }
+  function change(name, value) { setForm((old) => ({ ...old, [name]: value })); }
+  function changeVehicle(index, name, value) {
+    setForm((old) => ({ ...old, vozy: old.vozy.map((item, i) => i === index ? { ...item, [name]: value } : item) }));
+  }
+  function moveVehicle(index, direction) {
+    setForm((old) => {
+      const next = [...old.vozy];
+      const other = index + direction;
+      if (other < 0 || other >= next.length) return old;
+      [next[index], next[other]] = [next[other], next[index]];
+      return { ...old, vozy: next };
+    });
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    if (!editable || saving) return;
+    setError(""); setSuccess("");
+    const vehicles = form.vozy.map((item) => ({
+      evidencni_cislo: String(item.evidencni_cislo ?? "").trim(),
+      typ: String(item.typ ?? "").trim() || "Jiné",
+    }));
+    if (!form.oznaceni.trim() || !vehicles.length || vehicles.some((item) => !item.evidencni_cislo)) {
+      setError("Vyplň označení soupravy a číslo každého vozidla."); return;
+    }
+    if (vehicles.length > 30 || vehicles.some((item) => item.evidencni_cislo.length > 150)) {
+      setError("Souprava může mít nejvýše 30 vozidel; číslo každého může mít nejvýše 150 znaků."); return;
+    }
+    const payload = {
+      oznaceni: form.oznaceni.trim(), linka: form.linka.trim() || null,
+      vychozi_stanice: form.vychozi_stanice.trim() || null,
+      cilova_stanice: form.cilova_stanice.trim() || null,
+      vozy: vehicles, poznamka: form.poznamka.trim() || null,
+    };
+    setSaving(true);
+    try {
+      const result = editingId
+        ? await supabase.from("dkv_lichkov_soupravy").update(payload).eq("id", editingId).select("id").single()
+        : await supabase.from("dkv_lichkov_soupravy").insert(payload).select("id").single();
+      if (result.error || !result.data?.id) throw result.error || new Error("Soupravu se nepodařilo uložit.");
+      close(); await load(); setSuccess("Souprava byla uložena.");
+    } catch (saveError) { setError(saveError?.code === "23505" ? "Souprava s tímto označením už existuje." : getDkvSaveError(saveError)); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(row) {
+    if (!editable || !window.confirm(`Smazat soupravu ${row.oznaceni}?`)) return;
+    const { data, error: deleteError } = await supabase.from("dkv_lichkov_soupravy").delete().eq("id", row.id).select("id").single();
+    if (deleteError || !data?.id) { setError(deleteError?.code === "23503" ? "Souprava je přiřazena pravidelné směně. Nejdřív změň přiřazení směny." : getDkvSaveError(deleteError)); return; }
+    if (editingId === row.id) close();
+    await load(); setSuccess("Souprava byla smazána.");
+  }
+
+  return <div className="panel dkv-records">
+    <div className="users-toolbar"><div><h2>Soupravy pro strojvedoucí ({rows.length})</h2><p className="muted">Pořadí vozidel určuje skutečné řazení soupravy.</p></div>
+      {editable && <button type="button" className="primary-button" onClick={() => { if (showForm && !editingId) close(); else { setEditingId(null); setForm(empty()); setShowForm(true); setError(""); } }}>{showForm && !editingId ? "Zavřít" : "+ Přidat soupravu"}</button>}
+    </div>
+    {success && <div className="success-box" role="status">{success}</div>}
+    {error && !showForm && <div className="error-box" role="alert">{error}</div>}
+    {editable && showForm && <div className="crud-form"><h3>{editingId ? "Upravit soupravu" : "Nová souprava"}</h3><form onSubmit={save} noValidate>
+      <div className="form-grid">
+        <div><label htmlFor="dkv-consist-name">Označení soupravy *</label><input id="dkv-consist-name" value={form.oznaceni} onChange={(e) => change("oznaceni", e.target.value)} maxLength={150} /></div>
+        <div><label htmlFor="dkv-consist-line">Linka / spoj</label><input id="dkv-consist-line" value={form.linka} onChange={(e) => change("linka", e.target.value)} maxLength={150} /></div>
+        <div><label htmlFor="dkv-consist-start">Výchozí stanice</label><input id="dkv-consist-start" value={form.vychozi_stanice} onChange={(e) => change("vychozi_stanice", e.target.value)} maxLength={150} /></div>
+        <div><label htmlFor="dkv-consist-end">Cílová stanice</label><input id="dkv-consist-end" value={form.cilova_stanice} onChange={(e) => change("cilova_stanice", e.target.value)} maxLength={150} /></div>
+      </div>
+      <h4>Řazení vozidel</h4>
+      <datalist id="dkv-consist-trains">{trains.map((train) => <option key={train.id} value={train.evidencni_cislo} />)}</datalist>
+      {form.vozy.map((item, index) => <div className="dkv-consist-editor-row" key={index}>
+        <strong>{index + 1}.</strong>
+        <input aria-label={`Číslo vozidla ${index + 1}`} list="dkv-consist-trains" value={item.evidencni_cislo} onChange={(e) => changeVehicle(index, "evidencni_cislo", e.target.value)} placeholder="Číslo vozidla *" maxLength={150} />
+        <select aria-label={`Druh vozidla ${index + 1}`} value={item.typ} onChange={(e) => changeVehicle(index, "typ", e.target.value)}>{["Lokomotiva", "Motorová jednotka", "Elektrická jednotka", "Osobní vůz", "Nákladní vůz", "Jiné"].map((type) => <option key={type}>{type}</option>)}</select>
+        <button type="button" className="secondary-button" disabled={index === 0} onClick={() => moveVehicle(index, -1)} aria-label={`Posunout vozidlo ${index + 1} nahoru`}>↑</button>
+        <button type="button" className="secondary-button" disabled={index === form.vozy.length - 1} onClick={() => moveVehicle(index, 1)} aria-label={`Posunout vozidlo ${index + 1} dolů`}>↓</button>
+        <button type="button" className="delete-button" onClick={() => change("vozy", form.vozy.filter((_, i) => i !== index))} aria-label={`Odebrat vozidlo ${index + 1}`}>×</button>
+      </div>)}
+      <button type="button" className="secondary-button" disabled={form.vozy.length >= 30} onClick={() => change("vozy", [...form.vozy, { evidencni_cislo: "", typ: "Osobní vůz" }])}>+ Přidat vozidlo do soupravy</button>
+      <div className="dkv-plan-note"><label htmlFor="dkv-consist-note">Pokyny pro strojvedoucí</label><textarea id="dkv-consist-note" rows="3" maxLength={2000} value={form.poznamka} onChange={(e) => change("poznamka", e.target.value)} /></div>
+      {error && <div className="error-box" role="alert">{error}</div>}
+      <div className="form-buttons"><button type="submit" className="primary-button" disabled={saving}>{saving ? "Ukládání…" : "Uložit soupravu"}</button><button type="button" className="secondary-button" onClick={close}>Zrušit</button></div>
+    </form></div>}
+    {loading ? <div className="empty">Načítání souprav…</div> : rows.length === 0 ? <div className="empty">Zatím nejsou vytvořené soupravy.</div> : <div className="dkv-list">{rows.map((row) => <article className="dkv-card" key={row.id}>
+      <div className="dkv-card-head"><strong>{row.oznaceni}</strong><span>{row.linka || "Souprava"}</span></div>
+      <p>{row.vychozi_stanice || "—"} → {row.cilova_stanice || "—"}</p>
+      <ol className="dkv-consist-vehicles">{(Array.isArray(row.vozy) ? row.vozy : []).map((item, index) => <li key={`${index}-${item.evidencni_cislo}`}>{item.typ}: <strong>{item.evidencni_cislo}</strong></li>)}</ol>
+      {row.poznamka && <p className="dkv-note">{row.poznamka}</p>}
+      {editable && <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => { setEditingId(row.id); setForm({ oznaceni: row.oznaceni || "", linka: row.linka || "", vychozi_stanice: row.vychozi_stanice || "", cilova_stanice: row.cilova_stanice || "", vozy: Array.isArray(row.vozy) ? row.vozy.map((item) => ({ evidencni_cislo: item.evidencni_cislo || "", typ: item.typ || "Jiné" })) : [], poznamka: row.poznamka || "" }); setShowForm(true); setError(""); setSuccess(""); }}>Upravit</button><button type="button" className="delete-button" onClick={() => remove(row)}>Smazat</button></div>}
+    </article>)}</div>}
+  </div>;
+}
+
+function DkvRecurringShifts({ editable }) {
+  const empty = () => ({ nazev: "", strojvedouci: "", souprava_id: "", dny_v_tydnu: [1, 2, 3, 4, 5], platnost_od: localDateIso(), platnost_do: "", zacatek: "", konec: "", misto_nastupu: "", misto_ukonceni: "", stav: "Aktivní", poznamka: "" });
+  const [rows, setRows] = useState([]);
+  const [consists, setConsists] = useState([]);
+  const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function load() {
+    setLoading(true);
+    const [shiftResult, consistResult] = await Promise.all([
+      supabase.from("dkv_lichkov_pravidelne_smeny").select("*").order("platnost_od", { ascending: false }),
+      supabase.from("dkv_lichkov_soupravy").select("id,oznaceni,vozy,linka").order("oznaceni"),
+    ]);
+    const loadError = shiftResult.error || consistResult.error;
+    if (loadError) setError(getDkvSaveError(loadError));
+    else { setRows(shiftResult.data || []); setConsists(consistResult.data || []); setError(""); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+  function close() { setShowForm(false); setEditingId(null); setForm(empty()); }
+  function change(name, value) { setForm((old) => ({ ...old, [name]: value })); }
+
+  async function save(event) {
+    event.preventDefault();
+    if (!editable || saving) return;
+    setError(""); setSuccess("");
+    const payload = {
+      nazev: form.nazev.trim(), strojvedouci: form.strojvedouci.trim(),
+      souprava_id: form.souprava_id || null,
+      dny_v_tydnu: [...form.dny_v_tydnu].sort((a, b) => a - b),
+      platnost_od: form.platnost_od, platnost_do: form.platnost_do || null,
+      zacatek: form.zacatek, konec: form.konec,
+      misto_nastupu: form.misto_nastupu.trim(), misto_ukonceni: form.misto_ukonceni.trim(),
+      stav: form.stav, poznamka: form.poznamka.trim() || null,
+    };
+    if (!payload.nazev || !payload.strojvedouci || !payload.platnost_od || !payload.zacatek || !payload.konec || !payload.misto_nastupu || !payload.misto_ukonceni) {
+      setError("Vyplň název, strojvedoucího, platnost, časy a místa nástupu i ukončení."); return;
+    }
+    if (!payload.dny_v_tydnu.length) { setError("Vyber alespoň jeden den v týdnu."); return; }
+    if (payload.platnost_do && payload.platnost_do < payload.platnost_od) { setError("Konec platnosti musí být po začátku platnosti."); return; }
+    setSaving(true);
+    try {
+      const result = editingId
+        ? await supabase.from("dkv_lichkov_pravidelne_smeny").update(payload).eq("id", editingId).select("id").single()
+        : await supabase.from("dkv_lichkov_pravidelne_smeny").insert(payload).select("id").single();
+      if (result.error || !result.data?.id) throw result.error || new Error("Směnu se nepodařilo uložit.");
+      close(); await load(); setSuccess("Pravidelná směna byla uložena.");
+    } catch (saveError) { setError(getDkvSaveError(saveError)); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(row) {
+    if (!editable || !window.confirm(`Smazat pravidelnou směnu ${row.nazev}?`)) return;
+    const { data, error: deleteError } = await supabase.from("dkv_lichkov_pravidelne_smeny").delete().eq("id", row.id).select("id").single();
+    if (deleteError || !data?.id) { setError(getDkvSaveError(deleteError)); return; }
+    if (editingId === row.id) close();
+    await load(); setSuccess("Pravidelná směna byla smazána.");
+  }
+
+  return <div className="panel dkv-records">
+    <div className="users-toolbar"><div><h2>Pravidelné směny ({rows.length})</h2><p className="muted">Opakují se ve vybrané dny a po dobu platnosti. Zápis skutečného průběhu směny je v záložce Směny.</p></div>
+      {editable && <button type="button" className="primary-button" onClick={() => { if (showForm && !editingId) close(); else { setEditingId(null); setForm(empty()); setShowForm(true); setError(""); } }}>{showForm && !editingId ? "Zavřít" : "+ Přidat pravidelnou směnu"}</button>}
+    </div>
+    {success && <div className="success-box" role="status">{success}</div>}
+    {error && !showForm && <div className="error-box" role="alert">{error}</div>}
+    {editable && showForm && <div className="crud-form"><h3>{editingId ? "Upravit pravidelnou směnu" : "Nová pravidelná směna"}</h3><form onSubmit={save} noValidate>
+      <div className="form-grid">
+        <div><label htmlFor="dkv-shift-name">Název / spoj *</label><input id="dkv-shift-name" maxLength={150} value={form.nazev} onChange={(e) => change("nazev", e.target.value)} placeholder="Osobní doprava 1" /></div>
+        <div><label htmlFor="dkv-shift-driver">Strojvedoucí *</label><input id="dkv-shift-driver" maxLength={150} value={form.strojvedouci} onChange={(e) => change("strojvedouci", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-consist">Přidělená souprava</label><select id="dkv-shift-consist" value={form.souprava_id} onChange={(e) => change("souprava_id", e.target.value)}><option value="">Bez soupravy</option>{consists.map((item) => <option key={item.id} value={item.id}>{item.oznaceni}{item.linka ? ` · ${item.linka}` : ""}</option>)}</select></div>
+        <div><label htmlFor="dkv-shift-status">Stav</label><select id="dkv-shift-status" value={form.stav} onChange={(e) => change("stav", e.target.value)}><option>Aktivní</option><option>Pozastavená</option></select></div>
+        <div><label htmlFor="dkv-shift-from">Platnost od *</label><input id="dkv-shift-from" type="date" value={form.platnost_od} onChange={(e) => change("platnost_od", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-to">Platnost do</label><input id="dkv-shift-to" type="date" value={form.platnost_do} onChange={(e) => change("platnost_do", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-time-start">Nástup *</label><input id="dkv-shift-time-start" type="time" value={form.zacatek} onChange={(e) => change("zacatek", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-time-end">Konec *</label><input id="dkv-shift-time-end" type="time" value={form.konec} onChange={(e) => change("konec", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-place-start">Místo nástupu *</label><input id="dkv-shift-place-start" maxLength={150} value={form.misto_nastupu} onChange={(e) => change("misto_nastupu", e.target.value)} /></div>
+        <div><label htmlFor="dkv-shift-place-end">Místo ukončení *</label><input id="dkv-shift-place-end" maxLength={150} value={form.misto_ukonceni} onChange={(e) => change("misto_ukonceni", e.target.value)} /></div>
+        <fieldset className="dkv-wide dkv-days"><legend>Dny v týdnu *</legend>{DKV_WEEKDAYS.map((label, index) => { const day = index + 1; return <label key={day}><input type="checkbox" checked={form.dny_v_tydnu.includes(day)} onChange={() => change("dny_v_tydnu", form.dny_v_tydnu.includes(day) ? form.dny_v_tydnu.filter((item) => item !== day) : [...form.dny_v_tydnu, day])} />{label}</label>; })}</fieldset>
+        <div className="dkv-wide"><label htmlFor="dkv-shift-note">Poznámka</label><textarea id="dkv-shift-note" rows="3" maxLength={2000} value={form.poznamka} onChange={(e) => change("poznamka", e.target.value)} /></div>
+      </div>
+      {error && <div className="error-box" role="alert">{error}</div>}
+      <div className="form-buttons"><button type="submit" className="primary-button" disabled={saving}>{saving ? "Ukládání…" : "Uložit pravidelnou směnu"}</button><button type="button" className="secondary-button" onClick={close}>Zrušit</button></div>
+    </form></div>}
+    {loading ? <div className="empty">Načítání pravidelných směn…</div> : rows.length === 0 ? <div className="empty">Zatím nejsou naplánované pravidelné směny.</div> : <div className="dkv-list">{rows.map((row) => {
+      const consist = consists.find((item) => item.id === row.souprava_id);
+      const nextDate = nextDkvShiftDate(row);
+      return <article className="dkv-card" key={row.id}>
+        <div className="dkv-card-head"><strong>{row.nazev}</strong><span>{row.stav}</span></div>
+        <div className="dkv-card-details">
+          <div><small>Strojvedoucí</small><strong>{row.strojvedouci}</strong></div>
+          <div><small>Dny</small><strong>{(row.dny_v_tydnu || []).map((day) => DKV_WEEKDAYS[day - 1]).join(", ")}</strong></div>
+          <div><small>Čas</small><strong>{String(row.zacatek).slice(0, 5)} – {String(row.konec).slice(0, 5)}</strong></div>
+          <div><small>Nástup → konec</small><strong>{row.misto_nastupu} → {row.misto_ukonceni}</strong></div>
+          <div><small>Platnost</small><strong>{row.platnost_od} – {row.platnost_do || "dále"}</strong></div>
+          <div><small>Nejbližší směna</small><strong>{nextDate ? new Date(`${nextDate}T12:00:00`).toLocaleDateString("cs-CZ") : "Není v příštích 90 dnech"}</strong></div>
+        </div>
+        {consist && <div className="dkv-shift-consist"><strong>Souprava: {consist.oznaceni}</strong><ol className="dkv-consist-vehicles">{(Array.isArray(consist.vozy) ? consist.vozy : []).map((item, index) => <li key={`${index}-${item.evidencni_cislo}`}>{item.typ}: <strong>{item.evidencni_cislo}</strong></li>)}</ol></div>}
+        {row.poznamka && <p className="dkv-note">{row.poznamka}</p>}
+        {editable && <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => { setEditingId(row.id); setForm({ nazev: row.nazev || "", strojvedouci: row.strojvedouci || "", souprava_id: row.souprava_id || "", dny_v_tydnu: row.dny_v_tydnu || [], platnost_od: row.platnost_od || "", platnost_do: row.platnost_do || "", zacatek: String(row.zacatek || "").slice(0, 5), konec: String(row.konec || "").slice(0, 5), misto_nastupu: row.misto_nastupu || "", misto_ukonceni: row.misto_ukonceni || "", stav: row.stav || "Aktivní", poznamka: row.poznamka || "" }); setShowForm(true); setError(""); setSuccess(""); }}>Upravit</button><button type="button" className="delete-button" onClick={() => remove(row)}>Smazat</button></div>}
+      </article>;
+    })}</div>}
+  </div>;
+}
+
 function DkvLichkov({ role }) {
   const editable = canEditDkv(role);
   const [section, setSection] = useState("vozidla");
@@ -14140,12 +14478,12 @@ function DkvLichkov({ role }) {
       </div>
 
       <nav className="dkv-tabs" aria-label="Agenda DKV Lichkov">
-        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Zakázky a příjmy"], ["smeny", "Směny"], ["poruchy", "Poruchy"]].map(([key, label]) => (
+        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Zakázky a příjmy"], ["smeny", "Směny"], ["pravidelne_smeny", "Pravidelné směny"], ["soupravy", "Soupravy"], ["poruchy", "Poruchy"]].map(([key, label]) => (
           <button type="button" key={key} className={section === key ? "active" : ""} aria-current={section === key ? "page" : undefined} onClick={() => setSection(key)}>{label}</button>
         ))}
       </nav>
 
-      {section !== "vozidla" ? <DkvRecords key={section} kind={section} editable={editable} trains={trains} /> : <>
+      {section === "soupravy" ? <DkvConsists editable={editable} trains={trains} /> : section === "pravidelne_smeny" ? <DkvRecurringShifts editable={editable} /> : section !== "vozidla" ? <DkvRecords key={section} kind={section} editable={editable} trains={trains} /> : <>
 
       {error && !showForm && <div className="error-box" role="alert">{error}</div>}
       {success && <div className="success-box" role="status">{success}</div>}
@@ -14406,8 +14744,9 @@ function App() {
     ]);
 
     const noAccess =
-      (dkvOnly && page !== "dashboard" && page !== "dkvLichkov" && page !== "budget") ||
+      (dkvOnly && page !== "dashboard" && page !== "dkvLichkov" && page !== "budget" && page !== "dkvReports") ||
       (page === "dkvLichkov" && !canViewDkv(role)) ||
+      (page === "dkvReports" && !canViewDkv(role)) ||
       (page === "budget" && !canViewBudget(role)) ||
       (adminOnlyPages.has(page) &&
         !hasRole(role, ROLE_ADMIN) &&
@@ -14805,6 +15144,13 @@ function App() {
               <button className={page === "budget" ? "active" : ""} onClick={() => setPage("budget")}>
                 <span>💰</span>
                 Rozpočet DKV
+              </button>
+            )}
+
+            {dkvOnly && canViewDkv(role) && (
+              <button className={page === "dkvReports" ? "active" : ""} onClick={() => setPage("dkvReports")}>
+                <span>📋</span>
+                Výkazy DKV
               </button>
             )}
 
@@ -15475,6 +15821,8 @@ function App() {
             <DkvLichkov role={role} />
           )}
 
+          {page === "dkvReports" && canViewDkv(role) && <DkvFinancialReport />}
+
           {page === "budget" && canViewBudget(role) && <>
             {(hasRole(role, ROLE_ADMIN) || hasRole(role, ROLE_DISPECER)) && <BranchBudget role={role} />}
             {canViewDkv(role) && <DkvBudget role={role} />}
@@ -15592,7 +15940,7 @@ function App() {
 
           {page === "adminReports" &&
             manageReports && (
-              <AdminReports />
+              <AdminReports role={role} />
             )}
 
           {page === "adminUsers" &&
@@ -15617,6 +15965,18 @@ const styles = `
 .dkv-records .dkv-card-details .dkv-wide { grid-column: 1 / -1; }
 .dkv-records .dkv-card-details strong { white-space: pre-wrap; }
 .dkv-records .error-box, .dkv-records .success-box { margin-top: 16px; }
+.dkv-consist-editor-row { display: grid; grid-template-columns: 30px minmax(130px, 2fr) minmax(120px, 1fr) repeat(3, auto); gap: 7px; align-items: center; margin-bottom: 8px; }
+.dkv-consist-editor-row input, .dkv-consist-editor-row select, .dkv-plan-note textarea { min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px; font: inherit; background: #fff; color: #172033; }
+.dkv-consist-editor-row button { padding: 7px 10px; }
+.dkv-consist-vehicles { margin: 9px 0; padding-left: 24px; }
+.dkv-consist-vehicles li { padding: 4px 0; }
+.dkv-plan-note { margin: 14px 0; }
+.dkv-plan-note label { display: block; margin-bottom: 5px; }
+.dkv-days { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
+.dkv-days legend { padding: 0 4px; }
+.dkv-days label { display: inline-flex; gap: 5px; align-items: center; }
+.dkv-shift-consist { border-top: 1px solid #e5e7eb; margin-top: 14px; padding-top: 12px; }
+@media (max-width: 650px) { .dkv-consist-editor-row { grid-template-columns: 25px minmax(0, 1fr) repeat(3, auto); } .dkv-consist-editor-row select { grid-column: 2 / -1; grid-row: 2; } }
 .dkv-page .dkv-filters {
   display: flex;
   flex-wrap: wrap;
@@ -25360,6 +25720,10 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 .dkv-budget-summary strong.negative { color: #dc2626; }
 @media (max-width: 850px) { .dkv-budget-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .dkv-budget-summary { grid-template-columns: 1fr; } }
+.dkv-financial-report { margin-top: 20px; }
+.dkv-report-filter { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.dkv-report-filter input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 11px; font: inherit; background: #fff; color: #172033; }
+.dkv-financial-report .budget-order-row small { white-space: normal; overflow-wrap: anywhere; }
 
 .budget-summary-card {
   padding: 15px 16px;
