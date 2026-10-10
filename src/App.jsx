@@ -14563,6 +14563,85 @@ const DASHBOARD_IMAGES = [
   "/dashboard/dashboard-10.webp",
 ];
 
+/* POP: protected asset; never place the simulator in the public web directory. */
+const CM_POP_BUCKET = "czechmob-pop-admin-v1";
+const CM_POP_FILE = "pop-simulator.html";
+const CM_POP_SHA256 = "c239d0bb66ad4f5309e5bf8810dbb4f867e53406258c30d3b09580a671b7e987";
+
+function canUsePopSimulator(role) {
+  return hasRole(role, ROLE_ADMIN);
+}
+
+function scopePopSimulatorHtml(html, userId) {
+  const ticketMarker = 'const KEY="popSimulator10";';
+  const emailMarker = "const EMAIL_KEY='popEmailSettings1';";
+  if (!html.includes(ticketMarker) || !html.includes(emailMarker)) {
+    throw new Error("Soubor simulátoru neodpovídá dodanému balíčku.");
+  }
+  return html.replace(ticketMarker, `const KEY=${JSON.stringify("cm-pop-tickets-v1:" + userId)};`)
+    .replace(emailMarker, `const EMAIL_KEY=${JSON.stringify("cm-pop-email-v1:" + userId)};`);
+}
+
+function AdminPopSimulator({ user, role }) {
+  const allowed = Boolean(user?.id) && canUsePopSimulator(role);
+  const userId = user?.id || "";
+  const [asset, setAsset] = useState(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setAsset(null);
+    setError("");
+    if (allowed) {
+      (async () => {
+        try {
+          // Supabase sends the current session JWT; Storage RLS checks the real role.
+          const { data, error: downloadError } = await supabase.storage
+            .from(CM_POP_BUCKET).download(CM_POP_FILE);
+          if (downloadError || !data) {
+            throw new Error("Simulátor se nepodařilo načíst. Zkontroluj soukromý bucket, soubor a SQL pravidla pro administrátory.");
+          }
+          const bytes = await data.arrayBuffer();
+          const hash = Array.from(new Uint8Array(await window.crypto.subtle.digest("SHA-256", bytes)),
+            (value) => value.toString(16).padStart(2, "0")).join("");
+          if (hash !== CM_POP_SHA256) {
+            throw new Error("V úložišti je jiná verze simulátoru. Nahraj pop-simulator.html z tohoto balíčku.");
+          }
+          const html = scopePopSimulatorHtml(new TextDecoder().decode(bytes), userId);
+          if (active) setAsset({ userId, html });
+        } catch (loadError) {
+          if (active) setError(loadError.message || "Simulátor není dostupný.");
+        }
+      })();
+    }
+    return () => {
+      active = false;
+      // Stop the embedded scanner on navigation, logout and role changes.
+      const frame = document.getElementById("cm-pop-frame");
+      try { frame?.contentWindow?.stopCamera?.(); } catch { /* frame already removed */ }
+    };
+  }, [allowed, userId, attempt]);
+
+  if (!allowed) {
+    return <div className="error-box" role="alert">POP simulátor je dostupný pouze administrátorům.</div>;
+  }
+  return (
+    <section className="cm-pop-page">
+      <div className="cm-pop-header">
+        <h1>POP simulátor</h1>
+        <p>Výcvikový terminál · ČD / IREDO / PID · jízdenky a kontrola QR</p>
+      </div>
+      <p className="cm-pop-note">Výcvikové doklady neplatí pro cestování. Evidence a nastavení e-mailu se ukládají zvlášť pro tvůj účet v tomto prohlížeči. Na jiném zařízení použij export a import zálohy.</p>
+      {error ? <div className="error-box" role="alert"><p>{error}</p><button type="button" className="secondary-button" onClick={() => setAttempt((value) => value + 1)}>Zkusit znovu</button></div>
+        : !asset || asset.userId !== userId ? <div className="empty" role="status">Načítám chráněný simulátor…</div>
+          : <iframe id="cm-pop-frame" title="POP výcvikový simulátor" className="cm-pop-frame"
+              srcDoc={asset.html} allow="camera" referrerPolicy="no-referrer"
+              sandbox="allow-scripts allow-same-origin allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" />}
+    </section>
+  );
+}
+
 function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -14748,6 +14827,7 @@ function App() {
       (page === "dkvLichkov" && !canViewDkv(role)) ||
       (page === "dkvReports" && !canViewDkv(role)) ||
       (page === "budget" && !canViewBudget(role)) ||
+      (page === "popSimulator" && !canUsePopSimulator(role)) ||
       (adminOnlyPages.has(page) &&
         !hasRole(role, ROLE_ADMIN) &&
         !hasRole(role, ROLE_DISPECER)) ||
@@ -15401,6 +15481,13 @@ function App() {
               </button>
             )}
 
+            {canUsePopSimulator(role) && (
+              <button className={page === "popSimulator" ? "active" : ""}
+                onClick={() => setPage("popSimulator")}>
+                <span>🎫</span>POP simulátor
+              </button>
+            )}
+
             {manageUsers && (
               <button
                 className={
@@ -15943,6 +16030,10 @@ function App() {
               <AdminReports role={role} />
             )}
 
+          {page === "popSimulator" && canUsePopSimulator(role) && (
+            <AdminPopSimulator key={user.id} user={user} role={role} />
+          )}
+
           {page === "adminUsers" &&
             manageUsers && (
               <AdminUsers />
@@ -15959,6 +16050,15 @@ function App() {
 ========================================================= */
 
 const styles = `
+.cm-pop-page { width: 100%; min-width: 0; }
+.cm-pop-header h1 { margin: 0 0 8px; }
+.cm-pop-header p, .cm-pop-note { color: #64748b; line-height: 1.5; }
+.cm-pop-note { max-width: 760px; font-size: 14px; }
+.cm-pop-frame { display: block; width: 100%; height: 900px; height: max(560px, calc(100dvh - 160px)); border: 1px solid #cbd5e1; border-radius: 14px; background: #2b3032; }
+.app.dark-mode .cm-pop-header p, .app.dark-mode .cm-pop-note { color: #b4c0d2; }
+.app.dark-mode .cm-pop-frame { border-color: #34445d; }
+@media (max-width: 700px) { .cm-pop-frame { height: 850px; height: max(520px, calc(100dvh - 125px)); border-radius: 10px; } }
+
 .dkv-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 20px; }
 .dkv-tabs button { border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 14px; background: #fff; color: #172033; cursor: pointer; font: inherit; }
 .dkv-tabs button.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
