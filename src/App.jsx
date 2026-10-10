@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 
 /* =========================================================
@@ -14570,6 +14570,26 @@ function canUsePopSimulator(role) {
   return hasRole(role, ROLE_ADMIN);
 }
 
+const CM_POP_FULLSCREEN_CSS = `
+html.cm-pop-terminal-full, html.cm-pop-terminal-full body { width:100%; height:100%; min-height:0; margin:0; overflow:hidden; }
+html.cm-pop-terminal-full body { padding:max(8px,env(safe-area-inset-top,0px)) max(6px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px)); align-items:stretch; background:#171b1e; }
+html.cm-pop-terminal-full .device { width:100%; max-width:520px; height:100%; min-height:0; max-height:none; margin:0; padding:10px 13px; border-radius:28px 28px 18px 18px; box-shadow:inset 0 0 0 2px #62666a55; }
+html.cm-pop-terminal-full .printer { height:46px; margin-top:0; margin-bottom:10px; }
+html.cm-pop-terminal-full .paper-roll { top:-5px; height:15px; }
+html.cm-pop-terminal-full .brand { top:24px; font-size:14px; }
+html.cm-pop-terminal-full .content { min-height:0; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+html.cm-pop-terminal-full input, html.cm-pop-terminal-full select, html.cm-pop-terminal-full textarea { font-size:16px; }
+html.cm-pop-terminal-full button { min-height:44px; touch-action:manipulation; }
+html.cm-pop-terminal-full .terminal-grid button { min-height:54px; font-size:15px; }
+html.cm-pop-terminal-full .terminal-grid .tiny { font-size:11px; }
+html.cm-pop-terminal-full .terminal-info button { min-height:49px; font-size:13px; }
+@media (max-height:450px) {
+ html.cm-pop-terminal-full .device { max-width:740px; padding:7px 10px; border-radius:15px; }
+ html.cm-pop-terminal-full .printer, html.cm-pop-terminal-full .asset-tags, html.cm-pop-terminal-full .footer { display:none; }
+ html.cm-pop-terminal-full .terminal-grid button { min-height:44px; }
+}
+`;
+
 function scopePopSimulatorHtml(html, userId) {
   const ticketMarker = 'const KEY="popSimulator10";';
   const emailMarker = "const EMAIL_KEY='popEmailSettings1';";
@@ -14577,7 +14597,8 @@ function scopePopSimulatorHtml(html, userId) {
     throw new Error("Soubor simulátoru neodpovídá dodanému balíčku.");
   }
   return html.replace(ticketMarker, `const KEY=${JSON.stringify("cm-pop-tickets-v1:" + userId)};`)
-    .replace(emailMarker, `const EMAIL_KEY=${JSON.stringify("cm-pop-email-v1:" + userId)};`);
+    .replace(emailMarker, `const EMAIL_KEY=${JSON.stringify("cm-pop-email-v1:" + userId)};`)
+    .replace("</style>", CM_POP_FULLSCREEN_CSS + "</style>");
 }
 
 function AdminPopSimulator({ user, role }) {
@@ -14586,6 +14607,115 @@ function AdminPopSimulator({ user, role }) {
   const [asset, setAsset] = useState(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const fullscreenRef = useRef({ open: false, native: false, epoch: 0 });
+
+  function syncPopFrame() {
+    const frame = document.getElementById("cm-pop-frame");
+    try {
+      frame?.contentDocument?.documentElement.classList.toggle("cm-pop-terminal-full", fullscreenRef.current.open);
+    } catch { /* frame is still loading */ }
+  }
+
+  function closePopFullscreen() {
+    const state = fullscreenRef.current;
+    state.open = false;
+    state.native = false;
+    state.epoch += 1;
+    setExpanded(false);
+    syncPopFrame();
+    const stage = document.getElementById("cm-pop-stage");
+    if ((document.fullscreenElement || document.webkitFullscreenElement) === stage) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      try { Promise.resolve(exit?.call(document)).catch(() => {}); } catch { /* CSS mode already restored */ }
+    }
+  }
+
+  function openPopFullscreen() {
+    if (!allowed || !asset || asset.userId !== userId) return;
+    const stage = document.getElementById("cm-pop-stage");
+    if (!stage) return;
+    const state = fullscreenRef.current;
+    const epoch = ++state.epoch;
+    state.open = true;
+    setExpanded(true);
+    syncPopFrame();
+    // Keep CSS viewport mode even when native fullscreen is unavailable (e.g. some iPhones).
+    const request = stage.requestFullscreen || stage.webkitRequestFullscreen;
+    if (request) {
+      try {
+        Promise.resolve(request.call(stage, { navigationUI: "hide" })).then(() => {
+          if (!state.open || state.epoch !== epoch) {
+            if (!state.open && (document.fullscreenElement || document.webkitFullscreenElement) === stage) {
+              const exit = document.exitFullscreen || document.webkitExitFullscreen;
+              try { Promise.resolve(exit?.call(document)).catch(() => {}); } catch { /* already exited */ }
+            }
+          } else {
+            state.native = (document.fullscreenElement || document.webkitFullscreenElement) === stage;
+          }
+        }).catch(() => {});
+      } catch { /* CSS viewport mode remains available */ }
+    }
+  }
+
+  useEffect(() => {
+    function fullscreenChanged() {
+      const stage = document.getElementById("cm-pop-stage");
+      const state = fullscreenRef.current;
+      if (stage && (document.fullscreenElement || document.webkitFullscreenElement) === stage) {
+        state.native = true;
+      } else if (state.native) {
+        state.native = false;
+        state.open = false;
+        state.epoch += 1;
+        setExpanded(false);
+        syncPopFrame();
+      }
+    }
+    function keydown(event) {
+      if (event.key === "Escape" && fullscreenRef.current.open) closePopFullscreen();
+    }
+    document.addEventListener("fullscreenchange", fullscreenChanged);
+    document.addEventListener("webkitfullscreenchange", fullscreenChanged);
+    document.addEventListener("keydown", keydown);
+    return () => {
+      const state = fullscreenRef.current;
+      state.open = false;
+      state.epoch += 1;
+      const stage = document.getElementById("cm-pop-stage");
+      if ((document.fullscreenElement || document.webkitFullscreenElement) === stage) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        try { Promise.resolve(exit?.call(document)).catch(() => {}); } catch { /* detached */ }
+      }
+      document.removeEventListener("fullscreenchange", fullscreenChanged);
+      document.removeEventListener("webkitfullscreenchange", fullscreenChanged);
+      document.removeEventListener("keydown", keydown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.body.classList.add("cm-pop-immersive");
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.classList.remove("cm-pop-immersive");
+    };
+  }, [expanded]);
+
+  useEffect(() => { syncPopFrame(); }, [expanded, asset]);
+
+  function popFrameLoaded() {
+    syncPopFrame();
+    const frame = document.getElementById("cm-pop-frame");
+    try {
+      frame?.contentDocument?.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && fullscreenRef.current.open) closePopFullscreen();
+      });
+    } catch { /* document is not ready */ }
+  }
+
 
   useEffect(() => {
     let active = true;
@@ -14628,13 +14758,22 @@ function AdminPopSimulator({ user, role }) {
       <div className="cm-pop-header">
         <h1>POP simulátor</h1>
         <p>Výcvikový terminál · ČD / IREDO / PID · jízdenky a kontrola QR</p>
+        <button type="button" className="cm-pop-open-fullscreen" onClick={openPopFullscreen}
+          disabled={!asset || asset.userId !== userId} aria-label="Zobrazit pouze POP přes celou obrazovku">
+          ⛶ CELÁ OBRAZOVKA · JEN POP
+        </button>
       </div>
       <p className="cm-pop-note">Výcvikové doklady neplatí pro cestování. Evidence a nastavení e-mailu se ukládají zvlášť pro tvůj účet v tomto prohlížeči. Na jiném zařízení použij export a import zálohy.</p>
       {error ? <div className="error-box" role="alert"><p>{error}</p><button type="button" className="secondary-button" onClick={() => setAttempt((value) => value + 1)}>Zkusit znovu</button></div>
         : !asset || asset.userId !== userId ? <div className="empty" role="status">Načítám simulátor…</div>
-          : <iframe id="cm-pop-frame" title="POP výcvikový simulátor" className="cm-pop-frame"
-              srcDoc={asset.html} allow="camera" referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-same-origin allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" />}
+          : <div id="cm-pop-stage" className={`cm-pop-stage${expanded ? " is-expanded" : ""}`}>
+              <button type="button" className="cm-pop-close-fullscreen" hidden={!expanded}
+                onClick={closePopFullscreen} aria-label="Zpět do Czech Mobility" title="Zpět do Czech Mobility">↩</button>
+              <iframe id="cm-pop-frame" title="POP výcvikový simulátor" className="cm-pop-frame"
+                srcDoc={asset.html} onLoad={popFrameLoaded} allow="camera; fullscreen" allowFullScreen
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox" />
+            </div>}
     </section>
   );
 }
@@ -16047,6 +16186,16 @@ function App() {
 ========================================================= */
 
 const styles = `
+.cm-pop-open-fullscreen { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:12px 18px; margin:4px 0 8px; border:1px solid #2563eb; border-radius:10px; background:#1d4ed8; color:white; font:700 14px Arial,sans-serif; cursor:pointer; touch-action:manipulation; }
+.cm-pop-open-fullscreen:disabled { opacity:.45; cursor:wait; }
+.cm-pop-stage { position:relative; }
+.cm-pop-close-fullscreen[hidden] { display:none !important; }
+.cm-pop-close-fullscreen { position:absolute; top:max(10px,env(safe-area-inset-top,0px)); right:max(10px,env(safe-area-inset-right,0px)); z-index:3; display:grid; place-items:center; width:44px; height:44px; padding:0; margin:0; border:1px solid #a4afba; border-radius:12px; background:#17202bdd; color:white; font:700 23px Arial,sans-serif; cursor:pointer; touch-action:manipulation; }
+.cm-pop-stage.is-expanded, .cm-pop-stage:fullscreen { position:fixed; inset:0; z-index:2147483000; width:100vw; height:100vh; height:100dvh; margin:0; padding:0; overflow:hidden; background:#171b1e; }
+.cm-pop-stage.is-expanded .cm-pop-frame, .cm-pop-stage:fullscreen .cm-pop-frame { display:block; width:100%; height:100%; min-height:0; max-height:none; border:0; border-radius:0; margin:0; }
+body.cm-pop-immersive .sidebar, body.cm-pop-immersive .mobile-app-bar, body.cm-pop-immersive .mobile-menu-overlay { visibility:hidden !important; }
+.cm-pop-stage.is-expanded .cm-pop-close-fullscreen { position:fixed; }
+
 .cm-pop-page { width: 100%; min-width: 0; }
 .cm-pop-header h1 { margin: 0 0 8px; }
 .cm-pop-header p, .cm-pop-note { color: #64748b; line-height: 1.5; }
