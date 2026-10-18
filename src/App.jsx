@@ -418,6 +418,7 @@ function getCourseVariantLabel(value) {
 
 const MAIN_PROVOZOVNA_CODES = [
   "WRO",
+  "370",
   "400",
   "BUK",
   "BRE",
@@ -444,6 +445,7 @@ function isMainProvozovna(provozovna) {
 
   return (
     MAIN_PROVOZOVNA_CODES.includes(code) ||
+    name === "370" ||
     name === "400" ||
     name === "breclavsko" ||
     name.startsWith("brno") ||
