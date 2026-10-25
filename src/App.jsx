@@ -1008,6 +1008,94 @@ function VehicleStatus({ status }) {
   );
 }
 
+// Značky bereme přímo z databázového sloupce vyrobce.
+// Sjednotíme rozdíly ve velikosti písmen a nadbytečných mezerách.
+const vehicleSortCollator = new Intl.Collator("cs", {
+  sensitivity: "base",
+  numeric: true,
+});
+
+function normalizeVehicleBrand(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function getVehicleBrandOptions(vehicles) {
+  const brands = [];
+
+  for (const vehicle of vehicles) {
+    const brand = normalizeVehicleBrand(vehicle.vyrobce);
+    if (!brand) continue;
+
+    const existing = brands.find(
+      (item) => vehicleSortCollator.compare(item.value, brand) === 0
+    );
+
+    if (existing) existing.count += 1;
+    else brands.push({ value: brand, count: 1 });
+  }
+
+  return brands.sort((a, b) => vehicleSortCollator.compare(a.value, b.value));
+}
+
+function compareVehicleNumbers(a, b, direction = 1) {
+  const aNumber = a.cislo == null || a.cislo === "" ? NaN : Number(a.cislo);
+  const bNumber = b.cislo == null || b.cislo === "" ? NaN : Number(b.cislo);
+  if (!Number.isFinite(aNumber)) return Number.isFinite(bNumber) ? 1 : 0;
+  if (!Number.isFinite(bNumber)) return -1;
+  return direction * (aNumber - bNumber);
+}
+
+function compareVehicleText(a, b, direction = 1) {
+  const left = normalizeVehicleBrand(a);
+  const right = normalizeVehicleBrand(b);
+  // Nevyplněné údaje patří vždy na konec, i při řazení Z–A.
+  if (!left) return right ? 1 : 0;
+  if (!right) return -1;
+  return direction * vehicleSortCollator.compare(left, right);
+}
+
+function sortVehicleList(vehicles, sortBy) {
+  return [...vehicles].sort((a, b) => {
+    if (sortBy === "brand_asc" || sortBy === "brand_desc") {
+      const direction = sortBy === "brand_asc" ? 1 : -1;
+      return (
+        compareVehicleText(a.vyrobce, b.vyrobce, direction) ||
+        compareVehicleText(a.typ, b.typ) ||
+        compareVehicleNumbers(a, b)
+      );
+    }
+
+    return compareVehicleNumbers(a, b, sortBy === "number_desc" ? -1 : 1);
+  });
+}
+
+function VehicleBrandSorting({ idPrefix, brands, selectedBrand, onBrandChange, sortBy, onSortChange }) {
+  return (
+    <div className="provozovna-bar vehicle-list-controls">
+      <div>
+        <label htmlFor={`${idPrefix}-brand`}>Značka vozu</label>
+        <select id={`${idPrefix}-brand`} value={selectedBrand} onChange={(event) => onBrandChange(event.target.value)}>
+          <option value="">Všechny značky</option>
+          {brands.map((brand) => (
+            <option key={brand.value} value={brand.value}>
+              {brand.value} ({brand.count})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor={`${idPrefix}-sort`}>Seřadit vozy podle</label>
+        <select id={`${idPrefix}-sort`} value={sortBy} onChange={(event) => onSortChange(event.target.value)}>
+          <option value="number_asc">Čísla vozu (vzestupně)</option>
+          <option value="number_desc">Čísla vozu (sestupně)</option>
+          <option value="brand_asc">Značky (A–Z), pak typu</option>
+          <option value="brand_desc">Značky (Z–A), pak typu</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================
    VOZIDLO - FORMULÁŘ
 ========================================================= */
@@ -1205,6 +1293,8 @@ function AdminVehicles() {
   const [search, setSearch] = useState("");
   const [selectedProvozovna, setSelectedProvozovna] =
     useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [sortBy, setSortBy] = useState("number_asc");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -1328,11 +1418,17 @@ function AdminVehicles() {
     await loadVehicles();
   }
 
-  const filtered = vehicles.filter((vehicle) => {
+  const vehiclesInProvozovna = vehicles.filter(
+    (vehicle) =>
+      !selectedProvozovna ||
+      Number(vehicle.provozovna_id) === Number(selectedProvozovna)
+  );
+  const brands = getVehicleBrandOptions(vehiclesInProvozovna);
+
+  const filtered = sortVehicleList(vehiclesInProvozovna.filter((vehicle) => {
     if (
-      selectedProvozovna &&
-      Number(vehicle.provozovna_id) !==
-        Number(selectedProvozovna)
+      selectedBrand &&
+      vehicleSortCollator.compare(normalizeVehicleBrand(vehicle.vyrobce), selectedBrand) !== 0
     ) {
       return false;
     }
@@ -1355,8 +1451,8 @@ function AdminVehicles() {
       .join(" ")
       .toLowerCase();
 
-    return text.includes(search.toLowerCase());
-  });
+    return text.includes(search.trim().toLowerCase());
+  }), sortBy);
 
   return (
     <div>
@@ -1389,7 +1485,10 @@ function AdminVehicles() {
         <div className="provozovna-bar">
           <ProvozovnaSelect
             value={selectedProvozovna}
-            onChange={setSelectedProvozovna}
+            onChange={(value) => {
+              setSelectedProvozovna(value);
+              setSelectedBrand("");
+            }}
             provozovny={provozovny}
             label="Zobrazit provozovnu"
           />
@@ -1397,11 +1496,23 @@ function AdminVehicles() {
           <button
             className="secondary-button"
             type="button"
-            onClick={() => setSelectedProvozovna("")}
+            onClick={() => {
+              setSelectedProvozovna("");
+              setSelectedBrand("");
+            }}
           >
             Všechny provozovny
           </button>
         </div>
+
+        <VehicleBrandSorting
+          idPrefix="admin-vehicles"
+          brands={brands}
+          selectedBrand={selectedBrand}
+          onBrandChange={setSelectedBrand}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+        />
 
         <div className="users-toolbar">
           <div>
@@ -2033,6 +2144,8 @@ function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
   const [search, setSearch] = useState("");
   const [selectedProvozovna, setSelectedProvozovna] =
     useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [sortBy, setSortBy] = useState("number_asc");
   const [selectedVehicleId, setSelectedVehicleId] =
     useState(null);
 
@@ -2097,10 +2210,17 @@ function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
 
   const query = search.trim().toLowerCase();
 
-  const filtered = vehicles.filter((vehicle) => {
+  const vehiclesInProvozovna = vehicles.filter(
+    (vehicle) =>
+      !selectedProvozovna ||
+      Number(vehicle.provozovna_id) === Number(selectedProvozovna)
+  );
+  const brands = getVehicleBrandOptions(vehiclesInProvozovna);
+
+  const filtered = sortVehicleList(vehiclesInProvozovna.filter((vehicle) => {
     if (
-      selectedProvozovna &&
-      Number(vehicle.provozovna_id) !== Number(selectedProvozovna)
+      selectedBrand &&
+      vehicleSortCollator.compare(normalizeVehicleBrand(vehicle.vyrobce), selectedBrand) !== 0
     ) {
       return false;
     }
@@ -2121,7 +2241,7 @@ function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
       .toLowerCase();
 
     return text.includes(query);
-  });
+  }), sortBy);
 
   return (
     <div>
@@ -2140,7 +2260,10 @@ function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
         <div className="provozovna-bar">
           <ProvozovnaSelect
             value={selectedProvozovna}
-            onChange={setSelectedProvozovna}
+            onChange={(value) => {
+              setSelectedProvozovna(value);
+              setSelectedBrand("");
+            }}
             provozovny={provozovny}
             label="Provozovna"
           />
@@ -2148,11 +2271,23 @@ function Vehicles({ role, initialVehicleId = null, onVehicleOpened }) {
           <button
             className="secondary-button"
             type="button"
-            onClick={() => setSelectedProvozovna("")}
+            onClick={() => {
+              setSelectedProvozovna("");
+              setSelectedBrand("");
+            }}
           >
             Všechny provozovny
           </button>
         </div>
+
+        <VehicleBrandSorting
+          idPrefix="vehicles"
+          brands={brands}
+          selectedBrand={selectedBrand}
+          onBrandChange={setSelectedBrand}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+        />
 
         <input
           className="search"
@@ -16976,6 +17111,15 @@ button {
   border: 1px solid #d9dee7;
   border-radius: 9px;
   background: white;
+}
+
+.vehicle-list-controls {
+  flex-wrap: wrap;
+}
+
+.vehicle-list-controls > div {
+  flex: 1 1 190px;
+  min-width: 0;
 }
 
 .search {
