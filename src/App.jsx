@@ -3340,8 +3340,9 @@ function AdminReports({ role }) {
    NOVINKY
 ========================================================= */
 
-function News({ user, profile, role }) {
+function News({ user, profile, role, category = "novinky" }) {
   const [news, setNews] = useState([]);
+  const [signedImages, setSignedImages] = useState({});
   const [confirmations, setConfirmations] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3351,17 +3352,30 @@ function News({ user, profile, role }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [selectedNews, setSelectedNews] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const [removeImage, setRemoveImage] = useState(false);
 
   const canManage = canManageNews(role);
   const isDriver = hasRole(role, ROLE_RIDIC);
+  const vehicleUpdates = category === "vozy";
+  const sectionName = vehicleUpdates ? "Aktualizace vozů" : "Novinky";
+  const sectionItem = vehicleUpdates ? "aktualizaci vozu" : "novinku";
 
   const emptyForm = {
     nadpis: "",
     obsah: "",
     dulezitost: "Běžná",
+    ping: "nikdo",
   };
 
   const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
 
   async function loadNews() {
     setLoading(true);
@@ -3374,9 +3388,13 @@ function News({ user, profile, role }) {
         nadpis,
         obsah,
         dulezitost,
+        typ,
+        ping,
+        obrazek_path,
         autor_id,
         created_at
       `)
+      .eq("typ", category)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -3388,6 +3406,16 @@ function News({ user, profile, role }) {
     }
 
     setNews(data || []);
+
+    const imageUrls = await Promise.all((data || []).map(async (item) => {
+      if (!item.obrazek_path) return [item.id, null];
+      const { data: signed, error: signError } = await supabase.storage
+        .from("news-images")
+        .createSignedUrl(item.obrazek_path, 60 * 60);
+      if (signError) console.error("NOVINKY IMAGE SIGN ERROR:", signError);
+      return [item.id, signed?.signedUrl || null];
+    }));
+    setSignedImages(Object.fromEntries(imageUrls));
 
     const newsIds = (data || []).map((item) => item.id);
 
@@ -3432,11 +3460,48 @@ function News({ user, profile, role }) {
 
   useEffect(() => {
     loadNews();
-  }, [canManage]);
+  }, [canManage, category]);
+
+  function resetImageInput() {
+    setImageFile(null);
+    setImagePreview("");
+    setRemoveImage(false);
+  }
+
+  function chooseImage(event) {
+    const file = event.target.files?.[0] || null;
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Obrázek musí být JPG, PNG nebo WebP.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Obrázek může mít maximálně 5 MB.");
+      event.target.value = "";
+      return;
+    }
+    setError("");
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    setRemoveImage(false);
+  }
+
+  async function uploadImage(file) {
+    const extension = file.type === "image/png" ? "png" :
+      file.type === "image/webp" ? "webp" : "jpg";
+    const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from("news-images")
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (uploadError) throw new Error(`Nahrání obrázku selhalo: ${uploadError.message}`);
+    return path;
+  }
 
   function openCreate() {
     setEditing(null);
     setForm(emptyForm);
+    resetImageInput();
     setError("");
     setSuccess("");
     setShowForm(true);
@@ -3448,7 +3513,9 @@ function News({ user, profile, role }) {
       nadpis: item.nadpis || "",
       obsah: item.obsah || "",
       dulezitost: item.dulezitost || "Běžná",
+      ping: item.ping || "nikdo",
     });
+    resetImageInput();
     setError("");
     setSuccess("");
     setShowForm(true);
@@ -3470,7 +3537,12 @@ function News({ user, profile, role }) {
     const obsah = form.obsah.trim();
 
     if (!nadpis || !obsah) {
-      setError("Vyplň nadpis a text novinky.");
+      setError(`Vyplň nadpis a text ${sectionItem}.`);
+      return;
+    }
+
+    if (!editing && form.ping === "everyone" &&
+        !window.confirm("Opravdu chceš na Discordu označit @everyone?")) {
       return;
     }
 
@@ -3482,7 +3554,22 @@ function News({ user, profile, role }) {
       nadpis,
       obsah,
       dulezitost: form.dulezitost,
+      typ: category,
+      ping: editing ? (editing.ping || "nikdo") : form.ping,
+      obrazek_path: removeImage ? null : (editing?.obrazek_path || null),
     };
+
+    let uploadedPath = null;
+    if (imageFile) {
+      try {
+        uploadedPath = await uploadImage(imageFile);
+        payload.obrazek_path = uploadedPath;
+      } catch (uploadError) {
+        setError(uploadError.message);
+        setSaving(false);
+        return;
+      }
+    }
 
     let result;
 
@@ -3503,18 +3590,26 @@ function News({ user, profile, role }) {
     if (result.error) {
       console.error("SAVE NOVINKA ERROR:", result.error);
       setError(result.error.message);
+      if (uploadedPath) {
+        await supabase.storage.from("news-images").remove([uploadedPath]);
+      }
       setSaving(false);
       return;
     }
 
+    if (editing?.obrazek_path && editing.obrazek_path !== payload.obrazek_path) {
+      await supabase.storage.from("news-images").remove([editing.obrazek_path]);
+    }
+
     setSuccess(
       editing
-        ? "Novinka byla upravena."
-        : "Novinka byla zveřejněna."
+        ? "Příspěvek byl upraven."
+        : "Příspěvek byl zveřejněn."
     );
 
     setForm(emptyForm);
     setEditing(null);
+    resetImageInput();
     setShowForm(false);
 
     await loadNews();
@@ -3524,7 +3619,7 @@ function News({ user, profile, role }) {
   async function deleteNews(id) {
     if (
       !window.confirm(
-        "Opravdu chceš tuto novinku smazat?"
+        `Opravdu chceš smazat tuto ${sectionItem}?`
       )
     ) {
       return;
@@ -3545,6 +3640,11 @@ function News({ user, profile, role }) {
 
     if (selectedNews?.id === id) {
       setSelectedNews(null);
+    }
+
+    const removedItem = news.find((item) => item.id === id);
+    if (removedItem?.obrazek_path) {
+      await supabase.storage.from("news-images").remove([removedItem.obrazek_path]);
     }
 
     await loadNews();
@@ -3637,9 +3737,11 @@ function News({ user, profile, role }) {
     <div className="news-page">
       <div className="topbar">
         <div>
-          <h1>Novinky</h1>
+          <h1>{sectionName}</h1>
           <p>
-            Důležité informace pro řidiče a vedení Czech Mobility
+            {vehicleUpdates
+              ? "Změny, opravy a oznámení o vozovém parku Czech Mobility"
+              : "Důležité informace pro řidiče a vedení Czech Mobility"}
           </p>
         </div>
 
@@ -3648,7 +3750,7 @@ function News({ user, profile, role }) {
             className="primary-button"
             onClick={openCreate}
           >
-            + Nová novinka
+            {vehicleUpdates ? "+ Nová aktualizace vozu" : "+ Nová novinka"}
           </button>
         )}
       </div>
@@ -3671,12 +3773,12 @@ function News({ user, profile, role }) {
             <div>
               <h2>
                 {editing
-                  ? "Upravit novinku"
-                  : "Vytvořit novinku"}
+                  ? `Upravit ${sectionItem}`
+                  : `Vytvořit ${sectionItem}`}
               </h2>
               <p>
-                Novinka se po zveřejnění zobrazí všem
-                přihlášeným uživatelům.
+                Příspěvek se po zveřejnění zobrazí všem
+                přihlášeným zaměstnancům.
               </p>
             </div>
 
@@ -3687,6 +3789,7 @@ function News({ user, profile, role }) {
                 setShowForm(false);
                 setEditing(null);
                 setForm(emptyForm);
+                resetImageInput();
               }}
             >
               Zavřít
@@ -3722,14 +3825,44 @@ function News({ user, profile, role }) {
             </div>
 
             <div className="form-group">
-              <label>Text novinky</label>
+              <label>{vehicleUpdates ? "Text aktualizace vozu" : "Text novinky"}</label>
               <textarea
                 name="obsah"
                 value={form.obsah}
                 onChange={handleChange}
-                placeholder="Napiš text novinky..."
+                placeholder={vehicleUpdates ? "Co se změnilo na vozidle?" : "Napiš text novinky..."}
                 rows={8}
               />
+            </div>
+
+            {!editing && (
+              <div className="form-group">
+                <label>Koho označit na Discordu?</label>
+                <select name="ping" value={form.ping} onChange={handleChange}>
+                  <option value="nikdo">Nikoho (bez pingu)</option>
+                  <option value="ridic">@Řidič</option>
+                  <option value="everyone">@everyone (všichni)</option>
+                </select>
+                <small>Ping se odešle jen při prvním zveřejnění, ne při úpravě.</small>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Obrázek (volitelný)</label>
+              <input type="file" accept="image/jpeg,image/png,image/webp"
+                onChange={chooseImage} />
+              <small>JPG, PNG nebo WebP, maximálně 5 MB. Obrázky jsou v soukromém úložišti.</small>
+              {(imagePreview || (editing?.obrazek_path && !removeImage && signedImages[editing.id])) && (
+                <div className="news-image-preview">
+                  <img src={imagePreview || signedImages[editing.id]}
+                    alt="Náhled přiloženého obrázku" />
+                  <button type="button" className="secondary-button" onClick={() => {
+                    setImageFile(null);
+                    setImagePreview("");
+                    setRemoveImage(true);
+                  }}>Odebrat obrázek</button>
+                </div>
+              )}
             </div>
 
             <div className="news-form-actions">
@@ -3742,7 +3875,7 @@ function News({ user, profile, role }) {
                   ? "Ukládání..."
                   : editing
                     ? "Uložit změny"
-                    : "Zveřejnit novinku"}
+                  : vehicleUpdates ? "Zveřejnit aktualizaci" : "Zveřejnit novinku"}
               </button>
             </div>
           </form>
@@ -3758,7 +3891,7 @@ function News({ user, profile, role }) {
       ) : news.length === 0 ? (
         <div className="panel empty-state">
           <div className="empty-icon">📰</div>
-          <h2>Zatím nejsou žádné novinky</h2>
+          <h2>{vehicleUpdates ? "Zatím nejsou žádné aktualizace vozů" : "Zatím nejsou žádné novinky"}</h2>
           <p>
             Jakmile bude zveřejněna první novinka,
             zobrazí se zde.
@@ -3838,6 +3971,11 @@ function News({ user, profile, role }) {
                 <div className="news-content">
                   {item.obsah}
                 </div>
+
+                {signedImages[item.id] && (
+                  <img className="news-image" src={signedImages[item.id]}
+                    loading="lazy" alt={`Obrázek: ${item.nadpis}`} />
+                )}
 
                 <div className="news-card-actions">
                   {isDriver && !confirmed && (
@@ -15664,6 +15802,13 @@ function App() {
               <span>📰</span>
               Novinky
             </button>
+            <button
+              className={page === "vehicleNews" ? "active" : ""}
+              onClick={() => setPage("vehicleNews")}
+            >
+              <span>🚌</span>
+              Aktualizace vozů
+            </button>
             <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
             <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
 
@@ -16219,6 +16364,10 @@ function App() {
               profile={profile}
               role={role}
             />
+          )}
+
+          {page === "vehicleNews" && (
+            <News user={user} profile={profile} role={role} category="vozy" />
           )}
 
           {page === "vehicles" && (
@@ -27162,6 +27311,37 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 .role-checkboxes label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
 .role-checkboxes input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
 .app.dark-mode .role-checkboxes { border-color: #34445d; }
+
+/* Novinky a aktualizace vozů – formuláře, fotky, tmavý režim */
+.news-form .form-group { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.news-form .form-group > label { font-weight: 700; }
+.news-form .form-group > small { color: #64748b; font-size: 12px; }
+.news-form .form-group > input:not([type="file"]),
+.news-form .form-group > select {
+  width: 100%; max-width: 100%; padding: 11px 12px;
+  border: 1px solid #cbd5e1; border-radius: 9px; font: inherit;
+}
+.news-form input[type="file"] { max-width: 100%; padding: 10px; border: 1px dashed #94a3b8; border-radius: 10px; }
+.news-image-preview { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.news-image-preview img, .news-image {
+  display: block; width: auto; max-width: 100%; max-height: 430px;
+  border-radius: 12px; object-fit: contain;
+}
+.news-image { margin-top: 16px; }
+.news-form-panel .panel-header p { margin-top: 8px; }
+.app.dark-mode .news-card,
+.app.dark-mode .news-confirmation-panel,
+.app.dark-mode .news-driver-row {
+  background: #111927; border-color: #2a374b; color: #e7edf7;
+}
+.app.dark-mode .news-card h2 { color: #f4f7fb; }
+.app.dark-mode .news-content { color: #dce5f2; border-top-color: #2a374b; }
+.app.dark-mode .news-meta { color: #a3b2c8; }
+.app.dark-mode .news-form .form-group > small { color: #a3b2c8; }
+.app.dark-mode .news-form input[type="file"] { border-color: #3b4d68; }
+.app.dark-mode .news-confirmation-panel { background: #0d1523; }
+.app.dark-mode .news-driver-row { background: #152033; }
+.app.dark-mode .news-card-confirmed { border-left-color: #22a06b; }
 
 `;
 
