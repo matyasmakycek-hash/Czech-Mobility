@@ -16629,10 +16629,24 @@ function App() {
             </div>
           )}
           {page === "dashboard" && dkvOnly && (
-            <div className="panel">
-              <h1>DKV Lichkov</h1>
-              <p>Evidence kolejových vozidel je připravená pro tvou roli.</p>
-              <button type="button" className="primary-button" onClick={() => setPage("dkvLichkov")}>Otevřít evidenci vozidel</button>
+            <div className="dkv-home">
+              <section className="dkv-home-hero">
+                <span className="dkv-home-kicker">CZECH MOBILITY · DKV LICHKOV</span>
+                <h1>Vítej v DKV, {profile?.jmeno || "kolego"} 👋</h1>
+                <p>Lokomotivy, výpravy, směny a výkazy přehledně na jednom místě.</p>
+              </section>
+              <div className="dashboard-quick-heading"><span>Rychlý přístup</span><h2>S čím dnes pracujeme?</h2></div>
+              <div className="dashboard-quick-actions">
+                <button type="button" onClick={() => setPage("dkvLichkov")}>
+                  <span className="dashboard-quick-icon">🚂</span><strong>Lokomotivy a výpravy</strong><small>Evidence vozidel a sledování nasazení</small><b aria-hidden="true">↗</b>
+                </button>
+                <button type="button" onClick={() => setPage("dkvReports")}>
+                  <span className="dashboard-quick-icon">📋</span><strong>Finanční výkazy DKV</strong><small>Přehled hospodaření a souhrn DKV</small><b aria-hidden="true">↗</b>
+                </button>
+                {canViewBudget(role) && <button type="button" onClick={() => setPage("budget")}>
+                  <span className="dashboard-quick-icon">💰</span><strong>Rozpočet DKV</strong><small>Příjmy, výdaje a souhrn</small><b aria-hidden="true">↗</b>
+                </button>}
+              </div>
             </div>
           )}
 
@@ -16843,6 +16857,46 @@ function App() {
                 </div>
               </section>
 
+              <section className="dashboard-action-section" aria-label="Rychlý přístup k funkcím">
+                <div className="dashboard-quick-heading">
+                  <span>PRACOVNÍ PLOCHA</span>
+                  <h2>Co potřebuješ vyřídit?</h2>
+                  <p>Nejpoužívanější části systému máš nyní na jedno kliknutí.</p>
+                </div>
+                <div className="dashboard-quick-actions">
+                  <button type="button" onClick={() => { setReservationTarget(null); setPage("shiftReservations"); }}>
+                    <span className="dashboard-quick-icon">📅</span>
+                    <strong>Rezervace směn</strong>
+                    <small>Naplánuj si další směnu</small>
+                    <b aria-hidden="true">↗</b>
+                  </button>
+                  <button type="button" onClick={() => setPage("vehicles")}>
+                    <span className="dashboard-quick-icon">🚌</span>
+                    <strong>Vozový park</strong>
+                    <small>Najdi vůz a jeho aktuální stav</small>
+                    <b aria-hidden="true">↗</b>
+                  </button>
+                  <button type="button" onClick={() => setPage("news")}>
+                    <span className="dashboard-quick-icon">📰</span>
+                    <strong>Novinky</strong>
+                    <small>Aktuality a důležitá oznámení</small>
+                    <b aria-hidden="true">↗</b>
+                  </button>
+                  {canViewDkv(role) && <button type="button" onClick={() => setPage("dkvLichkov")}>
+                    <span className="dashboard-quick-icon">🚂</span>
+                    <strong>DKV Lichkov</strong>
+                    <small>Výpravy, lokomotivy a směny</small>
+                    <b aria-hidden="true">↗</b>
+                  </button>}
+                  {useReports && <button type="button" onClick={() => setPage("reports")}>
+                    <span className="dashboard-quick-icon">📑</span>
+                    <strong>Moje výkazy</strong>
+                    <small>Záznamy a odevzdání výkazů</small>
+                    <b aria-hidden="true">↗</b>
+                  </button>}
+                </div>
+              </section>
+
               {showStkSoon && (
                 <div
                   className="stk-dashboard-modal-backdrop"
@@ -16932,19 +16986,9 @@ function App() {
                 </div>
               )}
 
-              <div className="panel">
-                <h2>
-                  Vítej,{" "}
-                  {profile?.jmeno || user.email} 👋
-                </h2>
-
-                <p>
-                  Jsi přihlášen jako{" "}
-                  <strong>
-                    {roleName.toLowerCase()}
-                  </strong>
-                  .
-                </p>
+              <div className="dashboard-tip">
+                <span aria-hidden="true">💡</span>
+                <div><strong>Tip pro rychlejší práci</strong><p>V levém menu můžeš vyhledat libovolnou sekci. Klávesami Ctrl+K otevřeš hledání odkudkoliv.</p></div>
               </div>
             </div>
           )}
@@ -28113,6 +28157,222 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
 }
 @media (prefers-reduced-motion: reduce) {
   .app *, .app *::before, .app *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* =========================================================
+   REDESIGN 2: KOMPATKNÍ FOTOBANNER + ODDĚLENÉ KARTY
+   Původní dashboard měl data nečitelná přímo na fotografii.
+========================================================= */
+.content-dashboard { background: #f3f6fb; min-height: 100vh; }
+.dashboard-photo-page { margin: 0; min-height: 0; max-width: 1680px; margin-inline: auto; }
+.dashboard-photo-hero {
+  --cm-dashboard-banner: clamp(245px, 21vw, 315px);
+  min-height: 0;
+  background: transparent;
+  overflow: visible;
+  isolation: isolate;
+}
+.dashboard-slides, .dashboard-photo-shade {
+  position: absolute; top: 0; bottom: auto; left: 0; right: 0;
+  height: var(--cm-dashboard-banner);
+  border-radius: 22px;
+  overflow: hidden;
+}
+.dashboard-photo-shade {
+  background:
+    linear-gradient(90deg, rgba(5,16,35,.89) 0%, rgba(6,22,45,.7) 42%, rgba(8,20,39,.25) 100%),
+    linear-gradient(0deg,rgba(8,20,39,.26),transparent 65%);
+}
+.dashboard-slide { filter: brightness(1.06) saturate(1.08); background-position: center 54%; }
+.dashboard-hero-content {
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  color: #0f172a;
+}
+.dashboard-hero-head {
+  position: relative;
+  z-index: 2;
+  height: var(--cm-dashboard-banner);
+  padding: clamp(28px, 3vw, 46px) clamp(24px, 3.4vw, 54px) 68px;
+  color: #fff;
+}
+.dashboard-hero-kicker { font-size: 11px; font-weight: 800; letter-spacing: .15em; color: #bfdbfe; }
+.dashboard-hero-head h1 {
+  max-width: 940px;
+  font-size: clamp(29px, 3.6vw, 51px);
+  line-height: 1.09;
+  letter-spacing: -.036em;
+  text-wrap: balance;
+  text-shadow: 0 2px 15px rgba(0,0,0,.3);
+}
+.dashboard-hero-head p { color: #e2e8f0; max-width: 760px; font-size: 13px; font-weight: 600; text-shadow: none; }
+.dashboard-hero-live { background: rgba(10,24,43,.62); color: #f8fafc; border-color: rgba(255,255,255,.25); }
+.dashboard-glass-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 25px 0 0 !important;
+  padding: 0 !important;
+}
+.dashboard-glass-card {
+  min-height: 160px;
+  padding: 19px;
+  color: #0f172a;
+  background: #fff !important;
+  border: 1px solid #e0e7f0;
+  border-radius: 17px;
+  box-shadow: 0 5px 23px rgba(15, 23, 42, .055);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.dashboard-glass-card::before { display: none; }
+.dashboard-glass-card.clickable:hover {
+  transform: translateY(-3px);
+  background: #f8fbff !important;
+  border-color: #93b4eb;
+  box-shadow: 0 13px 28px rgba(37,99,235,.1);
+}
+.dashboard-glass-icon {
+  width: 39px; height: 39px; margin-bottom: 14px;
+  background: #eff6ff; color: #1d4ed8;
+  border: 1px solid #dbeafe; border-radius: 12px;
+  font-size: 18px; font-weight: 850;
+}
+.dashboard-glass-card:nth-child(2) .dashboard-glass-icon,
+.dashboard-glass-card:nth-child(4) .dashboard-glass-icon { background: #fff7ed; color: #c2410c; border-color: #ffedd5; }
+.dashboard-glass-card:nth-child(8) .dashboard-glass-icon { background: #f0fdf4; color: #15803d; border-color: #dcfce7; }
+.dashboard-glass-label, .dashboard-glass-card strong, .dashboard-glass-card small { text-shadow: none; }
+.dashboard-glass-label { color: #52657d; font-size: 12px; font-weight: 750; }
+.dashboard-glass-card strong { color: #102039; margin-top: 6px; font-size: clamp(28px, 2.4vw, 38px); font-weight: 850; }
+.dashboard-glass-card small { color: #1d4ed8; font-size: 11px; font-weight: 750; }
+.dashboard-slider-bar {
+  position: absolute;
+  top: calc(var(--cm-dashboard-banner) - 52px);
+  left: clamp(24px, 3.4vw, 54px);
+  z-index: 4;
+  margin: 0;
+}
+.dashboard-slider-arrow { width: 30px; height: 30px; }
+.dashboard-slider-count { color: #e2e8f0; }
+.dashboard-slider-dot.active { background: #fff; }
+
+/* Rychlé akce jako samostatná pracovní plocha pod statistikami. */
+.dashboard-action-section { margin-top: 32px; }
+.dashboard-quick-heading { margin-bottom: 16px; }
+.dashboard-quick-heading > span {
+  display: block; margin-bottom: 7px;
+  color: #2563eb; font-size: 10px; font-weight: 900; letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.dashboard-quick-heading h2 { margin: 0; color: #102039; font-size: clamp(21px, 2vw, 27px); letter-spacing: -.03em; }
+.dashboard-quick-heading p { margin: 5px 0 0; color: #64748b; font-size: 13px; }
+.dashboard-quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 13px; }
+.dashboard-quick-actions button {
+  position: relative; display: flex; align-items: flex-start; flex-direction: column; gap: 8px;
+  min-width: 0; min-height: 166px; text-align: left; cursor: pointer;
+  padding: 20px 18px; border: 1px solid #dfe7f2; border-radius: 18px;
+  background: #fff; color: #172033; font-family: inherit;
+  box-shadow: 0 5px 23px rgba(15,23,42,.04);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.dashboard-quick-actions button:hover { transform: translateY(-3px); border-color: #93b4eb; box-shadow: 0 14px 28px rgba(37,99,235,.09); }
+.dashboard-quick-icon { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 13px; background: #eff6ff; font-size: 22px; }
+.dashboard-quick-actions button:nth-child(2n) .dashboard-quick-icon { background: #f0fdf4; }
+.dashboard-quick-actions button:nth-child(3n) .dashboard-quick-icon { background: #fff7ed; }
+.dashboard-quick-actions strong { font-size: 15px; font-weight: 800; line-height: 1.28; }
+.dashboard-quick-actions small { color: #64748b; font-size: 12px; line-height: 1.45; }
+.dashboard-quick-actions b { position: absolute; right: 17px; top: 17px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #f1f5f9; color: #2563eb; font-size: 17px; }
+.dashboard-tip {
+  display: flex; align-items: flex-start; gap: 13px;
+  margin: 29px 0 0; padding: 17px 20px;
+  border: 1px solid #d6e4ff; border-radius: 16px;
+  background: #eff6ff; color: #1e3a5f;
+}
+.dashboard-tip > span { font-size: 22px; }
+.dashboard-tip strong { font-size: 14px; }
+.dashboard-tip p { margin: 4px 0 0; font-size: 12px; color: #486383; line-height: 1.6; }
+
+/* Speciální domovská stránka rolí DKV. */
+.dkv-home { max-width: 1550px; margin-inline: auto; }
+.dkv-home-hero {
+  margin-bottom: 28px; padding: clamp(25px, 4vw, 52px);
+  border-radius: 22px;
+  background: radial-gradient(circle at 90% 20%, #2c68b3, transparent 43%), linear-gradient(135deg, #071c39, #143b6a);
+  color: #fff; box-shadow: 0 20px 50px rgba(16,55,100,.12);
+}
+.dkv-home-kicker { color: #a8d5ff; font-size: 11px; font-weight: 900; letter-spacing: .14em; }
+.dkv-home-hero h1 { max-width: 830px; margin: 18px 0 12px; font-size: clamp(29px, 3.5vw, 49px); line-height: 1.1; letter-spacing: -.04em; }
+.dkv-home-hero p { max-width: 680px; margin: 0; color: #dbeafe; font-size: 15px; }
+
+/* Čistší styl i mimo úvodní stránku. */
+.content-standard .topbar { background: #fff; border: 1px solid #dfe7f2; border-left: 4px solid #2563eb; box-shadow: 0 7px 22px rgba(15,23,42,.045); }
+.content-standard .panel { border: 1px solid #e0e7f0; box-shadow: 0 8px 24px rgba(15,23,42,.04); }
+
+/* Tmavý režim redesignu */
+.app.dark-mode .content-dashboard { background: #0c1422; }
+.app.dark-mode .dashboard-glass-card {
+  background: #172235 !important;
+  border-color: #33445d;
+  color: #e8f1fd;
+  box-shadow: 0 8px 24px rgba(0,0,0,.1);
+}
+.app.dark-mode .dashboard-glass-card.clickable:hover { background: #20314b !important; border-color: #52749c; }
+.app.dark-mode .dashboard-glass-card strong { color: #f8fafc; }
+.app.dark-mode .dashboard-glass-label { color: #b3c2d6; }
+.app.dark-mode .dashboard-glass-card small { color: #93c5fd; }
+.app.dark-mode .dashboard-glass-icon { background: #263b5b; border-color: #3b5579; color: #b2d6ff; }
+.app.dark-mode .dashboard-quick-heading h2 { color: #eff6ff; }
+.app.dark-mode .dashboard-quick-heading p { color: #a8bbd3; }
+.app.dark-mode .dashboard-quick-heading > span { color: #93c5fd; }
+.app.dark-mode .dashboard-quick-actions button { background: #172235; color: #f1f5f9; border-color: #33445d; box-shadow: none; }
+.app.dark-mode .dashboard-quick-actions button:hover { background: #20314b; border-color: #52749c; }
+.app.dark-mode .dashboard-quick-actions small { color: #a8bbd3; }
+.app.dark-mode .dashboard-quick-icon { background: #283d5b; }
+.app.dark-mode .dashboard-quick-actions b { background: #2a3d5b; color: #93c5fd; }
+.app.dark-mode .dashboard-tip { background: #14253e; border-color: #35516f; color: #e2efff; }
+.app.dark-mode .dashboard-tip p { color: #b7cae0; }
+.app.dark-mode .content-standard .topbar, .app.dark-mode .content-standard .panel { background: #111927; border-color: #34445d; }
+.app.dark-mode .content-standard .topbar { border-left-color: #60a5fa; }
+
+@media (max-width: 1100px) {
+  .dashboard-glass-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .dashboard-photo-page { margin: 0 !important; min-height: 0; }
+  .dashboard-photo-hero { --cm-dashboard-banner: 265px; min-height: 0; }
+  .dashboard-hero-content { min-height: 0; padding: 0; }
+  .dashboard-hero-head { height: var(--cm-dashboard-banner); padding: 24px 20px 70px; gap: 8px; }
+  .dashboard-hero-kicker { font-size: 9px; }
+  .dashboard-hero-head h1 { font-size: clamp(27px, 7.7vw, 36px); }
+  .dashboard-hero-head p { font-size: 11px; max-width: 100%; }
+  .dashboard-hero-live { display: none; }
+  .dashboard-slides, .dashboard-photo-shade { border-radius: 17px; }
+  .dashboard-glass-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important; margin: 16px 0 0 !important; padding: 0 !important;
+  }
+  .dashboard-glass-card { min-height: 135px !important; padding: 13px !important; border-radius: 14px; }
+  .dashboard-glass-icon { width: 33px; height: 33px; margin-bottom: 10px; font-size: 15px; }
+  .dashboard-glass-label { font-size: 10px; }
+  .dashboard-glass-card strong { font-size: 29px !important; }
+  .dashboard-glass-card small { font-size: 10px; padding-top: 8px; }
+  .dashboard-slider-bar { justify-content: flex-start; left: 20px; top: calc(var(--cm-dashboard-banner) - 43px); }
+  .dashboard-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dashboard-quick-actions button { min-height: 155px; padding: 15px 13px; }
+  .dashboard-quick-icon { width: 38px; height: 38px; font-size: 19px; }
+  .dashboard-quick-actions strong { font-size: 13px; }
+  .dashboard-quick-actions small { font-size: 11px; }
+  .dashboard-action-section { margin-top: 25px; }
+  .dashboard-tip { padding: 14px; margin-top: 21px; }
+  .dkv-home-hero { padding: 27px 22px; border-radius: 16px; }
+  .dkv-home-hero h1 { font-size: 29px; }
+}
+@media (max-width: 400px) {
+  .dashboard-quick-actions { grid-template-columns: 1fr; }
+  .dashboard-quick-actions button { min-height: 126px; padding-right: 53px; }
+  .dashboard-glass-card strong { font-size: 27px !important; }
 }
 
 `;
