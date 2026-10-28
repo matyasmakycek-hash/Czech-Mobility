@@ -15657,6 +15657,13 @@ function App() {
                 )}
               </span>
             </button>
+            <button
+              className={page === "news" ? "active" : ""}
+              onClick={() => setPage("news")}
+            >
+              <span>📰</span>
+              Novinky
+            </button>
             <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
             <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
 
