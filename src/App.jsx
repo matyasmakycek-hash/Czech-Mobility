@@ -15599,6 +15599,8 @@ function App() {
     return false;
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [navQuery, setNavQuery] = useState("");
+  const sidebarSearchRef = useRef(null);
   const [showRegister, setShowRegister] =
     useState(false);
 
@@ -15683,7 +15685,21 @@ function App() {
 
   useEffect(() => {
     setMobileMenuOpen(false);
+    setNavQuery("");
   }, [page]);
+
+  useEffect(() => {
+    if (!user) return;
+    const openSearchShortcut = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (window.innerWidth <= 700) setMobileMenuOpen(true);
+        window.requestAnimationFrame(() => sidebarSearchRef.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", openSearchShortcut);
+    return () => window.removeEventListener("keydown", openSearchShortcut);
+  }, [user?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -16017,6 +16033,52 @@ function App() {
   const useReports = canUseReports(role);
   const manageNews = canManageNews(role);
 
+  // Jedno místo pro vyhledávání v menu – respektuje role zaměstnanců.
+  const availableNavigation = [
+    ["dashboard", "Přehled", "Hlavní nabídka", true],
+    ["dkvLichkov", "DKV Lichkov", "Železnice", canViewDkv(role), "výpravy sledovačky lokomotivy fotografie"],
+    ["dkvReports", "Výkazy DKV", "Železnice", dkvOnly && canViewDkv(role)],
+    ["departures", "Výpravy", "Provoz", !dkvOnly],
+    ["shiftReservations", "Rezervace směn", "Provoz", !dkvOnly],
+    ["vehicles", "Vozy", "Provoz", !dkvOnly],
+    ["members", "Členové", "Provoz", !dkvOnly],
+    ["reports", "Moje výkazy", "Moje agenda", !dkvOnly && useReports],
+    ["vehicleRequest", "Žádost o přidělení vozu", "Moje agenda", !dkvOnly],
+    ["releaseRequests", "Odevzdání vozu", "Moje agenda", !dkvOnly],
+    ["workshop", "Dílna", "Údržba a hospodaření", !dkvOnly && canViewWorkshop(role)],
+    ["vehicleOrders", "Objednávky vozů", "Údržba a hospodaření", !dkvOnly && canViewWorkshop(role)],
+    ["partOrders", "Objednávky dílů", "Údržba a hospodaření", !dkvOnly && canViewWorkshop(role)],
+    ["budget", dkvOnly ? "Rozpočet DKV" : "Rozpočet", "Údržba a hospodaření", canViewBudget(role)],
+    ["faults", "Závady", "Údržba a hospodaření", !dkvOnly],
+    ["notifications", "Notifikace", "Komunikace", !dkvOnly],
+    ["news", "Novinky", "Komunikace", !dkvOnly, "aktuality oznámení"],
+    ["vehicleNews", "Aktualizace vozů", "Komunikace", !dkvOnly, "aktuality autobusů"],
+    ["adminVehicles", "Administrace vozů", "Administrace", !dkvOnly && manageVehicles],
+    ["adminCourses", "Kurzy", "Administrace", !dkvOnly && manageVehicles],
+    ["adminConnections", "Spoje", "Administrace", !dkvOnly && manageVehicles],
+    ["adminVehicleRequests", "Žádosti o přidělení", "Administrace", !dkvOnly && manageVehicles],
+    ["adminReleaseRequests", "Žádosti o odevzdání", "Administrace", !dkvOnly && manageVehicles],
+    ["audit", "Audit log", "Administrace", !dkvOnly && manageVehicles],
+    ["adminReports", "Správa výkazů", "Administrace", !dkvOnly && manageReports],
+    ["popSimulator", "POP simulátor", "Administrace", !dkvOnly && canUsePopSimulator(role)],
+    ["adminUsers", "Správa uživatelů", "Administrace", !dkvOnly && manageUsers],
+  ].filter((item) => item[3]);
+  const normalizedNavQuery = navQuery.trim().toLocaleLowerCase("cs")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const navResults = normalizedNavQuery
+    ? availableNavigation.filter(([key, label, group, _visible, keywords = ""]) =>
+        (label + " " + group + " " + key + " " + keywords).toLocaleLowerCase("cs")
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .includes(normalizedNavQuery))
+    : [];
+  const currentPageLabel = availableNavigation.find((item) => item[0] === page)?.[1] || "Czech Mobility";
+  function openNavigationResult(target) {
+    if (target === "shiftReservations") setReservationTarget(null);
+    setPage(target);
+    setNavQuery("");
+    setMobileMenuOpen(false);
+  }
+
   return (
     <>
       <style>{styles}</style>
@@ -16087,11 +16149,52 @@ function App() {
           </div>
 
           <div className="section-title">
-            Hlavní nabídka
+            Navigace
           </div>
+
+          <div className="sidebar-search">
+            <label htmlFor="cm-menu-search">Najít stránku</label>
+            <div className="sidebar-search-input-wrap">
+              <span aria-hidden="true">⌕</span>
+              <input
+                ref={sidebarSearchRef}
+                id="cm-menu-search"
+                type="search"
+                placeholder="Např. vozy, výkazy, DKV…"
+                autoComplete="off"
+                value={navQuery}
+                onChange={(event) => setNavQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && navResults.length) openNavigationResult(navResults[0][0]);
+                  if (event.key === "Escape") setNavQuery("");
+                }}
+              />
+            </div>
+          </div>
+
+          {normalizedNavQuery && <nav className="menu menu-search-results" aria-label="Výsledky hledání v menu">
+            <div className="menu-results-title" aria-live="polite">Nalezené sekce ({navResults.length})</div>
+            {navResults.length ? navResults.map(([key, label, group]) => (
+              <button
+                type="button"
+                key={key}
+                className={page === key ? "active" : ""}
+                aria-current={page === key ? "page" : undefined}
+                onClick={() => openNavigationResult(key)}
+              >
+                <span aria-hidden="true">↗</span>
+                <span className="menu-result-copy"><strong>{label}</strong><small>{group}</small></span>
+              </button>
+            )) : <p className="menu-no-results">Nic jsme nenašli. Zkus kratší název.</p>}
+            <button type="button" className="menu-reset-button" onClick={() => { setNavQuery(""); sidebarSearchRef.current?.focus(); }}>
+              Zobrazit celé menu
+            </button>
+          </nav>}
 
           <nav
             className="menu"
+            aria-label="Hlavní nabídka"
+            style={normalizedNavQuery ? { display: "none" } : undefined}
             onClick={(e) => {
               if (
                 e.target.closest("button") &&
@@ -16233,9 +16336,10 @@ function App() {
               <span>📝</span>
               Žádost o přidělení vozidla
             </button>
+            <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
 
             <div className="menu-divider compact" />
-            <div className="menu-section-label">Komunikace</div>
+            <div className="menu-section-label">Údržba a hospodaření</div>
 
             {canViewWorkshop(role) && (
               <button
@@ -16278,6 +16382,11 @@ function App() {
               </button>
             )}
 
+            <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
+
+            <div className="menu-divider compact" />
+            <div className="menu-section-label">Komunikace</div>
+
             <button
               className={page === "notifications" ? "active" : ""}
               onClick={() => setPage("notifications")}
@@ -16306,8 +16415,6 @@ function App() {
               <span>🚌</span>
               Aktualizace vozů
             </button>
-            <button className={page === "releaseRequests" ? "active" : ""} onClick={() => setPage("releaseRequests")}><span>↩</span>Odevzdání vozu</button>
-            <button className={page === "faults" ? "active" : ""} onClick={() => setPage("faults")}><span>⚠</span>Závady</button>
 
             {(manageVehicles ||
               manageReports ||
@@ -16505,6 +16612,22 @@ function App() {
               : "content-standard"
           }`}
         >
+          {page !== "dashboard" && (
+            <div className="app-breadcrumbs" aria-label="Kde se nacházíš">
+              <div className="app-breadcrumb-trail">
+                <button type="button" onClick={() => setPage("dashboard")}>⌂ Přehled</button>
+                <span aria-hidden="true">›</span>
+                <strong>{currentPageLabel}</strong>
+              </div>
+              <button
+                type="button"
+                className="app-breadcrumb-find"
+                onClick={() => { setMobileMenuOpen(true); sidebarSearchRef.current?.focus(); }}
+              >
+                ⌕ Najít jinou sekci
+              </button>
+            </div>
+          )}
           {page === "dashboard" && dkvOnly && (
             <div className="panel">
               <h1>DKV Lichkov</h1>
@@ -27898,6 +28021,99 @@ button.dkv-tracker-cell:hover, button.dkv-tracker-cell:focus-visible { backgroun
 .app.dark-mode button.dkv-tracker-cell:hover, .app.dark-mode button.dkv-tracker-cell:focus-visible { background: #213654; outline-color: #60a5fa; }
 .app.dark-mode .dkv-tracker-photo-field input[type="file"] { border-color: #3b4d68; }
 .app.dark-mode .dkv-tracker-photo-field small { color: #a3b2c8; }
+
+/* Czech Mobility: přehledné menu a vyhledávání */
+body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+.app { font-size: 15px; line-height: 1.55; }
+.app button { touch-action: manipulation; }
+.app :is(button, a, input, select, textarea, summary):focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
+.app .muted, .app .empty { line-height: 1.6; }
+.app .panel, .app .dkv-card { min-width: 0; }
+.app .panel h2 { line-height: 1.25; }
+.sidebar { background: linear-gradient(180deg, #0d1728 0%, #142137 100%); }
+.sidebar .brand { padding-bottom: 18px; }
+.sidebar .menu { gap: 3px; }
+.sidebar .menu button { min-height: 42px; font-size: 13px; font-weight: 550; line-height: 1.35; transition: background .15s ease, color .15s ease; }
+.sidebar .menu button > span:first-child { width: 22px; flex: 0 0 22px; text-align: center; font-size: 17px; line-height: 1; }
+.sidebar .menu button.active { background: #1d4ed8; box-shadow: inset 3px 0 0 #bfdbfe; font-weight: 750; color: #fff; }
+.sidebar .menu button:hover:not(.active) { background: #243650; color: #f8fafc; }
+.sidebar .menu-section-label { color: #a2b4d0; font-size: 10px; letter-spacing: .11em; padding-top: 5px; }
+.sidebar-search { flex: 0 0 auto; padding: 0 7px 13px; }
+.sidebar-search label { display: block; margin-bottom: 7px; padding-left: 3px; font-size: 11px; font-weight: 700; color: #bdcbe0; }
+.sidebar-search-input-wrap { position: relative; }
+.sidebar-search-input-wrap > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 23px; line-height: 1; color: #9bb0ca; pointer-events: none; }
+.sidebar-search input { display: block; width: 100%; min-width: 0; min-height: 42px; border: 1px solid #41516b; border-radius: 11px; padding: 10px 12px 10px 39px; background: #1c2c43; color: #f8fafc; font-size: 12px; }
+.sidebar-search input::placeholder { color: #a7b7ce; opacity: 1; }
+.sidebar-search input:focus { border-color: #93c5fd; outline: 2px solid #60a5fa; outline-offset: 1px; }
+.sidebar .menu-search-results { padding: 2px 4px 14px; }
+.menu-results-title { padding: 7px 9px 12px; color: #cbd5e1; font-size: 12px; font-weight: 750; }
+.sidebar .menu-search-results .menu-result-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sidebar .menu-search-results .menu-result-copy strong { color: inherit; font-weight: 700; }
+.sidebar .menu-search-results .menu-result-copy small { color: #a8bdd9; font-size: 11px; }
+.sidebar .menu-search-results button.active small { color: #dbeafe; }
+.menu-no-results { color: #dbeafe; font-size: 12px; padding: 9px 12px; line-height: 1.6; }
+.sidebar .menu-search-results .menu-reset-button { justify-content: center; margin-top: 10px; border: 1px solid #405675; color: #dbeafe; font-weight: 700; }
+.sidebar .user-box { background: rgba(255,255,255,.025); border-radius: 12px; padding: 13px 9px; }
+.sidebar .logout { min-height: 36px; font-weight: 700; font-size: 11px; }
+
+/* Poloha v aplikaci a sjednocení pracovních obrazovek */
+.app-breadcrumbs { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 2px; margin: -9px auto 17px; color: #64748b; }
+.app-breadcrumb-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.app-breadcrumb-trail > button, .app-breadcrumb-find { border: 0; border-radius: 8px; background: transparent; color: #1d4ed8; padding: 7px 9px; cursor: pointer; font-size: 13px; font-weight: 700; }
+.app-breadcrumb-trail > button:hover, .app-breadcrumb-find:hover { background: #dbeafe; }
+.app-breadcrumb-trail strong { color: #243449; font-weight: 750; overflow-wrap: anywhere; }
+.app-breadcrumb-trail > span { color: #94a3b8; font-size: 19px; }
+.app-breadcrumb-find { display: inline-flex; align-items: center; gap: 6px; }
+.content-standard .topbar { flex-wrap: wrap; }
+.content-standard .topbar h1 { line-height: 1.22; overflow-wrap: anywhere; }
+.content-standard .users-toolbar { flex-wrap: wrap; }
+.content-standard .users-toolbar > * { min-width: 0; }
+.content-standard .users-toolbar .form-buttons { margin-top: 0; }
+.content-standard .panel { border-radius: 16px; }
+.content-standard .panel > h2:first-child { margin-bottom: 16px; }
+.content-standard .empty { border: 1px dashed #ccd7e7; border-radius: 12px; background: #f8fafc; margin: 10px 0; padding: 26px 16px; }
+.content-standard :is(.primary-button, .secondary-button, .delete-button) { min-height: 42px; }
+.content-standard :is(input, select, textarea) { max-width: 100%; }
+.content-standard .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.content-standard .form-grid > * { min-width: 0; }
+.content-standard .form-grid label { line-height: 1.35; }
+.content-standard .form-buttons { align-items: center; }
+.content-standard .dkv-tabs { padding: 3px 0 9px; }
+.content-standard .dkv-tabs button { font-weight: 650; min-height: 42px; }
+.content-standard .dkv-tabs button.active { box-shadow: 0 4px 11px rgba(37,99,235,.16); }
+.app.dark-mode .app-breadcrumbs { color: #a9bcd5; }
+.app.dark-mode .app-breadcrumb-trail strong { color: #e8f1fd; }
+.app.dark-mode .app-breadcrumb-trail > button, .app.dark-mode .app-breadcrumb-find { color: #93c5fd; }
+.app.dark-mode .app-breadcrumb-trail > button:hover, .app.dark-mode .app-breadcrumb-find:hover { background: #243650; }
+.app.dark-mode .content-standard .empty { border-color: #34445d; background: #0d1523; color: #a3b2c8; }
+.app.dark-mode .sidebar-search input { background: #19283c; color: #f8fafc; border-color: #41516b; }
+
+@media (min-width: 701px) {
+  .app .sidebar { width: 275px; }
+  .app .content { margin-left: 275px; width: calc(100% - 275px); padding: 28px clamp(20px, 2.6vw, 40px); }
+}
+@media (max-width: 1000px) {
+  .content-standard .form-grid { grid-template-columns: 1fr; }
+  .content-standard .users-toolbar { align-items: flex-start; }
+}
+@media (max-width: 700px) {
+  .app-breadcrumbs { margin: 0 0 12px; padding: 0; }
+  .app-breadcrumb-trail { flex: 1 1 auto; }
+  .app-breadcrumb-find { width: 100%; justify-content: center; border: 1px solid #dbe4f0; background: #eef5ff; }
+  .app.dark-mode .app-breadcrumb-find { background: #1a2b41; border-color: #34445d; }
+  .content-standard .panel { padding: 17px; border-radius: 13px; }
+  .content-standard .topbar { padding: 16px; }
+  .content-standard .topbar h1 { font-size: clamp(21px, 5vw, 26px); }
+  .content-standard :is(.primary-button, .secondary-button, .delete-button) { min-height: 44px; }
+  .content-standard .dkv-tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .content-standard .dkv-tabs button { flex: 0 0 auto; white-space: nowrap; }
+  .content-standard .form-grid { grid-template-columns: 1fr; gap: 13px; }
+  .content-standard .users-toolbar .form-buttons { width: 100%; }
+  .sidebar-search input { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app *, .app *::before, .app *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
 
 `;
 
