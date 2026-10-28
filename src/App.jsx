@@ -28166,7 +28166,7 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
 .content-dashboard { background: #f3f6fb; min-height: 100vh; }
 .dashboard-photo-page { margin: 0; min-height: 0; max-width: 1680px; margin-inline: auto; }
 .dashboard-photo-hero {
-  --cm-dashboard-banner: clamp(245px, 21vw, 315px);
+  --cm-dashboard-banner: clamp(390px, 33vw, 520px);
   min-height: 0;
   background: transparent;
   overflow: visible;
@@ -28183,7 +28183,7 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
     linear-gradient(90deg, rgba(5,16,35,.89) 0%, rgba(6,22,45,.7) 42%, rgba(8,20,39,.25) 100%),
     linear-gradient(0deg,rgba(8,20,39,.26),transparent 65%);
 }
-.dashboard-slide { filter: brightness(1.06) saturate(1.08); background-position: center 54%; }
+.dashboard-slide { filter: brightness(1.06) saturate(1.08); background-position: center 75%; }
 .dashboard-hero-content {
   min-height: 0;
   padding: 0;
@@ -28341,7 +28341,7 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
 }
 @media (max-width: 700px) {
   .dashboard-photo-page { margin: 0 !important; min-height: 0; }
-  .dashboard-photo-hero { --cm-dashboard-banner: 265px; min-height: 0; }
+  .dashboard-photo-hero { --cm-dashboard-banner: 345px; min-height: 0; }
   .dashboard-hero-content { min-height: 0; padding: 0; }
   .dashboard-hero-head { height: var(--cm-dashboard-banner); padding: 24px 20px 70px; gap: 8px; }
   .dashboard-hero-kicker { font-size: 9px; }
@@ -28370,6 +28370,7 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
   .dkv-home-hero h1 { font-size: 29px; }
 }
 @media (max-width: 400px) {
+  .dashboard-photo-hero { --cm-dashboard-banner: 315px; }
   .dashboard-quick-actions { grid-template-columns: 1fr; }
   .dashboard-quick-actions button { min-height: 126px; padding-right: 53px; }
   .dashboard-glass-card strong { font-size: 27px !important; }
