@@ -14190,8 +14190,9 @@ const DKV_MODULES = {
     table: "dkv_lichkov_smeny",
     fields: [
       { name: "datum", label: "Datum směny", type: "date", required: true },
+      { name: "vyprava_id", label: "Výprava ze sledovačky", dispatch: true },
       { name: "kod_smeny", label: "Kód směny" },
-      { name: "vyprava", label: "Výprava / číslo vlaku nebo spoje" },
+      { name: "vyprava", label: "Výprava / číslo vlaku (pro výkaz)" },
       { name: "zamestnanec", label: "Zaměstnanec", required: true },
       { name: "evidencni_cislo", label: "Lokomotiva", train: true },
       { name: "zacatek", label: "Začátek", type: "time", required: true },
@@ -14226,6 +14227,7 @@ function DkvRecords({ kind, editable, trains }) {
     field.options?.[0] || (field.type === "date" && field.name === "datum" ? localDateIso() : ""),
   ]));
   const [rows, setRows] = useState([]);
+  const [dispatches, setDispatches] = useState([]);
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -14253,6 +14255,29 @@ function DkvRecords({ kind, editable, trains }) {
     loadRows();
   }, [kind]);
 
+  useEffect(() => {
+    if (kind !== "smeny") { setDispatches([]); return; }
+    let active = true;
+    supabase.from("dkv_lichkov_vypravy")
+      .select("id,datum,provoz,cislo_vlaku,popis_provozu,evidencni_cislo")
+      .order("datum", { ascending: false }).limit(1000)
+      .then(({ data, error: loadError }) => {
+        if (!active) return;
+        if (loadError) {
+          console.error("DKV VYPRAVY ERROR:", loadError);
+          setDispatches([]);
+        } else setDispatches(data || []);
+      });
+    return () => { active = false; };
+  }, [kind]);
+
+  function dispatchLabel(dispatch) {
+    return (dispatch.provoz === "mimoradny"
+      ? (dispatch.popis_provozu || "Mimořádná výprava")
+      : ("Vlak " + (dispatch.cislo_vlaku || "bez čísla"))) +
+      " · " + dispatch.evidencni_cislo;
+  }
+
   function closeForm() {
     setShowForm(false);
     setEditingId(null);
@@ -14264,6 +14289,13 @@ function DkvRecords({ kind, editable, trains }) {
     if (!editable || saving) return;
     setError("");
     setSuccess("");
+    if (kind === "smeny" && form.vyprava_id) {
+      const linked = dispatches.find((item) => String(item.id) === String(form.vyprava_id));
+      if (!linked || linked.datum !== form.datum) {
+        setError("Vyber výpravu přiřazenou ke stejnému datu jako směna.");
+        return;
+      }
+    }
     const payload = {};
     for (const field of config.fields) {
       const raw = String(form[field.name] ?? "").trim();
@@ -14312,6 +14344,10 @@ function DkvRecords({ kind, editable, trains }) {
 
   function showValue(field, value) {
     if (value === null || value === undefined || value === "") return "—";
+    if (field.dispatch) {
+      const item = dispatches.find((entry) => String(entry.id) === String(value));
+      return item ? dispatchLabel(item) : "Výprava #" + value;
+    }
     if (field.type === "date") return new Date(`${value}T12:00:00`).toLocaleDateString("cs-CZ");
     if (field.type === "number") return `${Number(value).toLocaleString("cs-CZ")} ${field.name.endsWith("_kc") ? "Kč" : field.name === "spotreba_litry" ? "l" : field.name === "kilometry" ? "km" : ""}`.trim();
     return String(value);
@@ -14337,7 +14373,23 @@ function DkvRecords({ kind, editable, trains }) {
           <div className="form-grid">
             {config.fields.map((field) => <div key={field.name} className={field.type === "textarea" ? "dkv-wide" : ""}>
               <label htmlFor={`dkv-${kind}-${field.name}`}>{field.label}{field.required ? " *" : ""}</label>
-              {field.options ? <select id={`dkv-${kind}-${field.name}`} value={form[field.name] ?? ""} onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))}>
+              {field.dispatch ? <select id={`dkv-${kind}-${field.name}`} value={form[field.name] ?? ""} onChange={(e) => {
+                const selected = dispatches.find((item) => String(item.id) === e.target.value);
+                setForm((old) => ({
+                  ...old, vyprava_id: e.target.value,
+                  ...(selected ? {
+                    evidencni_cislo: selected.evidencni_cislo,
+                    vyprava: selected.provoz === "mimoradny"
+                      ? selected.popis_provozu || "Mimořádná výprava"
+                      : "Vlak " + (selected.cislo_vlaku || ""),
+                  } : {}),
+                }));
+              }}>
+                <option value="">Bez přiřazené výpravy</option>
+                {dispatches.filter((item) => !form.datum || item.datum === form.datum).map((item) => (
+                  <option key={item.id} value={item.id}>{dispatchLabel(item)}</option>
+                ))}
+              </select> : field.options ? <select id={`dkv-${kind}-${field.name}`} value={form[field.name] ?? ""} onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))}>
                 {field.options.map((option) => <option key={option}>{option}</option>)}
               </select> : field.type === "textarea" ? <textarea id={`dkv-${kind}-${field.name}`} rows="3" maxLength={2000} value={form[field.name] ?? ""} onChange={(e) => setForm((old) => ({ ...old, [field.name]: e.target.value }))} /> : <input
                 id={`dkv-${kind}-${field.name}`} type={field.type || "text"} min={field.min} step={field.step} maxLength={field.type === "number" ? undefined : 150}
@@ -14605,6 +14657,299 @@ function DkvRecurringShifts({ editable }) {
   </div>;
 }
 
+/* Vlastní nasazení lokomotiv: pravidelné vlaky v matici a mimořádné výpravy zvlášť. */
+function DkvDispatches({ user, editable, trains, onReloadTrains }) {
+  const empty = () => ({
+    datum: localDateIso(), provoz: "pravidelny", cislo_vlaku: "",
+    popis_provozu: "", evidencni_cislo: "", trasa: "",
+    strojvedouci: "", souprava: "", poznamka: "",
+  });
+  const [month, setMonth] = useState(localDateIso().slice(0, 7));
+  const [entries, setEntries] = useState([]);
+  const [signedImages, setSignedImages] = useState({});
+  const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+  }, [photoPreview]);
+
+  async function loadEntries() {
+    setLoading(true);
+    const parts = month.split("-").map(Number);
+    const nextMonth = parts[1] === 12
+      ? String(parts[0] + 1) + "-01-01"
+      : String(parts[0]) + "-" + String(parts[1] + 1).padStart(2, "0") + "-01";
+    const { data, error: loadError } = await supabase
+      .from("dkv_lichkov_vypravy").select("*")
+      .gte("datum", month + "-01").lt("datum", nextMonth)
+      .order("datum", { ascending: true }).order("cislo_vlaku", { ascending: true });
+    if (loadError) {
+      setError(/dkv_lichkov_vypravy/i.test(loadError.message || "")
+        ? "Tabulka výprav ještě neexistuje. Nejdřív spusť SQL pro sledovačky DKV."
+        : getDkvSaveError(loadError));
+      setEntries([]);
+    } else {
+      setEntries(data || []);
+      setError("");
+    }
+    setLoading(false);
+  }
+  useEffect(() => { loadEntries(); }, [month]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(trains.map(async (train) => {
+      if (!train.obrazek_path) return [train.evidencni_cislo, null];
+      const { data, error: signError } = await supabase.storage
+        .from("dkv-loko-images").createSignedUrl(train.obrazek_path, 3600);
+      if (signError) console.error("DKV LOKO PHOTO ERROR:", signError);
+      return [train.evidencni_cislo, data?.signedUrl || null];
+    })).then((items) => { if (active) setSignedImages(Object.fromEntries(items)); });
+    return () => { active = false; };
+  }, [trains]);
+
+  function resetPhoto() {
+    setPhotoFile(null);
+    setPhotoPreview("");
+  }
+  function close() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(empty());
+    resetPhoto();
+  }
+  function create() {
+    setEditingId(null);
+    setForm({ ...empty(), datum: month === localDateIso().slice(0, 7) ? localDateIso() : month + "-01" });
+    resetPhoto();
+    setError("");
+    setSuccess("");
+    setShowForm(true);
+  }
+  function edit(row) {
+    setEditingId(row.id);
+    setForm({
+      datum: row.datum || localDateIso(),
+      provoz: row.provoz || "pravidelny",
+      cislo_vlaku: row.cislo_vlaku || "",
+      popis_provozu: row.popis_provozu || "",
+      evidencni_cislo: row.evidencni_cislo || "",
+      trasa: row.trasa || "",
+      strojvedouci: row.strojvedouci || "",
+      souprava: row.souprava || "",
+      poznamka: row.poznamka || "",
+    });
+    resetPhoto();
+    setError("");
+    setSuccess("");
+    setShowForm(true);
+  }
+  function change(name, value) {
+    setForm((old) => ({ ...old, [name]: value }));
+  }
+  function choosePhoto(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Fotka lokomotivy musí být JPG, PNG nebo WebP.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Fotka může mít maximálně 5 MB.");
+      event.target.value = "";
+      return;
+    }
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+    setError("");
+  }
+  async function savePhoto(train) {
+    if (!photoFile) return;
+    const extension = photoFile.type === "image/png" ? "png" :
+      photoFile.type === "image/webp" ? "webp" : "jpg";
+    const path = user.id + "/" + crypto.randomUUID() + "." + extension;
+    const { error: uploadError } = await supabase.storage.from("dkv-loko-images")
+      .upload(path, photoFile, { upsert: false, contentType: photoFile.type });
+    if (uploadError) throw new Error("Nahrání fotky selhalo: " + uploadError.message);
+    const { data, error: updateError } = await supabase.from("dkv_lichkov_vozidla")
+      .update({ obrazek_path: path }).eq("id", train.id).select("id").single();
+    if (updateError || !data?.id) {
+      await supabase.storage.from("dkv-loko-images").remove([path]);
+      throw new Error("Fotku se nepodařilo přiřadit lokomotivě: " + (updateError?.message || "Neznámá chyba"));
+    }
+    if (train.obrazek_path && train.obrazek_path !== path) {
+      const { error: deleteError } = await supabase.storage.from("dkv-loko-images")
+        .remove([train.obrazek_path]);
+      if (deleteError) console.error("Starou fotografii se nepodařilo odstranit", deleteError);
+    }
+    await onReloadTrains();
+  }
+  async function save(event) {
+    event.preventDefault();
+    if (!editable || saving) return;
+    setError("");
+    setSuccess("");
+    const locomotive = trains.find((item) => item.evidencni_cislo === form.evidencni_cislo);
+    if (!form.datum || !locomotive) {
+      setError("Vyber datum a lokomotivu z evidence DKV.");
+      return;
+    }
+    if (form.provoz === "pravidelny" && !form.cislo_vlaku.trim()) {
+      setError("U pravidelného vlaku vyplň číslo vlaku.");
+      return;
+    }
+    if (form.provoz === "mimoradny" && !form.popis_provozu.trim()) {
+      setError("U mimořádného provozu vyplň druh výpravy, například Nákladní vlak.");
+      return;
+    }
+    const payload = {
+      datum: form.datum, provoz: form.provoz,
+      cislo_vlaku: form.cislo_vlaku.trim() || null,
+      popis_provozu: form.provoz === "mimoradny" ? form.popis_provozu.trim() : null,
+      evidencni_cislo: form.evidencni_cislo,
+      trasa: form.trasa.trim() || null,
+      strojvedouci: form.strojvedouci.trim() || null,
+      souprava: form.souprava.trim() || null,
+      poznamka: form.poznamka.trim() || null,
+    };
+    setSaving(true);
+    try {
+      if (photoFile) await savePhoto(locomotive);
+      const result = editingId
+        ? await supabase.from("dkv_lichkov_vypravy").update(payload).eq("id", editingId).select("id").single()
+        : await supabase.from("dkv_lichkov_vypravy").insert(payload).select("id").single();
+      if (result.error || !result.data?.id) {
+        throw result.error || new Error("Výpravu se nepodařilo uložit.");
+      }
+      close();
+      if (payload.datum.slice(0, 7) !== month) setMonth(payload.datum.slice(0, 7));
+      else await loadEntries();
+      setSuccess("Výprava byla uložena.");
+    } catch (saveError) {
+      setError(getDkvSaveError(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function remove(row) {
+    if (!editable || !window.confirm("Opravdu smazat tuto výpravu? Přiřazené směny zůstanou zachované.")) return;
+    const { error: deleteError } = await supabase.from("dkv_lichkov_vypravy").delete().eq("id", row.id);
+    if (deleteError) { setError(getDkvSaveError(deleteError)); return; }
+    if (editingId === row.id) close();
+    await loadEntries();
+    setSuccess("Výprava byla smazána.");
+  }
+
+  const [year, monthNumber] = month.split("-").map(Number);
+  const dates = Array.from({ length: new Date(year, monthNumber, 0).getDate() }, (_, index) =>
+    month + "-" + String(index + 1).padStart(2, "0"));
+  const regular = entries.filter((item) => item.provoz === "pravidelny");
+  const extraordinary = entries.filter((item) => item.provoz === "mimoradny");
+  const trainNumbers = [...new Set(regular.map((item) => item.cislo_vlaku).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b), "cs", { numeric: true }));
+
+  function locomotiveBadge(item) {
+    const photo = signedImages[item.evidencni_cislo];
+    return (
+      <span className="dkv-tracker-locomotive">
+        {photo ? <img src={photo} loading="lazy" alt={"Lokomotiva " + item.evidencni_cislo} /> : <span aria-hidden="true">🚂</span>}
+        <strong>{item.evidencni_cislo}</strong>
+      </span>
+    );
+  }
+
+  return (
+    <div className="panel dkv-records dkv-tracker">
+      <div className="users-toolbar">
+        <div><h2>Výpravy – sledování nasazení</h2><p className="muted">Pravidelné vlaky podle čísla a data, mimořádné výpravy zvlášť.</p></div>
+        <div className="form-buttons">
+          <button type="button" className="secondary-button" onClick={loadEntries}>Obnovit</button>
+          {editable && <button type="button" className="primary-button" onClick={create}>+ Přidat výpravu</button>}
+        </div>
+      </div>
+      <div className="dkv-tracker-month"><label htmlFor="dkv-tracker-month">Období</label><input id="dkv-tracker-month" type="month" value={month} onChange={(e) => setMonth(e.target.value || localDateIso().slice(0, 7))} /></div>
+      {success && <div className="success-box" role="status">{success}</div>}
+      {error && !showForm && <div className="error-box" role="alert">{error}</div>}
+
+      {editable && showForm && <div className="crud-form dkv-tracker-form">
+        <h3>{editingId ? "Upravit výpravu" : "Nová výprava"}</h3>
+        <form onSubmit={save} noValidate>
+          <div className="form-grid">
+            <div><label htmlFor="dkv-dispatch-date">Datum *</label><input id="dkv-dispatch-date" type="date" value={form.datum} onChange={(e) => change("datum", e.target.value)} /></div>
+            <div><label htmlFor="dkv-dispatch-type">Druh provozu *</label><select id="dkv-dispatch-type" value={form.provoz} onChange={(e) => change("provoz", e.target.value)}><option value="pravidelny">Pravidelný vlak</option><option value="mimoradny">Mimořádný provoz</option></select></div>
+            <div><label htmlFor="dkv-dispatch-train-number">Číslo vlaku{form.provoz === "pravidelny" ? " *" : ""}</label><input id="dkv-dispatch-train-number" maxLength={50} value={form.cislo_vlaku} onChange={(e) => change("cislo_vlaku", e.target.value)} placeholder="Os 2051, R 123…" /></div>
+            {form.provoz === "mimoradny" && <div><label htmlFor="dkv-dispatch-extra">Druh mimořádné výpravy *</label><input id="dkv-dispatch-extra" maxLength={150} value={form.popis_provozu} onChange={(e) => change("popis_provozu", e.target.value)} placeholder="Nákladní vlak, Lv, přeprava…" /></div>}
+            <div><label htmlFor="dkv-dispatch-loco">Lokomotiva *</label><select id="dkv-dispatch-loco" value={form.evidencni_cislo} onChange={(e) => { change("evidencni_cislo", e.target.value); resetPhoto(); }}>
+              <option value="">Vyber lokomotivu z DKV</option>
+              {trains.map((train) => <option key={train.id} value={train.evidencni_cislo}>{train.evidencni_cislo} · {train.druh}</option>)}
+            </select></div>
+            <div><label htmlFor="dkv-dispatch-route">Trasa / relace</label><input id="dkv-dispatch-route" maxLength={150} value={form.trasa} onChange={(e) => change("trasa", e.target.value)} placeholder="Lichkov – Letohrad" /></div>
+            <div><label htmlFor="dkv-dispatch-driver">Strojvedoucí</label><input id="dkv-dispatch-driver" maxLength={150} value={form.strojvedouci} onChange={(e) => change("strojvedouci", e.target.value)} /></div>
+            <div><label htmlFor="dkv-dispatch-consist">Souprava</label><input id="dkv-dispatch-consist" maxLength={150} value={form.souprava} onChange={(e) => change("souprava", e.target.value)} placeholder="Označení soupravy" /></div>
+            {form.evidencni_cislo && <div className="dkv-wide dkv-tracker-photo-field">
+              <label htmlFor="dkv-loco-photo">Vlastní fotka lokomotivy (volitelná)</label>
+              <input key={form.evidencni_cislo} id="dkv-loco-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} />
+              <small>JPG, PNG nebo WebP do 5 MB. Fotka patří lokomotivě a zobrazí se u všech jejích výprav.</small>
+              {(photoPreview || signedImages[form.evidencni_cislo]) && <img className="dkv-tracker-photo-preview" src={photoPreview || signedImages[form.evidencni_cislo]} alt="Náhled lokomotivy" />}
+            </div>}
+            <div className="dkv-wide"><label htmlFor="dkv-dispatch-note">Poznámka</label><textarea id="dkv-dispatch-note" rows="3" maxLength={2000} value={form.poznamka} onChange={(e) => change("poznamka", e.target.value)} /></div>
+          </div>
+          {error && <div className="error-box" role="alert">{error}</div>}
+          <div className="form-buttons"><button className="primary-button" disabled={saving}>{saving ? "Ukládání…" : "Uložit výpravu"}</button><button type="button" className="secondary-button" onClick={close}>Zrušit</button></div>
+        </form>
+      </div>}
+
+      {loading ? <div className="empty">Načítání nasazení…</div> : <>
+        <h3>Pravidelné vlaky</h3>
+        {trainNumbers.length === 0 ? <p className="empty">V tomto měsíci zatím nejsou zapsané pravidelné vlaky.</p> :
+          <div className="dkv-tracker-scroll" role="region" aria-label="Přehled nasazení pravidelných vlaků" tabIndex={0}>
+            <table className="dkv-tracker-table">
+              <thead><tr><th>Datum</th>{trainNumbers.map((number) => <th key={number}>{number}</th>)}</tr></thead>
+              <tbody>{dates.map((date) => <tr key={date}><th scope="row">{new Date(date + "T12:00:00").toLocaleDateString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric" })}</th>
+                {trainNumbers.map((number) => {
+                  const matches = regular.filter((item) => item.datum === date && item.cislo_vlaku === number);
+                  return <td key={number}>{matches.map((item) => (
+                    editable ? <button type="button" className="dkv-tracker-cell" key={item.id} onClick={() => edit(item)} title="Upravit výpravu">
+                      {locomotiveBadge(item)}
+                    </button> : <div className="dkv-tracker-cell" key={item.id}>{locomotiveBadge(item)}</div>
+                  ))}</td>;
+                })}
+              </tr>)}</tbody>
+            </table>
+          </div>}
+        <h3>Mimořádný provoz</h3>
+        {extraordinary.length === 0 ? <p className="empty">V tomto měsíci zatím nejsou zapsané mimořádné výpravy.</p> :
+          <div className="dkv-list">{extraordinary.map((item) => <article className="dkv-card" key={item.id}>
+            <div className="dkv-card-head"><strong>{new Date(item.datum + "T12:00:00").toLocaleDateString("cs-CZ")} · {item.popis_provozu}</strong><span>{item.cislo_vlaku || "Mimořádná výprava"}</span></div>
+            <div className="dkv-tracker-extra-loco">{locomotiveBadge(item)}</div>
+            <div className="dkv-card-details">
+              <div><small>Trasa</small><strong>{item.trasa || "—"}</strong></div>
+              <div><small>Strojvedoucí</small><strong>{item.strojvedouci || "—"}</strong></div>
+              <div><small>Souprava</small><strong>{item.souprava || "—"}</strong></div>
+            </div>
+            {item.poznamka && <p className="dkv-note">{item.poznamka}</p>}
+            {editable && <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => edit(item)}>Upravit</button><button type="button" className="delete-button" onClick={() => remove(item)}>Smazat</button></div>}
+          </article>)}</div>}
+        {editable && regular.length > 0 && <p className="muted">Pro úpravu pravidelné výpravy klikni na lokomotivu v tabulce.</p>}
+        {editable && regular.length > 0 && <div className="dkv-tracker-regular-list"><details><summary>Správa pravidelných vlaků ({regular.length})</summary>
+          {regular.map((item) => <div className="simple-list-item" key={item.id}><span>{item.datum} · {item.cislo_vlaku} · {item.evidencni_cislo}</span>
+            <div className="form-buttons"><button type="button" className="secondary-button" onClick={() => edit(item)}>Upravit</button><button type="button" className="delete-button" onClick={() => remove(item)}>Smazat</button></div>
+          </div>)}
+        </details></div>}
+      </>}
+    </div>
+  );
+}
+
 /* Výkazy DKV čtou přímo uložené směny; nejsou potřeba duplicitní řádky. */
 function DkvShiftReports() {
   const [month, setMonth] = useState(localDateIso().slice(0, 7));
@@ -14750,7 +15095,7 @@ function DkvShiftReports() {
   );
 }
 
-function DkvLichkov({ role }) {
+function DkvLichkov({ role, user }) {
   const editable = canEditDkv(role);
   const [section, setSection] = useState("vozidla");
   const [trains, setTrains] = useState([]);
@@ -14905,12 +15250,12 @@ function DkvLichkov({ role }) {
       </div>
 
       <nav className="dkv-tabs" aria-label="Agenda DKV Lichkov">
-        {[["vozidla", "Lokomotivy a vozy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Zakázky a příjmy"], ["smeny", "Směny"], ["vykazy", "Výkazy DKV"], ["pravidelne_smeny", "Pravidelné směny"], ["soupravy", "Soupravy"], ["poruchy", "Poruchy"]].map(([key, label]) => (
+        {[["vozidla", "Lokomotivy a vozy"], ["vypravy", "Výpravy"], ["objednavky", "Objednávky lokomotiv"], ["prijmy", "Zakázky a příjmy"], ["smeny", "Směny"], ["vykazy", "Výkazy DKV"], ["pravidelne_smeny", "Pravidelné směny"], ["soupravy", "Soupravy"], ["poruchy", "Poruchy"]].map(([key, label]) => (
           <button type="button" key={key} className={section === key ? "active" : ""} aria-current={section === key ? "page" : undefined} onClick={() => setSection(key)}>{label}</button>
         ))}
       </nav>
 
-      {section === "vykazy" ? <DkvShiftReports /> : section === "soupravy" ? <DkvConsists editable={editable} trains={trains} /> : section === "pravidelne_smeny" ? <DkvRecurringShifts editable={editable} /> : section !== "vozidla" ? <DkvRecords key={section} kind={section} editable={editable} trains={trains} /> : <>
+      {section === "vypravy" ? <DkvDispatches user={user} editable={editable} trains={trains} onReloadTrains={loadTrains} /> : section === "vykazy" ? <DkvShiftReports /> : section === "soupravy" ? <DkvConsists editable={editable} trains={trains} /> : section === "pravidelne_smeny" ? <DkvRecurringShifts editable={editable} /> : section !== "vozidla" ? <DkvRecords key={section} kind={section} editable={editable} trains={trains} /> : <>
 
       {error && !showForm && <div className="error-box" role="alert">{error}</div>}
       {success && <div className="success-box" role="status">{success}</div>}
@@ -16482,7 +16827,7 @@ function App() {
           )}
 
           {page === "dkvLichkov" && canViewDkv(role) && (
-            <DkvLichkov role={role} />
+            <DkvLichkov role={role} user={user} />
           )}
 
           {page === "dkvReports" && canViewDkv(role) && <DkvFinancialReport />}
@@ -27517,6 +27862,42 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   background: #0d1523; border-color: #34445d; color: #f4f7fb;
 }
 .app.dark-mode .dkv-shift-report-summary small { color: #a3b2c8; }
+
+/* DKV: přehled pravidelných a mimořádných výprav */
+.dkv-tracker h3 { margin: 24px 0 12px; }
+.dkv-tracker-month { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 15px 0 10px; }
+.dkv-tracker-month label { font-weight: 700; }
+.dkv-tracker-month input { max-width: 230px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; color: #172033; font: inherit; }
+.dkv-tracker-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 12px; }
+.dkv-tracker-table { width: 100%; min-width: 650px; border-collapse: separate; border-spacing: 0; text-align: center; font-size: 14px; }
+.dkv-tracker-table th, .dkv-tracker-table td { min-width: 115px; padding: 8px 12px; vertical-align: middle; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+.dkv-tracker-table th { background: #eff6ff; font-weight: 700; color: #1d3555; }
+.dkv-tracker-table thead th { position: sticky; top: 0; z-index: 2; }
+.dkv-tracker-table thead th:first-child { z-index: 4; }
+.dkv-tracker-table th:first-child { position: sticky; left: 0; z-index: 3; min-width: 120px; background: #eff6ff; }
+.dkv-tracker-table tr:nth-child(even) td { background: #f8fafc; }
+.dkv-tracker-cell { display: block; width: 100%; min-height: 55px; padding: 8px 3px; border: 0; border-radius: 9px; background: transparent; color: inherit; font: inherit; }
+button.dkv-tracker-cell { cursor: pointer; }
+button.dkv-tracker-cell:hover, button.dkv-tracker-cell:focus-visible { background: #dbeafe; outline: 2px solid #60a5fa; outline-offset: 0; }
+.dkv-tracker-locomotive { display: inline-flex; flex-direction: column; align-items: center; gap: 5px; max-width: 150px; }
+.dkv-tracker-locomotive strong { overflow-wrap: anywhere; }
+.dkv-tracker-locomotive img { display: block; width: 105px; height: 66px; object-fit: cover; border-radius: 8px; }
+.dkv-tracker-form { margin: 18px 0; }
+.dkv-tracker-photo-field { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.dkv-tracker-photo-field input[type="file"] { max-width: 100%; padding: 10px; border: 1px dashed #94a3b8; border-radius: 10px; }
+.dkv-tracker-photo-field small { color: #64748b; }
+.dkv-tracker-photo-preview { width: auto; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 10px; }
+.dkv-tracker-extra-loco { margin: 12px 0; }
+.dkv-tracker-regular-list { margin-top: 18px; }
+.dkv-tracker-regular-list summary { cursor: pointer; font-weight: 700; padding: 10px 0; }
+.app.dark-mode .dkv-tracker-month input { background: #0d1523; border-color: #34445d; color: #e7edf7; color-scheme: dark; }
+.app.dark-mode .dkv-tracker-scroll { border-color: #34445d; }
+.app.dark-mode .dkv-tracker-table th, .app.dark-mode .dkv-tracker-table td { border-color: #34445d; }
+.app.dark-mode .dkv-tracker-table th, .app.dark-mode .dkv-tracker-table th:first-child { background: #1a2a42; color: #f4f7fb; }
+.app.dark-mode .dkv-tracker-table tr:nth-child(even) td { background: #111927; }
+.app.dark-mode button.dkv-tracker-cell:hover, .app.dark-mode button.dkv-tracker-cell:focus-visible { background: #213654; outline-color: #60a5fa; }
+.app.dark-mode .dkv-tracker-photo-field input[type="file"] { border-color: #3b4d68; }
+.app.dark-mode .dkv-tracker-photo-field small { color: #a3b2c8; }
 
 `;
 
