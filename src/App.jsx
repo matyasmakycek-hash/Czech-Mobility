@@ -9383,6 +9383,30 @@ function AdminConnections() {
 }
 
 
+// Kontrola povolených turnusů elektrobusu 8245 (Supabase: povolene_turnusy).
+function isVehicle8245(vehicle) {
+  return String(vehicle?.cislo ?? "").trim() === "8245";
+}
+
+function normalize8245Turnus(value) {
+  // Turnusy jsou TEXT: např. "211.01" se nesmí převádět na číslo.
+  return String(value ?? "").trim().toLocaleUpperCase("cs-CZ");
+}
+
+async function fetchAllowedTurnusy8245() {
+  const { data, error } = await supabase
+    .from("povolene_turnusy")
+    .select("turnus")
+    .eq("vozidlo", "8245");
+
+  if (error) throw new Error(`Načtení povolených turnusů 8245 selhalo: ${error.message}`);
+  if (!data?.length) {
+    throw new Error("Pro elektrobus 8245 nejsou v Supabase nastavené žádné povolené turnusy.");
+  }
+
+  return [...new Set(data.map((row) => normalize8245Turnus(row.turnus)).filter(Boolean))];
+}
+
 function Departures({
   role,
   onOpenVehicle,
@@ -9420,6 +9444,8 @@ function Departures({
   const [courseDetailRows, setCourseDetailRows] = useState([]);
   const [courseDetailLoading, setCourseDetailLoading] = useState(false);
   const [courseDetailError, setCourseDetailError] = useState("");
+  const [allowedTurnusy8245, setAllowedTurnusy8245] = useState(null);
+  const [turnusy8245Error, setTurnusy8245Error] = useState("");
   const [cellForm, setCellForm] = useState({
     kurz_ids: [],
     poznamka: "",
@@ -9448,6 +9474,24 @@ function Departures({
       setSelectedProvozovna(String(preferred.id));
     }
   }, [provozovny, selectedProvozovna]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchAllowedTurnusy8245()
+      .then((allowed) => {
+        if (!mounted) return;
+        setAllowedTurnusy8245(allowed);
+        setTurnusy8245Error("");
+      })
+      .catch((loadError) => {
+        if (!mounted) return;
+        setAllowedTurnusy8245(null);
+        setTurnusy8245Error(loadError.message);
+      });
+
+    return () => { mounted = false; };
+  }, []);
 
   async function loadReferences() {
     setError("");
@@ -9840,6 +9884,39 @@ function Departures({
     setError("");
     setSuccess("");
 
+    // Výpravy se ukládají až po opětovné kontrole aktuálních pravidel.
+    if (isVehicle8245(editor.vehicle)) {
+      try {
+        const allowed = await fetchAllowedTurnusy8245();
+        setAllowedTurnusy8245(allowed);
+        setTurnusy8245Error("");
+
+        const invalidCourses = selectedCourses.filter(
+          (course) => !allowed.includes(normalize8245Turnus(course.nazev))
+        );
+        if (invalidCourses.length > 0) {
+          const invalidNames = invalidCourses.map((course) => course.nazev).join(", ");
+          const confirmed = window.confirm(
+            `⚠️ ELEKTROBUS 8245 – NEPOVOLENÉ TURNUSE\n\n` +
+            `Nepovolené turnusy: ${invalidNames}\n\n` +
+            `Elektrobus 8245 nemá tyto turnusy v seznamu povolených.\n` +
+            `Chceš přesto přiřazení uložit?`
+          );
+          if (!confirmed) {
+            setSaving(false);
+            return;
+          }
+        }
+      } catch (checkError) {
+        // Při chybě spojení neoznačujeme neověřený turnus za povolený.
+        setAllowedTurnusy8245(null);
+        setTurnusy8245Error(checkError.message);
+        setError(`Nepodařilo se ověřit omezení vozu 8245: ${checkError.message}`);
+        setSaving(false);
+        return;
+      }
+    }
+
     const existingRows = editor.rows || [];
     const desiredIds = new Set(
       selectedCourses.map((course) => String(course.id))
@@ -10099,6 +10176,15 @@ function Departures({
     editor?.courses || activeVariantCourses
   );
 
+  const selectedInvalidTurnusy8245 =
+    isVehicle8245(editor?.vehicle) && allowedTurnusy8245
+      ? cellForm.kurz_ids
+          .map((id) => courses.find((course) => String(course.id) === String(id)))
+          .filter(Boolean)
+          .filter((course) => !allowedTurnusy8245.includes(normalize8245Turnus(course.nazev)))
+          .map((course) => course.nazev)
+      : [];
+
   function getMissingCoursesForDay(day) {
     const date = isoDate(day);
 
@@ -10346,6 +10432,14 @@ function Departures({
                       row,
                       course: getCourse(row),
                     }));
+                    const hasInvalid8245Turnus =
+                      isVehicle8245(vehicle) &&
+                      Array.isArray(allowedTurnusy8245) &&
+                      assigned.some(({ row, course }) =>
+                        !allowedTurnusy8245.includes(
+                          normalize8245Turnus(course?.nazev || row.linka)
+                        )
+                      );
 
                     return (
                       <td
@@ -10361,6 +10455,10 @@ function Departures({
                         ]
                           .filter(Boolean)
                           .join(" ")}
+                        style={hasInvalid8245Turnus ? {
+                          backgroundColor: "#fff1f2",
+                          boxShadow: "inset 0 0 0 2px #dc2626",
+                        } : undefined}
                         onClick={() => openEditor(vehicle, day)}
                         title={
                           entries.length > 0
@@ -10379,6 +10477,9 @@ function Departures({
                       >
                         {entries.length > 0 ? (
                           <div className="departure-cell-course-list">
+                            {hasInvalid8245Turnus && (
+                              <span title="Elektrobus 8245 má nepovolený turnus" aria-label="Nepovolený turnus pro 8245">⚠️</span>
+                            )}
                             {assigned.map(({ row, course }) =>
                               course ? (
                                 <button
@@ -10571,6 +10672,37 @@ function Departures({
                 </strong>
               </div>
 
+              {isVehicle8245(editor.vehicle) && (
+                <div
+                  role={turnusy8245Error || selectedInvalidTurnusy8245.length ? "alert" : "status"}
+                  aria-live="polite"
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "8px",
+                    marginBottom: "14px",
+                    background: turnusy8245Error || selectedInvalidTurnusy8245.length
+                      ? "#fff1f2" : "#f0fdf4",
+                    border: `1px solid ${turnusy8245Error || selectedInvalidTurnusy8245.length
+                      ? "#ef4444" : "#86efac"}`,
+                    color: turnusy8245Error || selectedInvalidTurnusy8245.length
+                      ? "#991b1b" : "#166534",
+                  }}
+                >
+                  <strong>🚌 Omezení turnusů – elektrobus 8245</strong>
+                  <div style={{ marginTop: "6px" }}>
+                    {turnusy8245Error
+                      ? `⚠️ Nelze načíst pravidla: ${turnusy8245Error}. Uložení nebude možné do obnovení kontroly.`
+                      : allowedTurnusy8245 === null
+                        ? "Ověřuji povolené turnusy v Supabase…"
+                        : selectedInvalidTurnusy8245.length > 0
+                          ? `⚠️ Nepovolené turnusy: ${selectedInvalidTurnusy8245.join(", ")}. Při ukládání bude vyžadováno potvrzení.`
+                          : cellForm.kurz_ids.length === 0
+                            ? "Vyber turnus. Nepovolené turnusy jsou označené červeně."
+                            : "✓ Vybrané turnusy jsou povolené. Nepovolené budou označené červeně."}
+                  </div>
+                </div>
+              )}
+
               <div className="notification-field">
                 <label>Výpravy / pořadí – můžeš vybrat více</label>
 
@@ -10603,6 +10735,10 @@ function Departures({
                             const selected = cellForm.kurz_ids.includes(
                               String(course.id)
                             );
+                            const invalid8245Turnus =
+                              isVehicle8245(editor.vehicle) &&
+                              Array.isArray(allowedTurnusy8245) &&
+                              !allowedTurnusy8245.includes(normalize8245Turnus(course.nazev));
 
                             return (
                               <div
@@ -10610,6 +10746,10 @@ function Departures({
                                 className={`departure-course-card ${
                                   selected ? "active" : ""
                                 }`}
+                                style={invalid8245Turnus ? {
+                                  border: "1px solid #ef4444",
+                                  backgroundColor: "#fff1f2",
+                                } : undefined}
                               >
                                 <button
                                   type="button"
@@ -10641,6 +10781,11 @@ function Departures({
                                   title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
                                   <strong>{course.nazev}</strong>
+                                  {invalid8245Turnus && (
+                                    <span style={{ color: "#991b1b", fontSize: "12px", marginLeft: "6px" }}>
+                                      ⚠️ Nepovoleno pro 8245
+                                    </span>
+                                  )}
                                 </button>
                               </div>
                             );
