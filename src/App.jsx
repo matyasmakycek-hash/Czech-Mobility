@@ -10676,17 +10676,11 @@ function Departures({
                 <div
                   role={turnusy8245Error || selectedInvalidTurnusy8245.length ? "alert" : "status"}
                   aria-live="polite"
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "8px",
-                    marginBottom: "14px",
-                    background: turnusy8245Error || selectedInvalidTurnusy8245.length
-                      ? "#fff1f2" : "#f0fdf4",
-                    border: `1px solid ${turnusy8245Error || selectedInvalidTurnusy8245.length
-                      ? "#ef4444" : "#86efac"}`,
-                    color: turnusy8245Error || selectedInvalidTurnusy8245.length
-                      ? "#991b1b" : "#166534",
-                  }}
+                  className={`vehicle-8245-status ${
+                    turnusy8245Error || selectedInvalidTurnusy8245.length
+                      ? "is-warning"
+                      : "is-allowed"
+                  }`}
                 >
                   <strong>🚌 Omezení turnusů – elektrobus 8245</strong>
                   <div style={{ marginTop: "6px" }}>
@@ -10771,7 +10765,7 @@ function Departures({
 
                                 <button
                                   type="button"
-                                  className="departure-course-detail-button departure-course-number-only"
+                                  className="departure-course-detail-button"
                                   onClick={() =>
                                     openCourseDetail(
                                       course,
@@ -28595,6 +28589,100 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
   .dashboard-glass-card strong { font-size: 27px !important; }
 }
 
+
+
+/* VÝPRAVY 8245 – čitelné názvy a stavy v tmavém i světlém režimu */
+.departure-modal .departure-course-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px;
+}
+
+.departure-modal .departure-course-card {
+  min-width: 0;
+  min-height: 74px;
+}
+
+.departure-modal .departure-course-detail-button {
+  justify-content: flex-start !important;
+  padding: 10px !important;
+}
+
+.departure-modal .departure-course-detail-copy {
+  display: flex !important;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  gap: 5px;
+}
+
+.departure-modal .departure-course-detail-copy strong {
+  display: block !important;
+  color: #172033 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.departure-modal .departure-course-detail-link {
+  display: none !important;
+}
+
+.app.dark-mode .departure-modal .departure-course-detail-copy strong {
+  color: #f1f5f9 !important;
+}
+
+.departure-modal .departure-course-card.invalid-8245 {
+  border: 1px solid #ef4444;
+}
+
+.vehicle-8245-status {
+  padding: 12px 14px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  margin-bottom: 14px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.vehicle-8245-status strong {
+  display: block;
+  color: inherit !important;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.vehicle-8245-status.is-warning {
+  border-color: #ef4444;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+.app.dark-mode .vehicle-8245-status {
+  border-color: #15803d;
+  background: #102e23;
+  color: #bbf7d0;
+}
+
+.app.dark-mode .vehicle-8245-status.is-warning {
+  border-color: #f87171;
+  background: #381b22;
+  color: #fecaca;
+}
+
+.app.dark-mode .vehicle-8245-status strong {
+  color: inherit !important;
+}
+
+@media (max-width: 380px) {
+  .departure-modal .departure-course-picker {
+    grid-template-columns: 1fr !important;
+  }
+}
 `;
 
 export default App;
