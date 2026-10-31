@@ -10743,13 +10743,13 @@ function Departures({
                             return (
                               <div
                                 key={course.id}
-                                className={`departure-course-card ${
-                                  selected ? "active" : ""
-                                }`}
-                                style={invalid8245Turnus ? {
-                                  border: "1px solid #ef4444",
-                                  backgroundColor: "#fff1f2",
-                                } : undefined}
+                                className={[
+                                  "departure-course-card",
+                                  selected ? "active" : "",
+                                  invalid8245Turnus ? "invalid-8245" : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
                               >
                                 <button
                                   type="button"
@@ -10780,12 +10780,18 @@ function Departures({
                                   }
                                   title={`Zobrazit spoje turnusu ${course.nazev}`}
                                 >
-                                  <strong>{course.nazev}</strong>
-                                  {invalid8245Turnus && (
-                                    <span style={{ color: "#991b1b", fontSize: "12px", marginLeft: "6px" }}>
-                                      ⚠️ Nepovoleno pro 8245
-                                    </span>
-                                  )}
+                                  <span className="departure-course-detail-copy">
+                                    <strong>{course.nazev}</strong>
+                                    {invalid8245Turnus && (
+                                      <span className="departure-course-warning-badge">
+                                        ⚠ Nepovoleno pro 8245
+                                      </span>
+                                    )}
+                                  </span>
+
+                                  <span className="departure-course-detail-link">
+                                    Detail
+                                  </span>
                                 </button>
                               </div>
                             );
@@ -20600,8 +20606,8 @@ thead .departures-vehicle-column {
 
 .departure-course-picker {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 9px;
   margin-top: 5px;
 }
 
@@ -20725,6 +20731,37 @@ thead .departures-vehicle-column {
 @media (max-width: 700px) {
   .departure-course-group {
     padding: 8px;
+  }
+
+  .departure-course-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .departure-course-card {
+    min-height: 68px;
+  }
+
+  .departure-course-picker .departure-course-select {
+    min-height: 68px !important;
+  }
+
+  .departure-course-picker .departure-course-detail-button {
+    min-height: 68px !important;
+    padding: 8px 10px !important;
+  }
+
+  .departure-course-detail-copy strong {
+    font-size: 13px;
+  }
+
+  .departure-course-warning-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
+
+  .departure-course-detail-link {
+    display: none;
   }
 }
 
@@ -23723,11 +23760,12 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 ========================================================= */
 .departure-course-card {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: stretch;
   min-width: 0;
+  min-height: 72px;
   border: 1px solid #d9e2ef;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
   overflow: hidden;
   transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
@@ -23743,11 +23781,16 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   background: #eff6ff;
 }
 
+.departure-course-card.invalid-8245 {
+  border-color: #ef4444;
+  background: #fff1f2;
+}
+
 .departure-course-picker .departure-course-select {
-  width: 34px !important;
-  min-width: 34px !important;
+  width: 38px !important;
+  min-width: 38px !important;
   height: 100% !important;
-  min-height: 58px !important;
+  min-height: 72px !important;
   padding: 0 !important;
   margin: 0 !important;
   border: 0 !important;
@@ -23771,8 +23814,8 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 .departure-course-picker .departure-course-detail-button {
   width: 100% !important;
   min-width: 0 !important;
-  min-height: 58px !important;
-  padding: 9px 10px !important;
+  min-height: 72px !important;
+  padding: 10px 12px !important;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -23780,7 +23823,7 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
-  gap: 8px !important;
+  gap: 10px !important;
   text-align: left !important;
   cursor: pointer;
 }
@@ -23794,6 +23837,27 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .departure-course-detail-copy strong {
   color: inherit;
+  display: block;
+  font-size: 14px;
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.departure-course-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .departure-course-detail-link {
@@ -23968,6 +24032,11 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   border-color: #3b82f6;
 }
 
+.app.dark-mode .departure-course-card.invalid-8245 {
+  background: #32161c;
+  border-color: #f87171;
+}
+
 .app.dark-mode .departure-course-picker .departure-course-select {
   background: #172233 !important;
   color: #93c5fd !important;
@@ -23985,6 +24054,11 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 
 .app.dark-mode .departure-course-detail-link {
   color: #93c5fd;
+}
+
+.app.dark-mode .departure-course-warning-badge {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
 }
 
 .app.dark-mode .turnus-detail-modal {
