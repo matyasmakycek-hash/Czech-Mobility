@@ -9383,28 +9383,35 @@ function AdminConnections() {
 }
 
 
-// Kontrola povolených turnusů elektrobusu 8245 (Supabase: povolene_turnusy).
-function isVehicle8245(vehicle) {
-  return String(vehicle?.cislo ?? "").trim() === "8245";
+// Omezení pro elektrobusy 8245, 8246 a 8247 (Supabase: povolene_turnusy).
+const LIMITED_ELECTROBUS_NUMBERS = ["8245", "8246", "8247"];
+
+function getLimitedElectrobusNumber(vehicle) {
+  const number = String(vehicle?.cislo ?? "").trim();
+  return LIMITED_ELECTROBUS_NUMBERS.includes(number) ? number : null;
 }
 
-function normalize8245Turnus(value) {
+function normalizeLimitedTurnus(value) {
   // Turnusy jsou TEXT: např. "211.01" se nesmí převádět na číslo.
   return String(value ?? "").trim().toLocaleUpperCase("cs-CZ");
 }
 
-async function fetchAllowedTurnusy8245() {
+async function fetchAllowedTurnusyForVehicle(vehicleNumber) {
+  if (!LIMITED_ELECTROBUS_NUMBERS.includes(vehicleNumber)) {
+    throw new Error(`Neznámý omezený elektrobus: ${vehicleNumber}`);
+  }
+
   const { data, error } = await supabase
     .from("povolene_turnusy")
     .select("turnus")
-    .eq("vozidlo", "8245");
+    .eq("vozidlo", vehicleNumber);
 
-  if (error) throw new Error(`Načtení povolených turnusů 8245 selhalo: ${error.message}`);
+  if (error) throw new Error(`Načtení povolených turnusů ${vehicleNumber} selhalo: ${error.message}`);
   if (!data?.length) {
-    throw new Error("Pro elektrobus 8245 nejsou v Supabase nastavené žádné povolené turnusy.");
+    throw new Error(`Pro elektrobus ${vehicleNumber} nejsou v Supabase nastavené žádné povolené turnusy.`);
   }
 
-  return [...new Set(data.map((row) => normalize8245Turnus(row.turnus)).filter(Boolean))];
+  return [...new Set(data.map((row) => normalizeLimitedTurnus(row.turnus)).filter(Boolean))];
 }
 
 function Departures({
@@ -9444,8 +9451,8 @@ function Departures({
   const [courseDetailRows, setCourseDetailRows] = useState([]);
   const [courseDetailLoading, setCourseDetailLoading] = useState(false);
   const [courseDetailError, setCourseDetailError] = useState("");
-  const [allowedTurnusy8245, setAllowedTurnusy8245] = useState(null);
-  const [turnusy8245Error, setTurnusy8245Error] = useState("");
+  const [allowedTurnusyByVehicle, setAllowedTurnusyByVehicle] = useState({});
+  const [turnusyByVehicleErrors, setTurnusyByVehicleErrors] = useState({});
   const [cellForm, setCellForm] = useState({
     kurz_ids: [],
     poznamka: "",
@@ -9478,17 +9485,25 @@ function Departures({
   useEffect(() => {
     let mounted = true;
 
-    fetchAllowedTurnusy8245()
-      .then((allowed) => {
-        if (!mounted) return;
-        setAllowedTurnusy8245(allowed);
-        setTurnusy8245Error("");
-      })
-      .catch((loadError) => {
-        if (!mounted) return;
-        setAllowedTurnusy8245(null);
-        setTurnusy8245Error(loadError.message);
-      });
+    Promise.all(LIMITED_ELECTROBUS_NUMBERS.map(async (vehicleNumber) => {
+      try {
+        return {
+          vehicleNumber,
+          allowed: await fetchAllowedTurnusyForVehicle(vehicleNumber),
+          error: "",
+        };
+      } catch (loadError) {
+        return { vehicleNumber, allowed: null, error: loadError.message };
+      }
+    })).then((results) => {
+      if (!mounted) return;
+      setAllowedTurnusyByVehicle(Object.fromEntries(
+        results.map(({ vehicleNumber, allowed }) => [vehicleNumber, allowed])
+      ));
+      setTurnusyByVehicleErrors(Object.fromEntries(
+        results.map(({ vehicleNumber, error }) => [vehicleNumber, error])
+      ));
+    });
 
     return () => { mounted = false; };
   }, []);
@@ -9885,21 +9900,28 @@ function Departures({
     setSuccess("");
 
     // Výpravy se ukládají až po opětovné kontrole aktuálních pravidel.
-    if (isVehicle8245(editor.vehicle)) {
+    const limitedVehicleNumber = getLimitedElectrobusNumber(editor.vehicle);
+    if (limitedVehicleNumber) {
       try {
-        const allowed = await fetchAllowedTurnusy8245();
-        setAllowedTurnusy8245(allowed);
-        setTurnusy8245Error("");
+        const allowed = await fetchAllowedTurnusyForVehicle(limitedVehicleNumber);
+        setAllowedTurnusyByVehicle((old) => ({
+          ...old,
+          [limitedVehicleNumber]: allowed,
+        }));
+        setTurnusyByVehicleErrors((old) => ({
+          ...old,
+          [limitedVehicleNumber]: "",
+        }));
 
         const invalidCourses = selectedCourses.filter(
-          (course) => !allowed.includes(normalize8245Turnus(course.nazev))
+          (course) => !allowed.includes(normalizeLimitedTurnus(course.nazev))
         );
         if (invalidCourses.length > 0) {
           const invalidNames = invalidCourses.map((course) => course.nazev).join(", ");
           const confirmed = window.confirm(
-            `⚠️ ELEKTROBUS 8245 – NEPOVOLENÉ TURNUSE\n\n` +
+            `⚠️ ELEKTROBUS ${limitedVehicleNumber} – NEPOVOLENÉ TURNUSE\n\n` +
             `Nepovolené turnusy: ${invalidNames}\n\n` +
-            `Elektrobus 8245 nemá tyto turnusy v seznamu povolených.\n` +
+            `Elektrobus ${limitedVehicleNumber} nemá tyto turnusy v seznamu povolených.\n` +
             `Chceš přesto přiřazení uložit?`
           );
           if (!confirmed) {
@@ -9909,9 +9931,15 @@ function Departures({
         }
       } catch (checkError) {
         // Při chybě spojení neoznačujeme neověřený turnus za povolený.
-        setAllowedTurnusy8245(null);
-        setTurnusy8245Error(checkError.message);
-        setError(`Nepodařilo se ověřit omezení vozu 8245: ${checkError.message}`);
+        setAllowedTurnusyByVehicle((old) => ({
+          ...old,
+          [limitedVehicleNumber]: null,
+        }));
+        setTurnusyByVehicleErrors((old) => ({
+          ...old,
+          [limitedVehicleNumber]: checkError.message,
+        }));
+        setError(`Nepodařilo se ověřit omezení vozu ${limitedVehicleNumber}: ${checkError.message}`);
         setSaving(false);
         return;
       }
@@ -10176,12 +10204,19 @@ function Departures({
     editor?.courses || activeVariantCourses
   );
 
-  const selectedInvalidTurnusy8245 =
-    isVehicle8245(editor?.vehicle) && allowedTurnusy8245
+  const editorLimitedVehicleNumber = getLimitedElectrobusNumber(editor?.vehicle);
+  const editorAllowedTurnusy = editorLimitedVehicleNumber
+    ? allowedTurnusyByVehicle[editorLimitedVehicleNumber] ?? null
+    : null;
+  const editorTurnusyError = editorLimitedVehicleNumber
+    ? turnusyByVehicleErrors[editorLimitedVehicleNumber] || ""
+    : "";
+  const selectedInvalidTurnusy =
+    editorLimitedVehicleNumber && Array.isArray(editorAllowedTurnusy)
       ? cellForm.kurz_ids
           .map((id) => courses.find((course) => String(course.id) === String(id)))
           .filter(Boolean)
-          .filter((course) => !allowedTurnusy8245.includes(normalize8245Turnus(course.nazev)))
+          .filter((course) => !editorAllowedTurnusy.includes(normalizeLimitedTurnus(course.nazev)))
           .map((course) => course.nazev)
       : [];
 
@@ -10432,12 +10467,15 @@ function Departures({
                       row,
                       course: getCourse(row),
                     }));
-                    const hasInvalid8245Turnus =
-                      isVehicle8245(vehicle) &&
-                      Array.isArray(allowedTurnusy8245) &&
+                    const limitedVehicleNumber = getLimitedElectrobusNumber(vehicle);
+                    const allowedTurnusy = limitedVehicleNumber
+                      ? allowedTurnusyByVehicle[limitedVehicleNumber]
+                      : null;
+                    const hasInvalidLimitedTurnus =
+                      Array.isArray(allowedTurnusy) &&
                       assigned.some(({ row, course }) =>
-                        !allowedTurnusy8245.includes(
-                          normalize8245Turnus(course?.nazev || row.linka)
+                        !allowedTurnusy.includes(
+                          normalizeLimitedTurnus(course?.nazev || row.linka)
                         )
                       );
 
@@ -10455,7 +10493,7 @@ function Departures({
                         ]
                           .filter(Boolean)
                           .join(" ")}
-                        style={hasInvalid8245Turnus ? {
+                        style={hasInvalidLimitedTurnus ? {
                           backgroundColor: "#fff1f2",
                           boxShadow: "inset 0 0 0 2px #dc2626",
                         } : undefined}
@@ -10477,8 +10515,11 @@ function Departures({
                       >
                         {entries.length > 0 ? (
                           <div className="departure-cell-course-list">
-                            {hasInvalid8245Turnus && (
-                              <span title="Elektrobus 8245 má nepovolený turnus" aria-label="Nepovolený turnus pro 8245">⚠️</span>
+                            {hasInvalidLimitedTurnus && (
+                              <span
+                                title={`Elektrobus ${limitedVehicleNumber} má nepovolený turnus`}
+                                aria-label={`Nepovolený turnus pro ${limitedVehicleNumber}`}
+                              >⚠️</span>
                             )}
                             {assigned.map(({ row, course }) =>
                               course ? (
@@ -10672,24 +10713,26 @@ function Departures({
                 </strong>
               </div>
 
-              {isVehicle8245(editor.vehicle) && (
+              {editorLimitedVehicleNumber && (
                 <div
-                  role={turnusy8245Error || selectedInvalidTurnusy8245.length ? "alert" : "status"}
+                  role={editorTurnusyError || selectedInvalidTurnusy.length ? "alert" : "status"}
                   aria-live="polite"
-                  className={`vehicle-8245-status ${
-                    turnusy8245Error || selectedInvalidTurnusy8245.length
+                  className={`electrobus-turnus-status ${
+                    editorTurnusyError || selectedInvalidTurnusy.length
                       ? "is-warning"
-                      : "is-allowed"
+                      : editorAllowedTurnusy === null
+                        ? "is-loading"
+                        : "is-allowed"
                   }`}
                 >
-                  <strong>🚌 Omezení turnusů – elektrobus 8245</strong>
+                  <strong>🚌 Omezení turnusů – elektrobus {editorLimitedVehicleNumber}</strong>
                   <div style={{ marginTop: "6px" }}>
-                    {turnusy8245Error
-                      ? `⚠️ Nelze načíst pravidla: ${turnusy8245Error}. Uložení nebude možné do obnovení kontroly.`
-                      : allowedTurnusy8245 === null
+                    {editorTurnusyError
+                      ? `⚠️ Nelze načíst pravidla: ${editorTurnusyError}. Uložení nebude možné do obnovení kontroly.`
+                      : editorAllowedTurnusy === null
                         ? "Ověřuji povolené turnusy v Supabase…"
-                        : selectedInvalidTurnusy8245.length > 0
-                          ? `⚠️ Nepovolené turnusy: ${selectedInvalidTurnusy8245.join(", ")}. Při ukládání bude vyžadováno potvrzení.`
+                        : selectedInvalidTurnusy.length > 0
+                          ? `⚠️ Nepovolené turnusy: ${selectedInvalidTurnusy.join(", ")}. Při ukládání bude vyžadováno potvrzení.`
                           : cellForm.kurz_ids.length === 0
                             ? "Vyber turnus. Nepovolené turnusy jsou označené červeně."
                             : "✓ Vybrané turnusy jsou povolené. Nepovolené budou označené červeně."}
@@ -10729,10 +10772,10 @@ function Departures({
                             const selected = cellForm.kurz_ids.includes(
                               String(course.id)
                             );
-                            const invalid8245Turnus =
-                              isVehicle8245(editor.vehicle) &&
-                              Array.isArray(allowedTurnusy8245) &&
-                              !allowedTurnusy8245.includes(normalize8245Turnus(course.nazev));
+                            const invalidLimitedTurnus =
+                              editorLimitedVehicleNumber &&
+                              Array.isArray(editorAllowedTurnusy) &&
+                              !editorAllowedTurnusy.includes(normalizeLimitedTurnus(course.nazev));
 
                             return (
                               <div
@@ -10740,7 +10783,7 @@ function Departures({
                                 className={[
                                   "departure-course-card",
                                   selected ? "active" : "",
-                                  invalid8245Turnus ? "invalid-8245" : "",
+                                  invalidLimitedTurnus ? "invalid-electrobus-turnus" : "",
                                 ]
                                   .filter(Boolean)
                                   .join(" ")}
@@ -10776,9 +10819,12 @@ function Departures({
                                 >
                                   <span className="departure-course-detail-copy">
                                     <strong>{course.nazev}</strong>
-                                    {invalid8245Turnus && (
-                                      <span className="departure-course-warning-badge">
-                                        ⚠ Nepovoleno pro 8245
+                                    {invalidLimitedTurnus && (
+                                      <span
+                                        className="departure-course-warning-badge"
+                                        title={`Nepovoleno pro elektrobus ${editorLimitedVehicleNumber}`}
+                                      >
+                                        ⚠ Nepovoleno
                                       </span>
                                     )}
                                   </span>
@@ -23775,7 +23821,7 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   background: #eff6ff;
 }
 
-.departure-course-card.invalid-8245 {
+.departure-course-card.invalid-electrobus-turnus {
   border-color: #ef4444;
   background: #fff1f2;
 }
@@ -24026,7 +24072,7 @@ body.cm-dark *::-webkit-scrollbar-thumb {
   border-color: #3b82f6;
 }
 
-.app.dark-mode .departure-course-card.invalid-8245 {
+.app.dark-mode .departure-course-card.invalid-electrobus-turnus {
   background: #32161c;
   border-color: #f87171;
 }
@@ -28591,7 +28637,7 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
 
 
 
-/* VÝPRAVY 8245 – čitelné názvy a stavy v tmavém i světlém režimu */
+/* VÝPRAVY ELEKTROBUSŮ – čitelné názvy a stavy v tmavém i světlém režimu */
 .departure-modal .departure-course-picker {
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   gap: 10px;
@@ -28634,11 +28680,11 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
   color: #f1f5f9 !important;
 }
 
-.departure-modal .departure-course-card.invalid-8245 {
+.departure-modal .departure-course-card.invalid-electrobus-turnus {
   border: 1px solid #ef4444;
 }
 
-.vehicle-8245-status {
+.electrobus-turnus-status {
   padding: 12px 14px;
   border: 1px solid #86efac;
   border-radius: 9px;
@@ -28649,32 +28695,44 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
   line-height: 1.5;
 }
 
-.vehicle-8245-status strong {
+.electrobus-turnus-status strong {
   display: block;
   color: inherit !important;
   font-size: 12px;
   font-weight: 900;
 }
 
-.vehicle-8245-status.is-warning {
+.electrobus-turnus-status.is-warning {
   border-color: #ef4444;
   background: #fff1f2;
   color: #991b1b;
 }
 
-.app.dark-mode .vehicle-8245-status {
+.electrobus-turnus-status.is-loading {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.app.dark-mode .electrobus-turnus-status {
   border-color: #15803d;
   background: #102e23;
   color: #bbf7d0;
 }
 
-.app.dark-mode .vehicle-8245-status.is-warning {
+.app.dark-mode .electrobus-turnus-status.is-warning {
   border-color: #f87171;
   background: #381b22;
   color: #fecaca;
 }
 
-.app.dark-mode .vehicle-8245-status strong {
+.app.dark-mode .electrobus-turnus-status.is-loading {
+  border-color: #475569;
+  background: #172233;
+  color: #cbd5e1;
+}
+
+.app.dark-mode .electrobus-turnus-status strong {
   color: inherit !important;
 }
 
