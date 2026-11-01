@@ -3693,7 +3693,9 @@ function News({ user, profile, role, category = "novinky" }) {
         .insert({
           ...payload,
           autor_id: user.id,
-        });
+        })
+        .select("id")
+        .single();
     }
 
     if (result.error) {
@@ -3710,11 +3712,37 @@ function News({ user, profile, role, category = "novinky" }) {
       await supabase.storage.from("news-images").remove([editing.obrazek_path]);
     }
 
-    setSuccess(
-      editing
-        ? "Příspěvek byl upraven."
-        : "Příspěvek byl zveřejněn."
-    );
+    // Discord se odesílá jen při prvním zveřejnění aktualizace vozu.
+    // Webhook nikdy není v prohlížeči – je uložen v tajných údajích Edge Function.
+    let discordErrorMessage = "";
+    let discordSent = false;
+    if (vehicleUpdates && !editing) {
+      try {
+        if (result.data?.id == null) {
+          throw new Error("Nová aktualizace nemá identifikátor.");
+        }
+        const { data: discordResult, error: discordError } =
+          await supabase.functions.invoke("poslat-aktualizaci-discord", {
+            body: { novinka_id: result.data.id },
+          });
+        if (discordError) {
+          let detail = "";
+          try {
+            detail = (await discordError.context?.clone?.().json())?.error || "";
+          } catch (_) {
+            // Pokud server nevrátí JSON, zobrazí se základní chybová zpráva.
+          }
+          throw new Error(detail || discordError.message);
+        }
+        if (!discordResult?.ok) {
+          throw new Error(discordResult?.error || "Nepotvrzené odeslání zprávy.");
+        }
+        discordSent = true;
+      } catch (discordError) {
+        console.error("DISCORD AKTUALIZACE ERROR:", discordError);
+        discordErrorMessage = discordError.message || "Neznámá chyba připojení.";
+      }
+    }
 
     setForm(emptyForm);
     setEditing(null);
@@ -3722,6 +3750,17 @@ function News({ user, profile, role, category = "novinky" }) {
     setShowForm(false);
 
     await loadNews();
+    if (discordErrorMessage) {
+      setSuccess("Aktualizace byla úspěšně zveřejněna na webu.");
+      setError(`⚠️ Odeslání na Discord se nepodařilo: ${discordErrorMessage}. ` +
+        "Nevytvářej stejnou aktualizaci znovu; zkontroluj Edge Function v Supabase.");
+    } else {
+      setSuccess(editing
+        ? "Příspěvek byl upraven."
+        : discordSent
+          ? "Aktualizace byla zveřejněna na webu a odeslána na Discord."
+          : "Příspěvek byl zveřejněn.");
+    }
     setSaving(false);
   }
 
@@ -4011,7 +4050,8 @@ function News({ user, profile, role, category = "novinky" }) {
                   <option value="ridic">@Řidič</option>
                   <option value="everyone">@everyone (všichni)</option>
                 </select>
-                <small>Ping se odešle jen při prvním zveřejnění, ne při úpravě.</small>
+                <small>U aktualizací vozů se při zveřejnění odešle zpráva na Discord.
+                  Označení se nepoužije znovu při úpravě. Pro @Řidič je nutné nastavit ID Discord role v Supabase.</small>
               </div>
             )}
 
