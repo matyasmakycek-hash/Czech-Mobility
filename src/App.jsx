@@ -3340,6 +3340,44 @@ function AdminReports({ role }) {
    NOVINKY
 ========================================================= */
 
+// Discord – bezpečně voláme jen serverovou Edge Function, ne webhook přímo.
+async function discordInvoke(payload) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (sessionError || !accessToken) {
+    throw new Error("Přihlášení vypršelo. Odhlas se a znovu se přihlas.");
+  }
+  let result;
+  try {
+    result = await supabase.functions.invoke("poslat-aktualizaci-discord", {
+      body: payload,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch (error) {
+    throw new Error(`Spojení se Supabase selhalo: ${error.message}`);
+  }
+  if (result.error) {
+    let detail = "";
+    const context = result.error.context;
+    const status = typeof context?.status === "number" ? context.status : null;
+    try {
+      const reply = typeof context?.clone === "function" ? await context.clone().json() : null;
+      detail = reply?.error || reply?.message || "";
+    } catch (_) { /* Někdy gateway nevrací JSON nebo CORS zablokuje odpověď. */ }
+    if (status === 404) throw new Error("HTTP 404: Funkce není nasazená ve správném Supabase projektu.");
+    if (status === 401) throw new Error("HTTP 401: Ověř přihlášení a vypni gateway Verify JWT u této funkce (ověření uživatele probíhá uvnitř kódu).");
+    if (status === 403) throw new Error(detail || "HTTP 403: Chybí role administrátor/dispečer nebo nejsi autor aktualizace.");
+    if (status === 503) throw new Error(detail || "HTTP 503: Chybí nastavení webhooku nebo SQL tabulek.");
+    if (detail) throw new Error(`${status ? `HTTP ${status}: ` : ""}${detail}`);
+    throw new Error(
+      "Prohlížeč nedokázal zavolat Edge Function (nenasazená funkce, jiný projekt nebo CORS/JWT). " +
+      "Ověř funkci tlačítkem „🔎 Kontrola Discordu“ a její nasazení v Supabase."
+    );
+  }
+  if (!result.data?.ok) throw new Error(result.data?.error || "Server nepotvrdil odeslání.");
+  return result.data;
+}
+
 function News({ user, profile, role, category = "novinky" }) {
   const [news, setNews] = useState([]);
   const [signedImages, setSignedImages] = useState({});
@@ -3361,6 +3399,7 @@ function News({ user, profile, role, category = "novinky" }) {
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState("");
   const [discordRetryingId, setDiscordRetryingId] = useState(null);
+  const [discordChecking, setDiscordChecking] = useState(false);
   const [discordStatusById, setDiscordStatusById] = useState({});
 
   const canManage = canManageNews(role);
@@ -3624,6 +3663,42 @@ function News({ user, profile, role, category = "novinky" }) {
     }));
   }
 
+  // Dvě nezávislé kontroly: GET ověřuje dostupnost funkce; POST auth+DB+secrets.
+  // Ani jedna neodesílá zprávu a nevytváří aktualizaci.
+  async function checkDiscordConnection() {
+    if (!canManage || !vehicleUpdates || discordChecking) return;
+    setDiscordChecking(true);
+    setSuccess("");
+    setError("");
+    try {
+      const origin = String(supabase.supabaseUrl || "").replace(/\/$/, "");
+      if (!origin.startsWith("https://")) throw new Error("Aplikace nemá platnou Supabase URL.");
+      const healthUrl = `${origin}/functions/v1/poslat-aktualizaci-discord`;
+      let health;
+      try {
+        health = await fetch(healthUrl, { method: "GET", cache: "no-store" });
+      } catch (_) {
+        throw new Error("Kontrolní GET selhal: funkce pravděpodobně není nasazená, nebo gateway blokuje CORS/JWT. " +
+          "V Supabase zkontroluj název funkce a vypni Verify JWT (ověření v POST zůstává zapnuté).");
+      }
+      if (health.status === 404) throw new Error("HTTP 404: Funkce není nasazená ve správném Supabase projektu.");
+      if (health.status === 401) throw new Error("HTTP 401: V nastavení Edge Function vypni Verify JWT.");
+      if (health.status === 405) throw new Error("Běží stará verze funkce. Nahraj index.ts z nového balíčku a znovu Deploy.");
+      if (!health.ok) throw new Error(`Kontrolní GET vrátil HTTP ${health.status}. Podívej se do Supabase Edge Functions → Logs.`);
+      const check = await health.json();
+      if (check.version !== "discord-v3-2026-11-01") {
+        throw new Error("Běží jiná nebo starší verze funkce. Nahraj nový index.ts a Deploy.");
+      }
+      const result = await discordInvoke({ kontrola: true });
+      setSuccess(`✅ Discord připojení připraveno (${result.version}). ${result.message}`);
+    } catch (connectionError) {
+      console.error("DISCORD CONNECTION CHECK:", connectionError);
+      setError(`❌ Kontrola Discordu: ${connectionError.message}`);
+    } finally {
+      setDiscordChecking(false);
+    }
+  }
+
   // Znovu odešle EXISTUJÍCÍ aktualizaci, nevytváří novou.
   // Server kontroluje oprávnění a ukládá stav, takže úspěšná zpráva nejde poslat dvakrát.
   async function retryDiscordAnnouncement(item) {
@@ -3635,22 +3710,7 @@ function News({ user, profile, role, category = "novinky" }) {
     setSuccess("");
     setDiscordRetryingId(item.id);
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke(
-        "poslat-aktualizaci-discord",
-        { body: { novinka_id: item.id } }
-      );
-      if (invokeError) {
-        let detail = "";
-        try {
-          detail = (await invokeError.context?.clone?.().json())?.error || "";
-        } catch (_) {
-          // Při nedostupnosti funkce nemusí existovat žádná odpověď.
-        }
-        throw new Error(detail || invokeError.message || "Funkce není dostupná.");
-      }
-      if (!data?.ok) {
-        throw new Error(data?.error || "Odeslání nebylo potvrzeno.");
-      }
+      const data = await discordInvoke({ novinka_id: item.id });
       setDiscordStatusById((old) => ({ ...old, [item.id]: "ok" }));
       setSuccess(data.already_sent
         ? "Tato aktualizace už byla na Discord odeslána. Nevznikla duplicitní zpráva."
@@ -3765,22 +3825,7 @@ function News({ user, profile, role, category = "novinky" }) {
         if (result.data?.id == null) {
           throw new Error("Nová aktualizace nemá identifikátor.");
         }
-        const { data: discordResult, error: discordError } =
-          await supabase.functions.invoke("poslat-aktualizaci-discord", {
-            body: { novinka_id: result.data.id },
-          });
-        if (discordError) {
-          let detail = "";
-          try {
-            detail = (await discordError.context?.clone?.().json())?.error || "";
-          } catch (_) {
-            // Pokud server nevrátí JSON, zobrazí se základní chybová zpráva.
-          }
-          throw new Error(detail || discordError.message);
-        }
-        if (!discordResult?.ok) {
-          throw new Error(discordResult?.error || "Nepotvrzené odeslání zprávy.");
-        }
+        await discordInvoke({ novinka_id: result.data.id });
         discordSent = true;
       } catch (discordError) {
         console.error("DISCORD AKTUALIZACE ERROR:", discordError);
@@ -3938,12 +3983,22 @@ function News({ user, profile, role, category = "novinky" }) {
         </div>
 
         {canManage && (
-          <button
-            className="primary-button"
-            onClick={openCreate}
-          >
-            {vehicleUpdates ? "+ Nová aktualizace vozu" : "+ Nová novinka"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            {vehicleUpdates && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={checkDiscordConnection}
+                disabled={discordChecking}
+                title="Zkontroluje funkci, přihlášení, Supabase a konfiguraci bez odeslání zprávy."
+              >
+                {discordChecking ? "⏳ Kontroluji…" : "🔎 Kontrola Discordu"}
+              </button>
+            )}
+            <button className="primary-button" onClick={openCreate}>
+              {vehicleUpdates ? "+ Nová aktualizace vozu" : "+ Nová novinka"}
+            </button>
+          </div>
         )}
       </div>
 
