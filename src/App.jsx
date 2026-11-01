@@ -3355,6 +3355,11 @@ function News({ user, profile, role, category = "novinky" }) {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
+  const [updateVehicles, setUpdateVehicles] = useState([]);
+  const [updateDepots, setUpdateDepots] = useState([]);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState("");
 
   const canManage = canManageNews(role);
   const isDriver = hasRole(role, ROLE_RIDIC);
@@ -3367,9 +3372,92 @@ function News({ user, profile, role, category = "novinky" }) {
     obsah: "",
     dulezitost: "Běžná",
     ping: "nikdo",
+    dotcene_vozy: [],
   };
 
   const [form, setForm] = useState(emptyForm);
+
+  // Provozovna se neurčuje ručně: vždy se odvodí z evidence vozy.provozovna_id.
+  const vehicleByNumber = new Map(updateVehicles.map((vehicle) => [
+    String(vehicle.cislo).trim(), vehicle,
+  ]));
+  const depotById = new Map(updateDepots.map((depot) => [
+    String(depot.id), depot,
+  ]));
+  const getRegisteredVehicle = (number) => vehicleByNumber.get(String(number).trim());
+
+  const getVehicleDepot = (number) => {
+    const vehicle = getRegisteredVehicle(number);
+    if (!vehicle) return "Vůz není v evidenci";
+    const depot = depotById.get(String(vehicle.provozovna_id ?? ""));
+    return depot?.nazev || "Provozovna není uvedena v evidenci";
+  };
+
+  const getVehicleDepots = (numbers) => [...new Set(
+    (Array.isArray(numbers) ? numbers : [])
+      .map(getVehicleDepot)
+  )];
+
+  const toggleUpdateVehicle = (number) => {
+    setForm((previous) => ({
+      ...previous,
+      dotcene_vozy: previous.dotcene_vozy.includes(number)
+        ? previous.dotcene_vozy.filter((value) => value !== number)
+        : [...previous.dotcene_vozy, number].sort((a, b) =>
+          a.localeCompare(b, "cs", { numeric: true })
+        ),
+    }));
+  };
+
+  // Načítá se všem uživatelům sekce Aktualizace vozů, aby viděli i provozovny.
+  useEffect(() => {
+    if (!vehicleUpdates) return;
+    let cancelled = false;
+    const loadVehicleRegistry = async () => {
+      setRegistryLoading(true);
+      setRegistryError("");
+      try {
+        // Stránkování: standardní Supabase limit je často 1000 řádků.
+        const allVehicles = [];
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase
+            .from("vozy")
+            .select("id,cislo,vyrobce,typ,provozovna_id")
+            .order("id", { ascending: true })
+            .range(from, from + 999);
+          if (error) throw error;
+          const batch = data || [];
+          allVehicles.push(...batch);
+          if (batch.length < 1000) break;
+        }
+        const { data: depots, error: depotsError } = await supabase
+          .from("provozovny")
+          .select("id,nazev,kod")
+          .order("nazev", { ascending: true });
+        if (depotsError) throw depotsError;
+        if (!cancelled) {
+          setUpdateVehicles(allVehicles.filter((vehicle) => vehicle.cislo != null));
+          setUpdateDepots(depots || []);
+        }
+      } catch (loadError) {
+        if (!cancelled) setRegistryError(`Evidenci vozů a provozoven nelze načíst: ${loadError.message}`);
+      } finally {
+        if (!cancelled) setRegistryLoading(false);
+      }
+    };
+    loadVehicleRegistry();
+    return () => { cancelled = true; };
+  }, [vehicleUpdates]);
+
+  const filteredUpdateVehicles = updateVehicles
+    .filter((vehicle) => {
+      const query = vehicleSearch.trim().toLocaleLowerCase("cs-CZ");
+      if (!query) return true;
+      const fields = [vehicle.cislo, vehicle.vyrobce, vehicle.typ,
+        getVehicleDepot(vehicle.cislo)].join(" ").toLocaleLowerCase("cs-CZ");
+      return fields.includes(query);
+    })
+    .sort((a, b) => String(a.cislo).localeCompare(String(b.cislo), "cs", { numeric: true }));
 
   useEffect(() => {
     return () => {
@@ -3391,6 +3479,7 @@ function News({ user, profile, role, category = "novinky" }) {
         typ,
         ping,
         obrazek_path,
+        dotcene_vozy,
         autor_id,
         created_at
       `)
@@ -3500,7 +3589,8 @@ function News({ user, profile, role, category = "novinky" }) {
 
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, dotcene_vozy: [] });
+    setVehicleSearch("");
     resetImageInput();
     setError("");
     setSuccess("");
@@ -3514,7 +3604,9 @@ function News({ user, profile, role, category = "novinky" }) {
       obsah: item.obsah || "",
       dulezitost: item.dulezitost || "Běžná",
       ping: item.ping || "nikdo",
+      dotcene_vozy: Array.isArray(item.dotcene_vozy) ? [...item.dotcene_vozy] : [],
     });
+    setVehicleSearch("");
     resetImageInput();
     setError("");
     setSuccess("");
@@ -3541,6 +3633,22 @@ function News({ user, profile, role, category = "novinky" }) {
       return;
     }
 
+    if (vehicleUpdates) {
+      if (registryLoading || registryError) {
+        setError(registryError || "Počkej na načtení evidence vozů.");
+        return;
+      }
+      if (form.dotcene_vozy.length === 0) {
+        setError("Vyber alespoň jedno evidenční číslo vozu, kterého se aktualizace týká.");
+        return;
+      }
+      const unknown = form.dotcene_vozy.filter((number) => !getRegisteredVehicle(number));
+      if (unknown.length > 0) {
+        setError(`Tyto vozy už nejsou v evidenci: ${unknown.join(", ")}. Uprav výběr.`);
+        return;
+      }
+    }
+
     if (!editing && form.ping === "everyone" &&
         !window.confirm("Opravdu chceš na Discordu označit @everyone?")) {
       return;
@@ -3557,6 +3665,7 @@ function News({ user, profile, role, category = "novinky" }) {
       typ: category,
       ping: editing ? (editing.ping || "nikdo") : form.ping,
       obrazek_path: removeImage ? null : (editing?.obrazek_path || null),
+      ...(vehicleUpdates ? { dotcene_vozy: form.dotcene_vozy } : {}),
     };
 
     let uploadedPath = null;
@@ -3824,6 +3933,65 @@ function News({ user, profile, role, category = "novinky" }) {
               </select>
             </div>
 
+            {vehicleUpdates && (
+              <div className="form-group news-vehicle-field">
+                <label>Dotčené vozy (evidenční čísla)</label>
+                <small>
+                  Vyber jeden nebo více vozů. Provozovna se načítá automaticky z evidence vozu,
+                  podle jeho evidenčního čísla.
+                </small>
+                <input
+                  type="search"
+                  value={vehicleSearch}
+                  onChange={(event) => setVehicleSearch(event.target.value)}
+                  placeholder="Hledat evidenční číslo, typ vozu nebo provozovnu…"
+                  disabled={registryLoading || Boolean(registryError)}
+                  aria-label="Vyhledat vozidlo pro aktualizaci"
+                />
+                {registryLoading && <div className="news-vehicle-info">Načítám vozy a provozovny…</div>}
+                {registryError && <div className="error-box" role="alert">{registryError}</div>}
+                {!registryLoading && !registryError && (
+                  <>
+                    <div className="news-vehicle-options" role="group" aria-label="Výběr dotčených vozů">
+                      {filteredUpdateVehicles.slice(0, 100).map((vehicle) => {
+                        const number = String(vehicle.cislo).trim();
+                        const chosen = form.dotcene_vozy.includes(number);
+                        return (
+                          <label
+                            key={vehicle.id}
+                            className={`news-vehicle-option ${chosen ? "selected" : ""}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={chosen}
+                              onChange={() => toggleUpdateVehicle(number)}
+                            />
+                            <span className="news-vehicle-option-copy">
+                              <strong>{number} – {vehicle.vyrobce || "Vůz"} {vehicle.typ || ""}</strong>
+                              <small>Provozovna: {getVehicleDepot(number)}</small>
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {filteredUpdateVehicles.length === 0 && (
+                        <span className="news-vehicle-info">Žádný odpovídající vůz v evidenci.</span>
+                      )}
+                    </div>
+                    {filteredUpdateVehicles.length > 100 && (
+                      <small>Zobrazeno prvních 100 z {filteredUpdateVehicles.length} vozů. Pro další použij vyhledávání.</small>
+                    )}
+                  </>
+                )}
+                <div className="news-vehicle-selection" aria-live="polite">
+                  <strong>Vybrané vozy: {form.dotcene_vozy.length > 0
+                    ? form.dotcene_vozy.join(", ") : "zatím žádné"}</strong>
+                  {form.dotcene_vozy.length > 0 && (
+                    <div>Provozovna automaticky: {getVehicleDepots(form.dotcene_vozy).join(", ")}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="form-group">
               <label>{vehicleUpdates ? "Text aktualizace vozu" : "Text novinky"}</label>
               <textarea
@@ -3869,7 +4037,7 @@ function News({ user, profile, role, category = "novinky" }) {
               <button
                 type="submit"
                 className="primary-button"
-                disabled={saving}
+                disabled={saving || (vehicleUpdates && (registryLoading || Boolean(registryError)))}
               >
                 {saving
                   ? "Ukládání..."
@@ -3967,6 +4135,29 @@ function News({ user, profile, role, category = "novinky" }) {
                       : "ℹ Pro řidiče"}
                   </div>
                 </div>
+
+                {vehicleUpdates && Array.isArray(item.dotcene_vozy) && item.dotcene_vozy.length > 0 && (
+                  <div className="news-vehicle-targets">
+                    <div>
+                      <strong>Dotčené vozy</strong>
+                      <div className="news-vehicle-target-chips">
+                        {item.dotcene_vozy.map((number) => (
+                          <span className="news-vehicle-target-chip" key={number}>
+                            <b>{number}</b>
+                            <small>{registryLoading ? "Načítám…" : registryError
+                              ? "Provozovna nedostupná" : getVehicleDepot(number)}</small>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <strong>Provozovny z evidence</strong>
+                      <span>{registryLoading ? "Načítám…" : registryError
+                        ? "Nelze načíst provozovnu"
+                        : getVehicleDepots(item.dotcene_vozy).join(", ")}</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="news-content">
                   {item.obsah}
@@ -24294,21 +24485,28 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 }
 
 .departure-course-number-only {
-  min-height: 42px;
-  display: grid !important;
-  place-items: center;
+  min-height: 64px;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   padding: 8px 10px !important;
-  text-align: center !important;
+  text-align: left !important;
 }
 
 .departure-course-number-only strong {
-  font-size: 11px !important;
-  line-height: 1.1;
+  font-size: 13px !important;
+  line-height: 1.2;
   color: inherit;
-  white-space: nowrap;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
 }
 
-.departure-course-number-only .departure-course-detail-copy,
+.departure-course-number-only .departure-course-detail-copy {
+  display: flex !important;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .departure-course-number-only .departure-course-detail-link,
 .departure-course-number-only .departure-course-day,
 .departure-course-number-only small {
@@ -28234,6 +28432,70 @@ body.cm-dark *::-webkit-scrollbar-thumb {
 .role-checkboxes label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
 .role-checkboxes input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
 .app.dark-mode .role-checkboxes { border-color: #34445d; }
+
+
+/* Aktualizace vozů – výběr EČV a provozovny převzaté z evidence. */
+.news-vehicle-field { min-width: 0; }
+.news-vehicle-options {
+  max-height: 280px; overflow: auto;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+  gap: 9px; padding: 10px; border-radius: 12px;
+  border: 1px solid #cbd5e1; background: #f8fafc;
+}
+.news-vehicle-option {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 12px; border: 1px solid #d7e2ee;
+  border-radius: 10px; background: #fff; cursor: pointer;
+  min-width: 0; line-height: 1.4;
+}
+.news-vehicle-option.selected { border-color: #2563eb; background: #eff6ff; }
+.news-vehicle-option input[type="checkbox"] {
+  width: 18px; height: 18px; flex: 0 0 18px; margin: 2px 0 0;
+  accent-color: #2563eb;
+}
+.news-vehicle-option-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.news-vehicle-option-copy strong { color: #172033; font-size: 13px; overflow-wrap: anywhere; }
+.news-vehicle-option-copy small { color: #51627b; font-size: 12px; overflow-wrap: anywhere; }
+.news-vehicle-selection {
+  border: 1px solid #a5c5ff; background: #eff6ff;
+  border-radius: 10px; padding: 11px 13px; color: #173e7a;
+  font-size: 13px; overflow-wrap: anywhere;
+}
+.news-vehicle-selection > div { margin-top: 5px; }
+.news-vehicle-info { font-size: 13px; color: #64748b; }
+.news-vehicle-targets {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 12px 14px; margin: 12px 0;
+  border-radius: 11px; border: 1px solid #dbe7f8;
+  background: #f0f6ff; font-size: 13px; color: #1d3556;
+}
+.news-vehicle-targets > div { display: flex; flex-wrap: wrap; gap: 5px 9px; }
+.news-vehicle-targets strong { color: #174ea6; }
+.news-vehicle-targets span { overflow-wrap: anywhere; }
+.news-vehicle-target-chips { display: flex; flex-wrap: wrap; gap: 7px; width: 100%; }
+.news-vehicle-target-chip {
+  display: inline-flex; flex-direction: column; gap: 2px;
+  border: 1px solid #bcd6f9; background: #fff;
+  border-radius: 8px; padding: 7px 10px;
+}
+.news-vehicle-target-chip b { font-size: 13px; color: #1d4ed8; }
+.news-vehicle-target-chip small { font-size: 11px; color: #52637d; }
+.app.dark-mode .news-vehicle-options { background: #0d1523; border-color: #33455f; }
+.app.dark-mode .news-vehicle-option { background: #152133; border-color: #3a4b62; }
+.app.dark-mode .news-vehicle-option.selected { background: #1b365d; border-color: #60a5fa; }
+.app.dark-mode .news-vehicle-option-copy strong { color: #f1f5f9; }
+.app.dark-mode .news-vehicle-option-copy small { color: #bac8dc; }
+.app.dark-mode .news-vehicle-selection { background: #19365c; border-color: #4173bc; color: #e3efff; }
+.app.dark-mode .news-vehicle-info { color: #b6c4da; }
+.app.dark-mode .news-vehicle-targets { background: #17283f; border-color: #304c73; color: #e1ecfc; }
+.app.dark-mode .news-vehicle-targets strong { color: #93c5fd; }
+.app.dark-mode .news-vehicle-target-chip { background: #1c314c; border-color: #41628c; }
+.app.dark-mode .news-vehicle-target-chip b { color: #bfdbfe; }
+.app.dark-mode .news-vehicle-target-chip small { color: #d2deed; }
+@media (max-width: 700px) {
+  .news-vehicle-options { grid-template-columns: minmax(0, 1fr); max-height: 260px; }
+  .news-vehicle-targets { padding: 11px; }
+}
 
 /* Novinky a aktualizace vozů – formuláře, fotky, tmavý režim */
 .news-form .form-group { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
