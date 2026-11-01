@@ -3360,6 +3360,8 @@ function News({ user, profile, role, category = "novinky" }) {
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState("");
+  const [discordRetryingId, setDiscordRetryingId] = useState(null);
+  const [discordStatusById, setDiscordStatusById] = useState({});
 
   const canManage = canManageNews(role);
   const isDriver = hasRole(role, ROLE_RIDIC);
@@ -3622,6 +3624,48 @@ function News({ user, profile, role, category = "novinky" }) {
     }));
   }
 
+  // Znovu odešle EXISTUJÍCÍ aktualizaci, nevytváří novou.
+  // Server kontroluje oprávnění a ukládá stav, takže úspěšná zpráva nejde poslat dvakrát.
+  async function retryDiscordAnnouncement(item) {
+    if (!vehicleUpdates || !canManage || item.autor_id !== user?.id || discordRetryingId !== null) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setDiscordRetryingId(item.id);
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke(
+        "poslat-aktualizaci-discord",
+        { body: { novinka_id: item.id } }
+      );
+      if (invokeError) {
+        let detail = "";
+        try {
+          detail = (await invokeError.context?.clone?.().json())?.error || "";
+        } catch (_) {
+          // Při nedostupnosti funkce nemusí existovat žádná odpověď.
+        }
+        throw new Error(detail || invokeError.message || "Funkce není dostupná.");
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error || "Odeslání nebylo potvrzeno.");
+      }
+      setDiscordStatusById((old) => ({ ...old, [item.id]: "ok" }));
+      setSuccess(data.already_sent
+        ? "Tato aktualizace už byla na Discord odeslána. Nevznikla duplicitní zpráva."
+        : `Aktualizace „${item.nadpis}“ byla úspěšně odeslána na Discord.`);
+    } catch (sendError) {
+      console.error("DISCORD RETRY ERROR:", sendError);
+      setError(
+        `Discord: ${sendError.message}. Ověř nasazení funkce poslat-aktualizaci-discord ` +
+        "v Supabase → Edge Functions → Invocations / Logs. Aktualizace je dál uložena na webu."
+      );
+    } finally {
+      setDiscordRetryingId(null);
+    }
+  }
+
   async function saveNews(e) {
     e.preventDefault();
 
@@ -3753,7 +3797,7 @@ function News({ user, profile, role, category = "novinky" }) {
     if (discordErrorMessage) {
       setSuccess("Aktualizace byla úspěšně zveřejněna na webu.");
       setError(`⚠️ Odeslání na Discord se nepodařilo: ${discordErrorMessage}. ` +
-        "Nevytvářej stejnou aktualizaci znovu; zkontroluj Edge Function v Supabase.");
+        "Aktualizace je uložená. Po opravě Edge Function použij na její kartě tlačítko „Ověřit / odeslat Discord“ – nevytvářej ji znovu.");
     } else {
       setSuccess(editing
         ? "Příspěvek byl upraven."
@@ -4242,6 +4286,22 @@ function News({ user, profile, role, category = "novinky" }) {
                           ? "Skrýt potvrzení"
                           : `Potvrzení ${confirmationCount}/${driverCount}`}
                       </button>
+
+                      {vehicleUpdates && item.autor_id === user?.id && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => retryDiscordAnnouncement(item)}
+                          disabled={discordRetryingId !== null || discordStatusById[item.id] === "ok"}
+                          title="Ověří stav odeslání a případně odešle stejnou aktualizaci. Nevytváří novou."
+                        >
+                          {discordRetryingId === item.id
+                            ? "⏳ Ověřuji Discord…"
+                            : discordStatusById[item.id] === "ok"
+                              ? "✓ Discord ověřen"
+                              : "📨 Ověřit / odeslat Discord"}
+                        </button>
+                      )}
 
                       <button
                         className="secondary-button"
