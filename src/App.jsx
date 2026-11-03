@@ -3664,9 +3664,9 @@ function News({ user, profile, role, category = "novinky" }) {
   }
 
   // Dvě nezávislé kontroly: GET ověřuje dostupnost funkce; POST auth+DB+secrets.
-  // Ani jedna neodesílá zprávu a nevytváří aktualizaci.
+  // Ani jedna neodesílá zprávu ani nevytváří příspěvek.
   async function checkDiscordConnection() {
-    if (!canManage || !vehicleUpdates || discordChecking) return;
+    if (!canManage || discordChecking) return;
     setDiscordChecking(true);
     setSuccess("");
     setError("");
@@ -3686,10 +3686,10 @@ function News({ user, profile, role, category = "novinky" }) {
       if (health.status === 405) throw new Error("Běží stará verze funkce. Nahraj index.ts z nového balíčku a znovu Deploy.");
       if (!health.ok) throw new Error(`Kontrolní GET vrátil HTTP ${health.status}. Podívej se do Supabase Edge Functions → Logs.`);
       const check = await health.json();
-      if (check.version !== "discord-v3-2026-11-01") {
+      if (check.version !== "discord-v4-2026-11-03") {
         throw new Error("Běží jiná nebo starší verze funkce. Nahraj nový index.ts a Deploy.");
       }
-      const result = await discordInvoke({ kontrola: true });
+      const result = await discordInvoke({ kontrola: true, kanal: vehicleUpdates ? "vozy" : "aktuality" });
       setSuccess(`✅ Discord připojení připraveno (${result.version}). ${result.message}`);
     } catch (connectionError) {
       console.error("DISCORD CONNECTION CHECK:", connectionError);
@@ -3702,7 +3702,7 @@ function News({ user, profile, role, category = "novinky" }) {
   // Znovu odešle EXISTUJÍCÍ aktualizaci, nevytváří novou.
   // Server kontroluje oprávnění a ukládá stav, takže úspěšná zpráva nejde poslat dvakrát.
   async function retryDiscordAnnouncement(item) {
-    if (!vehicleUpdates || !canManage || item.autor_id !== user?.id || discordRetryingId !== null) {
+    if (!canManage || item.autor_id !== user?.id || discordRetryingId !== null) {
       return;
     }
 
@@ -3713,13 +3713,13 @@ function News({ user, profile, role, category = "novinky" }) {
       const data = await discordInvoke({ novinka_id: item.id });
       setDiscordStatusById((old) => ({ ...old, [item.id]: "ok" }));
       setSuccess(data.already_sent
-        ? "Tato aktualizace už byla na Discord odeslána. Nevznikla duplicitní zpráva."
-        : `Aktualizace „${item.nadpis}“ byla úspěšně odeslána na Discord.`);
+        ? "Tento příspěvek už byl na Discord odeslán. Nevznikla duplicitní zpráva."
+        : `${vehicleUpdates ? "Aktualizace" : "Novinka"} „${item.nadpis}“ byla úspěšně odeslána na Discord.`);
     } catch (sendError) {
       console.error("DISCORD RETRY ERROR:", sendError);
       setError(
         `Discord: ${sendError.message}. Ověř nasazení funkce poslat-aktualizaci-discord ` +
-        "v Supabase → Edge Functions → Invocations / Logs. Aktualizace je dál uložena na webu."
+        "v Supabase → Edge Functions → Invocations / Logs. Příspěvek je dál uložený na webu."
       );
     } finally {
       setDiscordRetryingId(null);
@@ -3816,19 +3816,19 @@ function News({ user, profile, role, category = "novinky" }) {
       await supabase.storage.from("news-images").remove([editing.obrazek_path]);
     }
 
-    // Discord se odesílá jen při prvním zveřejnění aktualizace vozu.
+    // Discord se odesílá při prvním zveřejnění obou kategorií: Novinky i Aktualizace vozů.
     // Webhook nikdy není v prohlížeči – je uložen v tajných údajích Edge Function.
     let discordErrorMessage = "";
     let discordSent = false;
-    if (vehicleUpdates && !editing) {
+    if (!editing) {
       try {
         if (result.data?.id == null) {
-          throw new Error("Nová aktualizace nemá identifikátor.");
+          throw new Error("Nový příspěvek nemá identifikátor.");
         }
         await discordInvoke({ novinka_id: result.data.id });
         discordSent = true;
       } catch (discordError) {
-        console.error("DISCORD AKTUALIZACE ERROR:", discordError);
+        console.error("DISCORD ODESLANI ERROR:", discordError);
         discordErrorMessage = discordError.message || "Neznámá chyba připojení.";
       }
     }
@@ -3840,14 +3840,14 @@ function News({ user, profile, role, category = "novinky" }) {
 
     await loadNews();
     if (discordErrorMessage) {
-      setSuccess("Aktualizace byla úspěšně zveřejněna na webu.");
+      setSuccess(`${vehicleUpdates ? "Aktualizace" : "Novinka"} byla úspěšně zveřejněna na webu.`);
       setError(`⚠️ Odeslání na Discord se nepodařilo: ${discordErrorMessage}. ` +
-        "Aktualizace je uložená. Po opravě Edge Function použij na její kartě tlačítko „Ověřit / odeslat Discord“ – nevytvářej ji znovu.");
+        "Příspěvek je uložený. Po opravě Edge Function použij na jeho kartě tlačítko „Ověřit / odeslat Discord“ – nevytvářej ho znovu.");
     } else {
       setSuccess(editing
         ? "Příspěvek byl upraven."
         : discordSent
-          ? "Aktualizace byla zveřejněna na webu a odeslána na Discord."
+          ? `${vehicleUpdates ? "Aktualizace" : "Novinka"} byla zveřejněna na webu a odeslána na Discord.`
           : "Příspěvek byl zveřejněn.");
     }
     setSaving(false);
@@ -3984,17 +3984,15 @@ function News({ user, profile, role, category = "novinky" }) {
 
         {canManage && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            {vehicleUpdates && (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={checkDiscordConnection}
-                disabled={discordChecking}
-                title="Zkontroluje funkci, přihlášení, Supabase a konfiguraci bez odeslání zprávy."
-              >
-                {discordChecking ? "⏳ Kontroluji…" : "🔎 Kontrola Discordu"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={checkDiscordConnection}
+              disabled={discordChecking}
+              title="Zkontroluje funkci, přihlášení, Supabase a konfiguraci bez odeslání zprávy."
+            >
+              {discordChecking ? "⏳ Kontroluji…" : "🔎 Kontrola Discordu"}
+            </button>
             <button className="primary-button" onClick={openCreate}>
               {vehicleUpdates ? "+ Nová aktualizace vozu" : "+ Nová novinka"}
             </button>
@@ -4149,8 +4147,10 @@ function News({ user, profile, role, category = "novinky" }) {
                   <option value="ridic">@Řidič</option>
                   <option value="everyone">@everyone (všichni)</option>
                 </select>
-                <small>U aktualizací vozů se při zveřejnění odešle zpráva na Discord.
-                  Označení se nepoužije znovu při úpravě. Pro @Řidič je nutné nastavit ID Discord role v Supabase.</small>
+                <small>{vehicleUpdates
+                  ? "Aktualizace vozů se při prvním zveřejnění odešle na Discord."
+                  : "Novinka se při prvním zveřejnění odešle do Discord kanálu #aktuality."}
+                  {" "}Označení se nepoužije znovu při úpravě. Pro @Řidič je nutné nastavit ID Discord role v Supabase.</small>
               </div>
             )}
 
@@ -4342,13 +4342,13 @@ function News({ user, profile, role, category = "novinky" }) {
                           : `Potvrzení ${confirmationCount}/${driverCount}`}
                       </button>
 
-                      {vehicleUpdates && item.autor_id === user?.id && (
+                      {item.autor_id === user?.id && (
                         <button
                           type="button"
                           className="secondary-button"
                           onClick={() => retryDiscordAnnouncement(item)}
                           disabled={discordRetryingId !== null || discordStatusById[item.id] === "ok"}
-                          title="Ověří stav odeslání a případně odešle stejnou aktualizaci. Nevytváří novou."
+                          title="Ověří stav odeslání a případně odešle tento příspěvek. Nevytváří nový."
                         >
                           {discordRetryingId === item.id
                             ? "⏳ Ověřuji Discord…"
