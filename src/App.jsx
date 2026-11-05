@@ -115,7 +115,15 @@ function getRoleName(role) {
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    // OAuth chyby se po návratu z Discordu mohou objevit v adrese stránky.
+    if (typeof window === "undefined") return "";
+    const query = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const oauthError = hash.get("error_description") || query.get("error_description")
+      || hash.get("error") || query.get("error");
+    return oauthError ? `Discord přihlášení se nezdařilo: ${oauthError}` : "";
+  });
   const [loading, setLoading] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
 
@@ -16469,25 +16477,29 @@ function App() {
   useEffect(() => {
     checkSession();
 
+    let active = true;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Supabase dotazy uvnitř async onAuthStateChange mohou zablokovat klienta.
+      // Odložíme je až za dokončení Auth callbacku.
+      window.setTimeout(() => {
+        if (!active) return;
         const loggedUser = session?.user || null;
-
         setUser(loggedUser);
 
         if (loggedUser) {
-          await loadProfile(loggedUser);
-          await loadDashboardStats();
+          void loadProfile(loggedUser);
+          void loadDashboardStats();
         } else {
           setProfile(null);
           setPage("dashboard");
         }
-      }
-    );
+      }, 0);
+    });
 
     return () => {
+      active = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -29252,6 +29264,65 @@ body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Se
     grid-template-columns: 1fr !important;
   }
 }
+
+/* =========================================================
+   OPRAVA KONTRASTU PŘIHLÁŠENÍ A REGISTRACE
+   Bílá karta a světlá vstupní pole zůstanou čitelná
+   i při zapnutém tmavém vzhledu portálu.
+========================================================= */
+.login-page .login-box,
+body.cm-dark .login-page .login-box {
+  background: #ffffff;
+  color: #172033;
+  color-scheme: light;
+}
+
+.login-page .login-box h1,
+body.cm-dark .login-page .login-box h1 {
+  color: #172033;
+}
+
+.login-page .login-box label,
+body.cm-dark .login-page .login-box label {
+  color: #253449;
+}
+
+.login-page .login-box p,
+body.cm-dark .login-page .login-box p {
+  color: #64748b;
+}
+
+.login-page .login-box input,
+body.cm-dark .login-page .login-box input {
+  background: #ffffff;
+  color: #172033;
+  border-color: #cbd5e1;
+  color-scheme: light;
+}
+
+.login-page .login-box input::placeholder,
+body.cm-dark .login-page .login-box input::placeholder {
+  color: #94a3b8;
+}
+
+.login-page .login-box input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.login-page .login-box .login-divider {
+  color: #64748b;
+}
+
+.login-page .login-box .discord-login-button {
+  background: #5865f2;
+  color: #ffffff;
+}
+
+.login-page .login-box .discord-login-button:hover:not(:disabled) {
+  background: #4752c4;
+}
+
 `;
 
 export default App;
