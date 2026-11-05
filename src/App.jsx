@@ -117,6 +117,7 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [discordLoading, setDiscordLoading] = useState(false);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -141,6 +142,28 @@ function Login({ onLogin }) {
     }
 
     setLoading(false);
+  }
+
+  async function handleDiscordLogin() {
+    setError("");
+    setDiscordLoading(true);
+
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "discord",
+        options: {
+          redirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (oauthError) {
+        setError(`Přihlášení přes Discord selhalo: ${oauthError.message}`);
+      }
+    } catch (oauthError) {
+      setError(oauthError?.message || "Nepodařilo se připojit k Discordu.");
+    } finally {
+      setDiscordLoading(false);
+    }
   }
 
   return (
@@ -178,6 +201,16 @@ function Login({ onLogin }) {
             {loading ? "Přihlašování..." : "Přihlásit se"}
           </button>
         </form>
+
+        <div className="login-divider">nebo</div>
+        <button
+          type="button"
+          className="discord-login-button"
+          onClick={handleDiscordLogin}
+          disabled={loading || discordLoading}
+        >
+          {discordLoading ? "Otevírám Discord..." : "Přihlásit se přes Discord"}
+        </button>
       </div>
     </div>
   );
@@ -16562,6 +16595,29 @@ function App() {
     );
   }
 
+  // Discord ověří identitu, ale přístup do Czech Mobility musí schválit admin.
+  // Neznámé účty bez platného profilu nesmí zobrazit interní rozhraní.
+  if (!profile || getAssignedRoles(profile).length === 0) {
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="login-page">
+          <div className="login-box">
+            <div className="login-logo"><img src="/cm-logo.png" alt="CM" /></div>
+            <h1>Čeká na schválení</h1>
+            <p>
+              Účet je přihlášený, ale zatím nemá přiřazenou roli v Czech Mobility.
+              Požádej administrátora o přidání účtu a zkontroluj, že máš správný e-mail.
+            </p>
+            <button type="button" className="discord-login-button" onClick={logout}>
+              Odhlásit se
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   const roleName = getRoleName(role);
 
   const manageVehicles = canManageVehicles(role);
@@ -18019,6 +18075,44 @@ button {
 
 .login-box form button:disabled {
   opacity: .6;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 15px;
+  color: #718096;
+  font-size: 13px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #d9dee7;
+}
+
+.discord-login-button {
+  display: block;
+  width: 100%;
+  padding: 13px;
+  background: #5865f2;
+  color: white;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.discord-login-button:hover:not(:disabled) {
+  background: #4752c4;
+}
+
+.discord-login-button:disabled {
+  opacity: .6;
+  cursor: wait;
 }
 
 .login-error {
