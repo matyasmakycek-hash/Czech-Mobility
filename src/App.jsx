@@ -16420,7 +16420,7 @@ function App() {
     };
   }, [user?.id]);
 
-  async function loadProfile(authUser) {
+  async function loadProfile(authUser, { syncDiscord = false } = {}) {
     if (!authUser) {
       setProfile(null);
       return;
@@ -16458,9 +16458,10 @@ function App() {
       }
     }
 
-    // Nemá-li přihlášený Discord uživatel profil, zkusí server bezpečně
-    // ověřit jeho roli Řidič na Discord serveru a založit mu profil.
-    if (!error && (!data || getAssignedRoles(data).length === 0) &&
+    // Po přihlášení přes Discord synchronizujeme také serverovou přezdívku
+    // už existujících řidičů. Při běžném obnovení profilu funkci nespouštíme,
+    // aby realtime aktualizace nevyvolávaly další zbytečné API požadavky.
+    if (!error && (syncDiscord || !data || getAssignedRoles(data).length === 0) &&
         authUser.identities?.some((identity) => identity.provider === "discord")) {
       const { error: discordError } = await supabase.functions.invoke(
         "sync-discord-driver", { body: {} }
@@ -16507,7 +16508,7 @@ function App() {
         setUser(loggedUser);
 
         if (loggedUser) {
-          void loadProfile(loggedUser);
+          void loadProfile(loggedUser, { syncDiscord: _event === "SIGNED_IN" });
           void loadDashboardStats();
         } else {
           setProfile(null);
@@ -16557,7 +16558,7 @@ function App() {
     setUser(loggedUser);
 
     if (loggedUser) {
-      await loadProfile(loggedUser);
+      await loadProfile(loggedUser, { syncDiscord: true });
       await loadDashboardStats();
     }
 
@@ -16633,7 +16634,7 @@ function App() {
         <Login
           onLogin={async (loggedUser) => {
             setUser(loggedUser);
-            await loadProfile(loggedUser);
+            await loadProfile(loggedUser, { syncDiscord: true });
             await loadDashboardStats();
           }}
         />
