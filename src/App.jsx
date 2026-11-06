@@ -160,7 +160,7 @@ function Login({ onLogin }) {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "discord",
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: "https://czechmobility.fun/",
         },
       });
 
@@ -16145,6 +16145,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] =
     useState(false);
+  const [discordRoleLoading, setDiscordRoleLoading] = useState(false);
+  const [discordRoleMessage, setDiscordRoleMessage] = useState("");
 
   const [page, setPage] = useState(() => {
     if (typeof window === "undefined") {
@@ -16456,6 +16458,22 @@ function App() {
       }
     }
 
+    // Nemá-li přihlášený Discord uživatel profil, zkusí server bezpečně
+    // ověřit jeho roli Řidič na Discord serveru a založit mu profil.
+    if (!error && (!data || getAssignedRoles(data).length === 0) &&
+        authUser.identities?.some((identity) => identity.provider === "discord")) {
+      const { error: discordError } = await supabase.functions.invoke(
+        "sync-discord-driver", { body: {} }
+      );
+      if (!discordError) {
+        const refreshed = await readProfile();
+        data = refreshed.data;
+        error = refreshed.error;
+      } else {
+        console.warn("DISCORD ROLE SYNC:", discordError.message);
+      }
+    }
+
     if (error) {
       console.error("PROFILE ERROR:", error);
       setProfile(null);
@@ -16546,6 +16564,31 @@ function App() {
     setLoading(false);
   }
 
+  async function verifyDiscordRole() {
+    setDiscordRoleLoading(true);
+    setDiscordRoleMessage("");
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "sync-discord-driver", { body: {} }
+      );
+      if (error) {
+        let message = error.message;
+        try {
+          const details = await error.context?.json?.();
+          if (details?.error) message = details.error;
+        } catch { /* backend may return no JSON */ }
+        throw new Error(message);
+      }
+      setDiscordRoleMessage(data?.message || "Discord role byla ověřena.");
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) await loadProfile(authData.user);
+    } catch (e) {
+      setDiscordRoleMessage(e?.message || "Ověření Discord role selhalo.");
+    } finally {
+      setDiscordRoleLoading(false);
+    }
+  }
+
   async function logout() {
     await supabase.auth.signOut();
 
@@ -16619,9 +16662,18 @@ function App() {
             <h1>Čeká na schválení</h1>
             <p>
               Účet je přihlášený, ale zatím nemá přiřazenou roli v Czech Mobility.
-              Požádej administrátora o přidání účtu a zkontroluj, že máš správný e-mail.
+              Pokud máš na Discord serveru roli Řidič, klikni na ověření níže.
+              Jinak požádej administrátora o přidělení role.
             </p>
-            <button type="button" className="discord-login-button" onClick={logout}>
+            <p style={{ overflowWrap: "anywhere", fontSize: "13px" }}>
+              Přihlášený účet: <strong>{user.email || "E-mail není dostupný"}</strong>
+            </p>
+            <button type="button" className="discord-login-button"
+              onClick={verifyDiscordRole} disabled={discordRoleLoading}>
+              {discordRoleLoading ? "Ověřuji Discord roli…" : "Ověřit Discord roli"}
+            </button>
+            {discordRoleMessage && <p role="status" style={{ marginTop: 12 }}>{discordRoleMessage}</p>}
+            <button type="button" className="register-back" onClick={logout}>
               Odhlásit se
             </button>
           </div>
